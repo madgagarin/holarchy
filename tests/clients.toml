@@ -1,0 +1,11 @@
+[test_client_vip]
+token = "user_token_vip"
+monthly_attempts = 500
+plan = "premium"
+params = { languages = ["en", "fr"] }
+
+[test_client_regular]
+token = "user_token_regular"
+monthly_attempts = 50
+plan = "basic"
+params = { languages = ["en"] }

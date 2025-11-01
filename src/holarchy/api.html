@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive API Documentation - Terminal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* slate-900 */
+            color: #cbd5e1; /* slate-300 */
+        }
+
+        h1, h2, h3, h4 {
+            color: #f8fafc; /* slate-50 */
+        }
+
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .endpoint-card.active {
+            background-color: rgba(34, 211, 238, 0.1); /* cyan-400 with opacity */
+            border-left-color: #22d3ee; /* cyan-400 */
+        }
+        .response-tab.active {
+            border-bottom-color: #22d3ee; /* cyan-400 */
+            color: #f8fafc; /* slate-50 */
+        }
+        .method-get { background-color: #0e7490; color: #a5f3fc; } /* cyan-700/cyan-200 */
+        .method-post { background-color: #047857; color: #6ee7b7; } /* emerald-700/emerald-300 */
+
+        .code-200, .code-202 { color: #4ade80; } /* green-400 */
+        .code-401, .code-402, .code-404, .code-422 { color: #facc15; } /* yellow-400 */
+        .code-500 { color: #f87171; } /* red-400 */
+
+        .content-card {
+            background: #1e293b; /* slate-800 */
+            border: 1px solid #334155; /* slate-700 */
+        }
+         .code-block {
+            background-color: #0f172a; /* slate-900 */
+            border: 1px solid #475569; /* slate-600 */
+        }
+        .form-input {
+            background-color: #0f172a;
+            border: 1px solid #475569;
+            color: #cbd5e1;
+            width: 100%;
+            padding: 0.5rem;
+            border-radius: 0.375rem;
+        }
+        #execute-btn:disabled {
+            background-color: #334155;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body class="text-sm">
+
+    <div class="main-content-wrapper">
+        <div class="container mx-auto p-4 md:p-8">
+            <header class="mb-12">
+                <h1 class="text-4xl md:text-5xl font-bold">API Documentation</h1>
+                <p class="text-lg text-slate-400 mt-2">A professional guide to the system's endpoints.</p>
+            </header>
+
+            <main class="md:grid md:grid-cols-12 md:gap-8">
+
+                <aside class="md:col-span-4 lg:col-span-3 mb-8 md:mb-0">
+                    <div class="content-card p-4 rounded-lg">
+                        <h2 class="text-lg font-semibold mb-3 border-b border-slate-700 pb-2">Navigation</h2>
+                        <nav id="nav-menu">
+                            <a href="#overview" class="block py-2 px-2 nav-link active hover:bg-slate-700/50 rounded-md">General Principles</a>
+                        </nav>
+                    </div>
+                </aside>
+
+                <div id="content-display" class="md:col-span-8 lg:col-span-9">
+
+                    <section id="overview-content">
+                        <div class="content-card p-6 rounded-lg">
+                            <h2 class="text-2xl font-bold mb-4">General Principles</h2>
+                            <p class="mb-4 text-slate-400 leading-relaxed">This section describes the general rules and structures used throughout the API. Understanding these principles is essential for successful integration.</p>
+
+                            <div class="mb-6">
+                                <h3 class="text-xl font-semibold mb-2">Request Headers</h3>
+                                <p class="mb-3 leading-relaxed">Every request to the API must contain the following headers:</p>
+                                <ul class="space-y-2 pl-4">
+                                    <li class="font-mono"><code>Authorization: Bearer &lt;service_token&gt;</code></li>
+                                    <li class="font-mono"><code>X-User-ID: &lt;external_user_id&gt;</code></li>
+                                </ul>
+                            </div>
+
+                            <div>
+                                <h3 class="text-xl font-semibold mb-2">Response Structure</h3>
+                                <p class="mb-3 leading-relaxed">All server responses follow a unified JSON structure.</p>
+                                <div class="code-block p-4 rounded-md">
+                                    <pre class="font-mono text-xs leading-loose"><code>{
+  <span class="text-cyan-400">"data"</span>: &lt;...&gt;,
+  <span class="text-cyan-400">"message"</span>: "...",
+  <span class="text-cyan-400">"next_refresh"</span>: 1753843200
+}</code></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section id="endpoint-content" class="hidden">
+                    </section>
+
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const BASE_URL = "";
+
+        const apiData = [
+            {
+                group: 'Public',
+                endpoints: [
+                    {
+                        id: 'get-status',
+                        name: 'Health Status',
+                        method: 'GET',
+                        path: '/_public/status',
+                        description: 'Returns the health status of the service.',
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: { "status": "ok" } }
+                        ]
+                    },
+                    {
+                        id: 'get-metrics',
+                        name: 'Prometheus Metrics',
+                        method: 'GET',
+                        path: '/_public/metrics',
+                        description: 'Returns metrics in Prometheus format.',
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response with metrics.', body: "..." }
+                        ]
+                    },
+                    {
+                        id: 'post-approval-webhook',
+                        name: 'Webhook for Manual Approval',
+                        method: 'POST',
+                        path: '/_public/webhooks/approval/{job_id}',
+                        description: 'Webhook for manual task approval.',
+                        parameters: [{ name: 'job_id', type: 'string', description: 'Job ID', example: 'c3d4e5f6-1234-5678-90ab-cdef12345678' }],
+                        request: { body: { "decision": "approved" } },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: { "status": "approval_received", "job_id": "..." } }
+                        ]
+                    },
+                    {
+                        id: 'post-flush-db',
+                        name: 'Flush Database',
+                        method: 'POST',
+                        path: '/_public/debug/flush_db',
+                        description: 'Flushes the database (for debugging).',
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: { "status": "db_flushed" } }
+                        ]
+                    },
+                    {
+                        id: 'get-docs',
+                        name: 'API Documentation',
+                        method: 'GET',
+                        path: '/_public/docs',
+                        description: 'Returns this HTML page with API documentation.',
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'HTML page with documentation.', body: "<!DOCTYPE html>..." }
+                        ]
+                    }
+                ]
+            },
+            {
+                group: 'Protected API',
+                endpoints: [
+                    {
+                        id: 'post-create-job',
+                        name: 'Create a New Job',
+                        method: 'POST',
+                        path: '/api/{version}/{blueprint_name}',
+                        description: 'Creates a new job based on a blueprint.',
+                        parameters: [
+                            { name: 'version', type: 'string', description: 'API Version', example: 'v1' },
+                            { name: 'blueprint_name', type: 'string', description: 'Blueprint Name', example: 'example_blueprint' }
+                        ],
+                        request: { body: { "initial_data": "..." } },
+                        responses: [
+                            { code: '202 Accepted', description: 'Job successfully accepted for processing.', body: { "status": "accepted", "job_id": "..." } }
+                        ]
+                    },
+                    {
+                        id: 'post-create-parallel-job',
+                        name: 'Create a Job for Parallel Execution',
+                        method: 'POST',
+                        path: '/api/v1/jobs/parallel_flow',
+                        description: 'Creates and starts a new instance (Job) of the `parallel_flow_blueprint`, demonstrating parallel task execution.',
+                        request: { body: { "input_a": "data_for_task_A", "input_b": "data_for_task_B" } },
+                        responses: [
+                            { code: '202 Accepted', description: 'Job successfully accepted for processing.', body: { "status": "accepted", "job_id": "..." } }
+                        ]
+                    },
+                    {
+                        id: 'get-job-status',
+                        name: 'Get Job Status',
+                        method: 'GET',
+                        path: '/api/{version}/jobs/{job_id}',
+                        description: 'Gets the status of a job.',
+                        parameters: [
+                            { name: 'version', type: 'string', description: 'API Version', example: 'v1' },
+                            { name: 'job_id', type: 'string', description: 'Job ID', example: 'c3d4e5f6-1234-5678-90ab-cdef12345678' }
+                        ],
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: { "id": "...", "status": "..." } }
+                        ]
+                    },
+                    {
+                        id: 'post-cancel-job',
+                        name: 'Cancel Job',
+                        method: 'POST',
+                        path: '/api/{version}/jobs/{job_id}/cancel',
+                        description: 'Initiates the cancellation of a running task. The system uses a hybrid approach: it sets a cancellation flag in Redis (allowing the worker to learn about the cancellation on its next poll) and, if the worker is connected via WebSocket, immediately sends it a `cancel_task` command.',
+                        parameters: [
+                            { name: 'version', type: 'string', description: 'API Version', example: 'v1' },
+                            { name: 'job_id', type: 'string', description: 'Job ID', example: 'c3d4e5f6-1234-5678-90ab-cdef12345678' }
+                        ],
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: { "status": "cancellation_request_sent" } }
+                        ]
+                    },
+                    {
+                        id: 'get-job-history',
+                        name: 'Get Job Execution History',
+                        method: 'GET',
+                        path: '/api/{version}/jobs/{job_id}/history',
+                        description: 'Gets the execution history of a job.',
+                        parameters: [
+                            { name: 'version', type: 'string', description: 'API Version', example: 'v1' },
+                            { name: 'job_id', type: 'string', description: 'Job ID', example: 'c3d4e5f6-1234-5678-90ab-cdef12345678' }
+                        ],
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: "[...]" }
+                        ]
+                    },
+                    {
+                        id: 'get-blueprint-graph',
+                        name: 'Get Blueprint Graph',
+                        method: 'GET',
+                        path: '/api/{version}/blueprints/{blueprint_name}/graph',
+                        description: 'Gets the blueprint graph in Graphviz format.',
+                        parameters: [
+                            { name: 'version', type: 'string', description: 'API Version', example: 'v1' },
+                            { name: 'blueprint_name', type: 'string', description: 'Blueprint Name', example: 'example_blueprint' }
+                        ],
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: "..." }
+                        ]
+                    },
+                    {
+                        id: 'get-workers',
+                        name: 'Get List of Available Workers',
+                        method: 'GET',
+                        path: '/api/{version}/workers',
+                        description: 'Gets the list of available workers.',
+                        parameters: [{ name: 'version', type: 'string', description: 'API Version', example: 'v1' }],
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: "[...]" }
+                        ]
+                    },
+                    {
+                        id: 'get-jobs',
+                        name: 'Get List of Jobs',
+                        method: 'GET',
+                        path: '/api/{version}/jobs',
+                        description: 'Gets the list of jobs.',
+                        parameters: [{ name: 'version', type: 'string', description: 'API Version', example: 'v1' }],
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: "[...]" }
+                        ]
+                    },
+                    {
+                        id: 'get-dashboard',
+                        name: 'Get Dashboard Data',
+                        method: 'GET',
+                        path: '/api/{version}/dashboard',
+                        description: 'Gets data for the dashboard.',
+                        parameters: [{ name: 'version', type: 'string', description: 'API Version', example: 'v1' }],
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: "{...}" }
+                        ]
+                    }
+                ]
+            },
+            {
+                group: 'Worker API',
+                endpoints: [
+                    {
+                        id: 'post-worker-register',
+                        name: 'Register a New Worker',
+                        method: 'POST',
+                        path: '/_worker/workers/register',
+                        description: 'Registers a new worker.',
+                        request: { body: { "worker_id": "...", "capabilities": ["..."] } },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: { "status": "registered" } }
+                        ]
+                    },
+                    {
+                        id: 'get-next-task',
+                        name: 'Get Next Task',
+                        method: 'GET',
+                        path: '/_worker/workers/{worker_id}/tasks/next',
+                        description: 'Gets the next task for a worker (long-polling).',
+                        parameters: [{ name: 'worker_id', type: 'string', description: 'Worker ID', example: 'worker-123' }],
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: { "task_id": "...", "job_id": "...", "data": "..." } }
+                        ]
+                    },
+                    {
+                        id: 'patch-worker-update',
+                        name: 'Update Worker / Heartbeat',
+                        method: 'PATCH',
+                        path: '/_worker/workers/{worker_id}',
+                        description: 'Performs a partial update of a worker\'s properties and/or serves as a heartbeat. This endpoint has dual functionality:\n\n- **Full Update (with JSON body):** If a JSON body is provided (e.g., with `status`, `supported_tasks`), the orchestrator updates the worker\'s data and refreshes its TTL.\n- **Lightweight Heartbeat (empty body):** If the request body is empty, the orchestrator only refreshes the worker\'s TTL, serving as an efficient "ping" to confirm the worker is still active without sending redundant data. The data model is schema-less; the orchestrator will accept any key-value pairs in the JSON object, allowing workers to report custom data.',
+                        parameters: [{ name: 'worker_id', type: 'string', description: 'Worker ID', example: 'worker-123' }],
+                        request: { body: { "status": "idle", "supported_tasks": ["new_skill"], "load": 0.5 } },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response (full update).', body: { "worker_id": "...", "status": "idle", "supported_tasks": ["..."], "load": 0.5 } },
+                            { code: '200 OK', description: 'Successful response (TTL refreshed).', body: { "status": "ttl_refreshed" } }
+                        ]
+                    },
+                    {
+                        id: 'post-task-result',
+                        name: 'Submit Task Execution Result',
+                        method: 'POST',
+                        path: '/_worker/tasks/result',
+                        description: 'Submits the result of a task execution. The `worker_id` provided in the request body must match the ID of the authenticated worker to prevent impersonation. If they do not match, the request will be rejected with a 403 Forbidden status.',
+                        request: { body: { "job_id": "...", "task_id": "...", "worker_id": "worker-123", "result": { "status": "success", "data": "..." } } },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: { "status": "result_accepted_success" } },
+                            { code: '403 Forbidden', description: 'The `worker_id` in the payload does not match the authenticated worker.', body: { "error": "Forbidden: Authenticated worker '...' cannot submit results for another worker '...'." } }
+                        ]
+                    },
+                    {
+                        id: 'get-websocket',
+                        name: 'WebSocket Connection',
+                        method: 'GET',
+                        path: '/_worker/ws/{worker_id}',
+                        description: 'WebSocket connection with a worker.',
+                        parameters: [{ name: 'worker_id', type: 'string', description: 'Worker ID', example: 'worker-123' }],
+                        request: { body: null },
+                        responses: [
+                            { code: '101 Switching Protocols', description: 'Successful protocol switch.', body: null }
+                        ]
+                    }
+                ]
+            }
+        ];
+
+        const endpointContentContainer = document.getElementById('endpoint-content');
+        const overviewContentContainer = document.getElementById('overview-content');
+        const navMenu = document.getElementById('nav-menu');
+
+        function renderEndpointList() {
+            apiData.forEach(group => {
+                const groupTitle = document.createElement('h3');
+                groupTitle.className = 'text-lg font-semibold mt-4 mb-2 border-b border-slate-700 pb-2';
+                groupTitle.textContent = group.group;
+                navMenu.appendChild(groupTitle);
+
+                const endpointListContainer = document.createElement('div');
+                navMenu.appendChild(endpointListContainer);
+
+                group.endpoints.forEach(endpoint => {
+                    const methodClass = `method-${endpoint.method.toLowerCase()}`;
+                    const card = document.createElement('a');
+                    card.href = `#${endpoint.id}`;
+                    card.id = `nav-${endpoint.id}`;
+                    card.className = 'endpoint-card block border-l-4 border-transparent p-2 my-1 hover:bg-slate-700/50 rounded-md transition-colors duration-150';
+                    card.innerHTML = `
+                        <div class="flex items-center">
+                            <span class="font-mono text-xs font-bold ${methodClass} rounded-md px-2 py-1 mr-3">${endpoint.method}</span>
+                            <span class="font-mono text-xs">${endpoint.path}</span>
+                        </div>
+                    `;
+                    endpointListContainer.appendChild(card);
+                });
+            });
+        }
+
+        function renderEndpointDetails(endpointId) {
+            let endpoint;
+            for (const group of apiData) {
+                endpoint = group.endpoints.find(e => e.id === endpointId);
+                if (endpoint) break;
+            }
+            if (!endpoint) return;
+
+            const methodClass = `method-${endpoint.method.toLowerCase()}`;
+
+            const responseTabs = endpoint.responses.map((resp, index) => `<button class="response-tab p-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-100 ${index === 0 ? 'active' : ''}" data-response-index="${index}"><span class="font-mono code-${resp.code.split(' ')[0]}">${resp.code}</span></button>`).join('');
+
+            const responseContent = endpoint.responses.map((resp, index) => `<div class="response-content ${index === 0 ? '' : 'hidden'}" data-response-content-index="${index}"><p class="text-sm text-slate-400 mb-2 leading-relaxed">${resp.description}</p><div class="code-block p-4 rounded-md"><pre class="font-mono text-xs leading-loose"><code>${JSON.stringify(resp.body, null, 2)}</code></pre></div></div>`).join('');
+
+            const parametersHtml = (endpoint.parameters || []).map(p => `
+                <div class="mb-4">
+                    <label for="param-${p.name}" class="block font-mono text-slate-400 mb-1 text-xs">${p.name} <span class="text-slate-500">- ${p.description}</span></label>
+                    <input type="text" id="param-${p.name}" value="${p.example || ''}" class="font-mono form-input">
+                </div>
+            `).join('');
+
+            const editableBodyHtml = endpoint.request.body ? `
+                <div class="mb-4">
+                    <label class="block font-mono text-slate-400 mb-1 text-xs">Request Body</label>
+                    <textarea id="request-body-input" class="font-mono form-input" rows="5">${JSON.stringify(endpoint.request.body, null, 2)}</textarea>
+                </div>
+            ` : '';
+
+            endpointContentContainer.innerHTML = `
+                <div class="content-card p-6 rounded-lg">
+                    <div class="border-b border-slate-700 pb-4 mb-4">
+                        <h2 class="text-2xl font-bold">${endpoint.name}</h2>
+                        <div class="flex items-center mt-2">
+                            <span class="font-mono text-sm font-bold ${methodClass} rounded-md px-2 py-1 mr-3">${endpoint.method}</span>
+                            <span class="font-mono text-base text-slate-300">${endpoint.path}</span>
+                        </div>
+                        <p class="mt-3 text-sm text-slate-400 leading-relaxed">${endpoint.description}</p>
+                    </div>
+
+                    <div class="border-b border-slate-700 pb-4 mb-6">
+                        <h3 class="text-xl font-semibold mb-4">Interactive Test</h3>
+
+                        <h4 class="text-lg font-semibold mb-2">Headers</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label class="block font-mono text-slate-400 mb-1 text-xs">Authorization: Bearer</label>
+                                <input type="text" id="auth-token-input" value="your_default_token" class="font-mono form-input">
+                            </div>
+                            <div>
+                                <label class="block font-mono text-slate-400 mb-1 text-xs">X-User-ID</label>
+                                <input type="text" id="user-id-input" value="user_12345" class="font-mono form-input">
+                            </div>
+                        </div>
+
+                        ${parametersHtml ? `<h4 class="text-lg font-semibold mb-2 mt-4">URL Parameters</h4>${parametersHtml}` : ''}
+
+                        ${editableBodyHtml}
+
+                        <button id="execute-btn" class="w-full bg-cyan-500 hover:bg-cyan-600 text-slate-900 font-bold py-2 px-4 rounded-md transition-colors">Execute</button>
+
+                        <div id="test-response-container" class="mt-4 hidden">
+                            <h4 class="text-lg font-semibold mb-2">Server Response</h4>
+                            <div id="test-response" class="code-block p-4 rounded-md"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xl font-semibold mb-2">Example Responses</h3>
+                        <div class="border-b border-slate-700 mb-4">
+                            ${responseTabs}
+                        </div>
+                        <div>
+                            ${responseContent}
+                        </div>
+                    </div>
+                </div>
+            `;
+            addEventListeners(endpoint);
+        }
+
+        async function addEventListeners(endpoint) {
+            const tabs = endpointContentContainer.querySelectorAll('.response-tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const responseIndex = tab.dataset.responseIndex;
+                    endpointContentContainer.querySelectorAll('.response-tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    endpointContentContainer.querySelectorAll('.response-content').forEach(c => c.classList.add('hidden'));
+                    endpointContentContainer.querySelector(`[data-response-content-index="${responseIndex}"]`).classList.remove('hidden');
+                });
+            });
+
+            const executeBtn = document.getElementById('execute-btn');
+            if (executeBtn) {
+                executeBtn.addEventListener('click', async () => {
+                    const authToken = document.getElementById('auth-token-input').value;
+                    const userId = document.getElementById('user-id-input').value;
+                    const requestBodyInput = document.getElementById('request-body-input')?.value;
+
+                    const responseContainer = document.getElementById('test-response-container');
+                    const responseEl = document.getElementById('test-response');
+
+                    executeBtn.disabled = true;
+                    executeBtn.textContent = 'Executing...';
+                    responseContainer.classList.remove('hidden');
+                    responseEl.innerHTML = `<pre class="font-mono text-xs leading-loose"><code>Sending request...</code></pre>`;
+
+                    let finalUrl = BASE_URL + endpoint.path;
+                    if (endpoint.parameters) {
+                        endpoint.parameters.forEach(p => {
+                            const paramValue = document.getElementById(`param-${p.name}`).value;
+                            finalUrl = finalUrl.replace(`{${p.name}}`, encodeURIComponent(paramValue));
+                        });
+                    }
+
+                    const headers = new Headers({
+                        'Authorization': `Bearer ${authToken}`,
+                        'X-User-ID': userId
+                    });
+
+                    const options = {
+                        method: endpoint.method,
+                        headers: headers,
+                    };
+
+                    if (endpoint.method === 'POST' || endpoint.method === 'PATCH') {
+                        headers.append('Content-Type', 'application/json');
+                        try {
+                            options.body = JSON.stringify(JSON.parse(requestBodyInput));
+                        } catch (e) {
+                             responseEl.innerHTML = `<div class="mb-2"><span class="font-bold font-mono code-400">Client Error</span></div><pre class="font-mono text-xs leading-loose"><code>${JSON.stringify({ message: "Error: Invalid JSON in request body." }, null, 2)}</code></pre>`;
+                             executeBtn.disabled = false;
+                             executeBtn.textContent = 'Execute';
+                             return;
+                        }
+                    }
+
+                    try {
+                        const response = await fetch(finalUrl, options);
+                        const responseBody = await response.json().catch(() => ({}));
+
+                        const statusClass = response.ok ? 'code-200' : 'code-400';
+
+                        responseEl.innerHTML = `<div class="mb-2"><span class="font-bold font-mono ${statusClass}">${response.status} ${response.statusText}</span></div><pre class="font-mono text-xs leading-loose"><code>${JSON.stringify(responseBody, null, 2)}</code></pre>`;
+
+                    } catch (error) {
+                        responseEl.innerHTML = `<div class="mb-2"><span class="font-bold font-mono code-500">Network Error</span></div><pre class="font-mono text-xs leading-loose"><code>${JSON.stringify({ message: error.message }, null, 2)}</code></pre>`;
+                    } finally {
+                        executeBtn.disabled = false;
+                        executeBtn.textContent = 'Execute';
+                    }
+                });
+            }
+        }
+
+        function handleNavigation(hash) {
+            document.querySelectorAll('#nav-menu a').forEach(link => link.classList.remove('active'));
+
+            if (hash.startsWith('#') && hash.length > 1) {
+                const endpointId = hash.substring(1);
+                if (endpointId === 'overview') {
+                    overviewContentContainer.classList.remove('hidden');
+                    endpointContentContainer.classList.add('hidden');
+                    document.querySelector('a[href="#overview"]').classList.add('active');
+                } else {
+                    overviewContentContainer.classList.add('hidden');
+                    endpointContentContainer.classList.remove('hidden');
+                    renderEndpointDetails(endpointId);
+                    const navLink = document.getElementById(`nav-${endpointId}`);
+                    if (navLink) navLink.classList.add('active');
+                }
+            } else {
+                 overviewContentContainer.classList.remove('hidden');
+                 endpointContentContainer.classList.add('hidden');
+                 document.querySelector('a[href="#overview"]').classList.add('active');
+            }
+        }
+
+        navMenu.addEventListener('click', (e) => {
+            const link = e.target.closest('a');
+            if (link) {
+                window.location.hash = link.hash;
+            }
+        });
+
+        window.addEventListener('hashchange', () => handleNavigation(window.location.hash));
+
+        // Initial load
+        renderEndpointList();
+        handleNavigation(window.location.hash || '#overview');
+
+    </script>
+</body>
+</html>

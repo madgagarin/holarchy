@@ -1,0 +1,22 @@
+from src.holarchy.blueprint import StateMachineBlueprint
+
+error_flow_bp = StateMachineBlueprint(name="error_flow", api_endpoint="/jobs/error_flow", api_version="v1")
+
+
+@error_flow_bp.handler_for("start", is_start=True)
+async def start(context, actions):
+    actions.dispatch_task(
+        task_type="error_task",
+        params={"error_type": context.initial_data.get("error_type", "SUCCESS")},
+        transitions={"success": "finished", "failure": "failed"},
+    )
+
+
+@error_flow_bp.handler_for("finished", is_end=True)
+async def finished(context, actions):
+    pass
+
+
+@error_flow_bp.handler_for("failed", is_end=True)
+async def failed(context, actions):
+    pass

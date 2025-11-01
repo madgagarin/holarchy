@@ -1,0 +1,27 @@
+from aioprometheus.collectors import REGISTRY
+from src.holarchy.metrics import init_metrics
+
+
+def test_init_metrics():
+    """Tests that metrics are initialized and registered correctly."""
+    # Clear the registry to ensure a clean state
+    REGISTRY.collectors.clear()
+
+    init_metrics()
+
+    assert "orchestrator_jobs_total" in REGISTRY.collectors
+    assert "orchestrator_jobs_failed_total" in REGISTRY.collectors
+    assert "orchestrator_job_duration_seconds" in REGISTRY.collectors
+    assert "orchestrator_task_queue_length" in REGISTRY.collectors
+    assert "orchestrator_active_workers" in REGISTRY.collectors
+
+
+def test_init_metrics_idempotent():
+    """Tests that calling init_metrics multiple times does not raise an error."""
+    # Clear the registry to ensure a clean state
+    REGISTRY.collectors.clear()
+
+    init_metrics()
+    init_metrics()
+
+    assert "orchestrator_jobs_total" in REGISTRY.collectors

@@ -1,0 +1,21 @@
+from unittest.mock import patch
+
+import pytest
+from src.holarchy.telemetry import TELEMETRY_ENABLED, setup_telemetry
+
+
+@pytest.mark.skipif(not TELEMETRY_ENABLED, reason="opentelemetry-sdk not installed")
+def test_setup_telemetry_enabled():
+    """Tests that telemetry is set up correctly when the SDK is installed."""
+    with patch("opentelemetry.trace.set_tracer_provider") as mock_set_provider:
+        tracer = setup_telemetry()
+        assert mock_set_provider.called
+        assert tracer is not None
+
+
+@pytest.mark.skipif(TELEMETRY_ENABLED, reason="opentelemetry-sdk is installed")
+def test_setup_telemetry_disabled(caplog):
+    """Tests that a warning is logged when the telemetry SDK is not installed."""
+    tracer = setup_telemetry()
+    assert "opentelemetry-sdk not found" in caplog.text
+    assert tracer is not None
