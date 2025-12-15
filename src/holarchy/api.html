@@ -305,6 +305,20 @@
                         responses: [
                             { code: '200 OK', description: 'Successful response.', body: "{...}" }
                         ]
+                    },
+                    {
+                        id: 'post-reload-worker-configs',
+                        name: 'Reload Worker Configurations',
+                        method: 'POST',
+                        path: '/api/{version}/admin/reload-workers',
+                        description: 'Triggers a dynamic reload of worker configurations from the TOML file. Requires client authentication.',
+                        parameters: [
+                            { name: 'version', type: 'string', description: 'API Version', example: 'v1' }
+                        ],
+                        request: { body: null },
+                        responses: [
+                            { code: '200 OK', description: 'Successful response.', body: { "status": "worker_configs_reloaded" } }
+                        ]
                     }
                 ]
             },

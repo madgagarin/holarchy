@@ -1,3 +1,4 @@
+import hashlib
 import os
 from unittest.mock import AsyncMock
 
@@ -23,9 +24,12 @@ token = "token-2"
 
     await load_worker_configs_to_redis(storage, config_path)
 
+    hashed_token_1 = hashlib.sha256(b"token-1").hexdigest()
+    hashed_token_2 = hashlib.sha256(b"token-2").hexdigest()
+
     assert storage.set_worker_token.call_count == 2
-    storage.set_worker_token.assert_any_call("worker-1", "token-1")
-    storage.set_worker_token.assert_any_call("worker-2", "token-2")
+    storage.set_worker_token.assert_any_call("worker-1", hashed_token_1)
+    storage.set_worker_token.assert_any_call("worker-2", hashed_token_2)
 
     os.remove(config_path)
 

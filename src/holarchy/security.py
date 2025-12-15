@@ -1,3 +1,4 @@
+from hashlib import sha256
 from typing import Any, Awaitable, Callable
 
 from aiohttp import web
@@ -89,9 +90,10 @@ def worker_auth_middleware_factory(
                 )
 
         # --- Individual Token Check ---
-        expected_token = await storage.get_worker_token(worker_id)
-        if expected_token:
-            if provided_token == expected_token:
+        expected_token_hash = await storage.get_worker_token(worker_id)
+        if expected_token_hash:
+            hashed_provided_token = sha256(provided_token.encode()).hexdigest()
+            if hashed_provided_token == expected_token_hash:
                 request["worker_id"] = worker_id  # Attach authenticated worker_id
                 return await handler(request)
             else:

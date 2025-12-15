@@ -584,6 +584,18 @@ class OrchestratorEngine:
         jobs = await self.storage.get_quarantined_jobs()
         return web.json_response(jobs)
 
+    async def _reload_worker_configs_handler(self, request: web.Request) -> web.Response:
+        """Handles the dynamic reloading of worker configurations."""
+        logger.info("Received request to reload worker configurations.")
+        if not self.config.WORKERS_CONFIG_PATH:
+            return web.json_response(
+                {"error": "WORKERS_CONFIG_PATH is not set, cannot reload configs."},
+                status=400,
+            )
+
+        await load_worker_configs_to_redis(self.storage, self.config.WORKERS_CONFIG_PATH)
+        return web.json_response({"status": "worker_configs_reloaded"})
+
     async def _flush_db_handler(self, request: web.Request) -> web.Response:
         logger.warning("Received request to flush the database.")
         await self.storage.flush_all()
@@ -643,6 +655,7 @@ class OrchestratorEngine:
             app.router.add_get("/workers", self._get_workers_handler)
             app.router.add_get("/jobs", self._get_jobs_handler)
             app.router.add_get("/dashboard", self._get_dashboard_handler)
+            app.router.add_post("/admin/reload-workers", self._reload_worker_configs_handler)
 
         if has_unversioned_routes:
             self.app.add_subapp("/api/", protected_app)

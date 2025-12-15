@@ -205,6 +205,11 @@ async def handle_normal(actions):
     actions.transition_to("normal_processing")
 ```
 
+> **Note on Limitations:** The current version of `.when()` uses a simple parser with the following limitations:
+> *   **No Nested Attributes:** You can only access direct fields of `context.initial_data` or `context.state_history` (e.g., `context.initial_data.field`). Nested objects (e.g., `context.initial_data.area.field`) are not supported.
+> *   **Simple Comparisons Only:** Only the following operators are supported: `==`, `!=`, `>`, `<`, `>=`, `<=`. Complex logical expressions with `AND`, `OR`, or `NOT` are not allowed.
+> *   **Limited Value Types:** The parser only recognizes strings (in quotes), integers, and floats. Boolean values (`True`, `False`) and `None` are not correctly parsed and will be treated as strings.
+
 ### 2. Delegating Tasks to Workers (`dispatch_task`)
 
 This is the primary function for delegating work. The orchestrator will queue the task and wait for a worker to pick it up and return a result.
@@ -322,7 +327,9 @@ The orchestrator uses tokens to authenticate API requests.
 *   **Client Authentication**: All API clients must provide a token in the `X-Holarchy-Token` header. The orchestrator validates this token against client configurations.
 *   **Worker Authentication**: Workers must provide a token in the `X-Worker-Token` header.
     *   `GLOBAL_WORKER_TOKEN`: You can set a global token for all workers using this environment variable. For development and testing, it defaults to `"secure-worker-token"`.
-    *   **Individual Tokens**: For production, it is recommended to define individual tokens for each worker in a separate configuration file and provide its path via the `WORKERS_CONFIG_PATH` environment variable.
+    *   **Individual Tokens**: For production, it is recommended to define individual tokens for each worker in a separate configuration file and provide its path via the `WORKERS_CONFIG_PATH` environment variable. Tokens from this file are stored in a hashed format for security.
+
+> **Note on Dynamic Reloading:** The worker configuration file can be reloaded without restarting the orchestrator by sending an authenticated `POST` request to the `/api/v1/admin/reload-workers` endpoint. This allows for dynamic updates of worker tokens.
 
 ### Observability
 

@@ -178,9 +178,12 @@ class StateMachineBlueprint:
     def render_graph(self, output_filename: Optional[str] = None, output_format: str = "png"):
         import ast
         import inspect
+        import logging
         import textwrap
 
         from graphviz import Digraph  # type: ignore[import]
+
+        logger = logging.getLogger(__name__)
 
         dot = Digraph(comment=f"State Machine for {self.name}")
         dot.attr("node", shape="box", style="rounded")
@@ -222,7 +225,11 @@ class StateMachineBlueprint:
                                                 value,
                                                 label=f"on {key}",
                                             )
-            except (TypeError, OSError):
+            except (TypeError, OSError) as e:
+                logger.warning(
+                    f"Could not parse handler '{handler_func.__name__}' for state '{handler_state}'. "
+                    f"Graph may be incomplete. Error: {e}"
+                )
                 pass
         for state in states:
             dot.node(state, state)

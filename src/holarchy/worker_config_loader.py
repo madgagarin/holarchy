@@ -1,3 +1,4 @@
+from hashlib import sha256
 from logging import getLogger
 from os.path import exists
 from tomllib import load
@@ -36,8 +37,10 @@ async def load_worker_configs_to_redis(storage: StorageBackend, config_path: str
             continue
 
         try:
+            # Hash the token before storing it
+            hashed_token = sha256(token.encode()).hexdigest()
             # Store the token in a way that's easily retrievable by worker_id
-            await storage.set_worker_token(worker_id, token)
+            await storage.set_worker_token(worker_id, hashed_token)
             logger.info(f"Loaded token for worker_id '{worker_id}'.")
         except Exception as e:
             logger.error(f"Failed to store token for worker_id '{worker_id}' in Redis: {e}")

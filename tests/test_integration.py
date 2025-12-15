@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 from unittest.mock import AsyncMock
@@ -491,7 +492,12 @@ async def test_task_cancellation_via_websocket_mocked(aiohttp_client, app):
 
 @pytest.mark.parametrize(
     "app",
-    [{"extra_blueprints": [cancellation_bp]}],
+    [
+        {
+            "extra_blueprints": [cancellation_bp],
+            "workers_config_path": os.path.join(os.path.dirname(os.path.abspath(__file__)), "workers.toml"),
+        }
+    ],
     indirect=True,
 )
 @pytest.mark.asyncio
@@ -502,7 +508,8 @@ async def test_worker_individual_token_auth(aiohttp_client, app):
 
     worker_id = "worker-with-individual-token"
     individual_token = "individual-secret-for-worker-1"
-    await storage.set_worker_token(worker_id, individual_token)
+    hashed_individual_token = hashlib.sha256(individual_token.encode()).hexdigest()
+    await storage.set_worker_token(worker_id, hashed_individual_token)
 
     headers = {"X-Worker-Token": individual_token}
     payload = {"worker_id": worker_id, "worker_type": "test", "supported_tasks": ["test"]}

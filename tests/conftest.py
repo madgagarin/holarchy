@@ -86,9 +86,12 @@ async def app(request, config, redis_storage):
     await load_client_configs_to_redis(storage, config_path=clients_toml_path)
 
     # Register blueprints passed from the test if any
-    if hasattr(request, "param") and request.param.get("extra_blueprints"):
-        for bp in request.param["extra_blueprints"]:
-            engine.register_blueprint(bp)
+    if hasattr(request, "param"):
+        if request.param.get("extra_blueprints"):
+            for bp in request.param["extra_blueprints"]:
+                engine.register_blueprint(bp)
+        if request.param.get("workers_config_path"):
+            config.WORKERS_CONFIG_PATH = request.param["workers_config_path"]
 
     engine.setup()
     engine.app[STORAGE_KEY] = storage
