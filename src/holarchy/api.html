@@ -200,17 +200,6 @@
                         ]
                     },
                     {
-                        id: 'post-create-showcase-job',
-                        name: 'Create a Full Showcase Job',
-                        method: 'POST',
-                        path: '/api/v1/jobs/full_showcase',
-                        description: 'Creates and starts a new instance (Job) of the `full_showcase` blueprint. This blueprint demonstrates most of the features of the Holarchy library.',
-                        request: { body: { "path": "/path/to/video.mp4", "user_id": "user-123", "quality": "high" } },
-                        responses: [
-                            { code: '202 Accepted', description: 'Job successfully accepted for processing.', body: { "status": "accepted", "job_id": "..." } }
-                        ]
-                    },
-                    {
                         id: 'get-job-status',
                         name: 'Get Job Status',
                         method: 'GET',

@@ -593,6 +593,28 @@ async def test_get_jobs_invalid_params(engine):
 
 
 @pytest.mark.asyncio
+async def test_docs_handler_injection(engine):
+    from src.holarchy.blueprint import StateMachineBlueprint
+
+    bp = StateMachineBlueprint(name="test_bp", api_endpoint="/jobs/test", api_version="v1")
+
+    @bp.handler_for("start", is_start=True)
+    async def start(context, actions):
+        pass
+
+    engine.register_blueprint(bp)
+
+    # Mock request
+    request = MagicMock()
+
+    response = await engine._docs_handler(request)
+    assert response.status == 200
+    text = response.text
+    assert "Create Test Bp Job" in text
+    assert "/api/v1/jobs/test" in text
+
+
+@pytest.mark.asyncio
 async def test_docs_handler_not_found(engine):
     with patch("importlib.resources.read_text", side_effect=FileNotFoundError):
         response = await engine._docs_handler(MagicMock())

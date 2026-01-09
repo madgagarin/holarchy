@@ -599,16 +599,52 @@ class OrchestratorEngine:
         await load_client_configs_to_redis(self.storage)
         return web.json_response({"status": "db_flushed"}, status=200)
 
-    @staticmethod
-    async def _docs_handler(request: web.Request) -> web.Response:
+    async def _docs_handler(self, request: web.Request) -> web.Response:
+        import json
         from importlib import resources
 
         try:
             content = resources.read_text("holarchy", "api.html")
-            return web.Response(text=content, content_type="text/html")
         except FileNotFoundError:
             logger.error("api.html not found within the holarchy package.")
             return web.json_response({"error": "Documentation file not found on server."}, status=500)
+
+        # Generate dynamic documentation for registered blueprints
+        blueprint_endpoints = []
+        for bp in self.blueprints.values():
+            if not bp.api_endpoint:
+                continue
+
+            version_prefix = f"/{bp.api_version}" if bp.api_version else ""
+            endpoint_path = bp.api_endpoint if bp.api_endpoint.startswith("/") else f"/{bp.api_endpoint}"
+            full_path = f"/api{version_prefix}{endpoint_path}"
+
+            blueprint_endpoints.append(
+                {
+                    "id": f"post-create-{bp.name.replace('_', '-')}",
+                    "name": f"Create {bp.name.replace('_', ' ').title()} Job",
+                    "method": "POST",
+                    "path": full_path,
+                    "description": f"Creates and starts a new instance (Job) of the `{bp.name}` blueprint.",
+                    "request": {"body": {"initial_data": {}}},
+                    "responses": [
+                        {
+                            "code": "202 Accepted",
+                            "description": "Job successfully accepted for processing.",
+                            "body": {"status": "accepted", "job_id": "..."},
+                        }
+                    ],
+                }
+            )
+
+        # Inject dynamic endpoints into the apiData structure in the HTML
+        if blueprint_endpoints:
+            endpoints_json = json.dumps(blueprint_endpoints, indent=2)
+            # We insert the new endpoints at the beginning of the 'Protected API' group
+            marker = "group: 'Protected API',\n                endpoints: ["
+            content = content.replace(marker, f"{marker}\n{endpoints_json.strip('[]')},")
+
+        return web.Response(text=content, content_type="text/html")
 
     def _setup_routes(self):
         public_app = web.Application()

@@ -288,6 +288,24 @@ The orchestrator's behavior can be configured through environment variables. Add
 
 **Important:** The system employs **strict validation** for configuration files (`clients.toml`, `workers.toml`) at startup. If a configuration file is invalid (e.g., malformed TOML, missing required fields), the application will **fail fast** and exit with an error, rather than starting in a partially broken state. This ensures the security and integrity of the deployment.
 
+### Configuration Files
+
+To manage access and worker settings securely, Holarchy uses TOML configuration files.
+
+-   **`clients.toml`**: Defines API clients, their tokens, plans, and quotas.
+    ```toml
+    [client_premium]
+    token = "secret-token-123"
+    plan = "premium"
+    ```
+-   **`workers.toml`**: Defines individual tokens for workers to enhance security.
+    ```toml
+    [gpu-worker-01]
+    token = "worker-secret-456"
+    ```
+
+For detailed specifications and examples, please refer to the [**Configuration Guide**](docs/configuration.md).
+
 ### Fault Tolerance
 
 The orchestrator has built-in mechanisms for handling failures based on the `error.code` field in a worker's response.
@@ -372,11 +390,21 @@ To run the `holarchy` test suite:
 pytest holarchy/tests/
 ```
 
+### Interactive API Documentation
+
+Holarchy provides a built-in interactive API documentation page (similar to Swagger UI) that is automatically generated based on your registered blueprints.
+
+*   **Endpoint:** `/_public/docs`
+*   **Features:**
+    *   **List of all system endpoints:** Detailed documentation for Public, Protected, and Worker API groups.
+    *   **Dynamic Blueprint Documentation:** Automatically generates and lists documentation for all blueprints registered in the engine, including their specific API endpoints.
+    *   **Interactive Testing:** Allows you to test API calls directly from the browser. You can provide authentication tokens, parameters, and request bodies to see real server responses.
+
 ## Detailed Documentation
 
-For a deeper dive into the system, please refer to the following documents in the `docs/` directory:
+For a deeper dive into the system, please refer to the following documents:
 
-- [**Architecture Guide**](docs/architecture.md): A detailed overview of the system components and their interactions.
-- [**API Reference**](docs/api_reference.md): Full specification of the HTTP API.
-- [**Deployment Guide**](docs/deployment.md): Instructions for deploying with Gunicorn/Uvicorn and NGINX.
-- [**Cookbook**](docs/cookbook/README.md): Examples and best practices for creating blueprints.
+- [**Architecture Guide**](https://github.com/madgagarin/holarchy/blob/main/docs/architecture.md): A detailed overview of the system components and their interactions.
+- [**API Reference**](https://github.com/madgagarin/holarchy/blob/main/docs/api_reference.md): Full specification of the HTTP API.
+- [**Deployment Guide**](https://github.com/madgagarin/holarchy/blob/main/docs/deployment.md): Instructions for deploying with Gunicorn/Uvicorn and NGINX.
+- [**Cookbook**](https://github.com/madgagarin/holarchy/blob/main/docs/cookbook/README.md): Examples and best practices for creating blueprints.
