@@ -446,6 +446,23 @@ class RedisStorage(StorageBackend):
             count += 1
         return count
 
+    async def set_nx_ttl(self, key: str, value: str, ttl: int) -> bool:
+        """
+        Uses Redis SET command with NX (Not Exists) and EX (Expire) options.
+        """
+        # redis.set returns True if set, None if not set (when nx=True)
+        result = await self._redis.set(key, value, nx=True, ex=ttl)
+        return bool(result)
+
+    async def get_str(self, key: str) -> str | None:
+        val = await self._redis.get(key)
+        if val is None:
+            return None
+        return val.decode("utf-8") if isinstance(val, bytes) else str(val)
+
+    async def set_str(self, key: str, value: str, ttl: int | None = None) -> None:
+        await self._redis.set(key, value, ex=ttl)
+
     async def set_worker_token(self, worker_id: str, token: str):
         """Stores the individual token for a specific worker."""
         key = f"orchestrator:worker:token:{worker_id}"

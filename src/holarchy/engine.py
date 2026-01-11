@@ -14,6 +14,22 @@ from .blueprint import StateMachineBlueprint
 from .client_config_loader import load_client_configs_to_redis
 from .compression import compression_middleware
 from .config import Config
+from .constants import (
+    ERROR_CODE_INVALID_INPUT,
+    ERROR_CODE_PERMANENT,
+    ERROR_CODE_TRANSIENT,
+    JOB_STATUS_CANCELLED,
+    JOB_STATUS_FAILED,
+    JOB_STATUS_PENDING,
+    JOB_STATUS_QUARANTINED,
+    JOB_STATUS_RUNNING,
+    JOB_STATUS_WAITING_FOR_HUMAN,
+    JOB_STATUS_WAITING_FOR_PARALLEL,
+    JOB_STATUS_WAITING_FOR_WORKER,
+    TASK_STATUS_CANCELLED,
+    TASK_STATUS_FAILURE,
+    TASK_STATUS_SUCCESS,
+)
 from .dispatcher import Dispatcher
 from .executor import JobExecutor
 from .health_checker import HealthChecker
@@ -23,6 +39,7 @@ from .logging_config import setup_logging
 from .quota import quota_middleware_factory
 from .ratelimit import rate_limit_middleware_factory
 from .reputation import ReputationCalculator
+from .scheduler import Scheduler
 from .security import client_auth_middleware_factory, worker_auth_middleware_factory
 from .storage.base import StorageBackend
 from .telemetry import setup_telemetry
@@ -38,10 +55,13 @@ EXECUTOR_KEY = AppKey("executor", JobExecutor)
 WATCHER_KEY = AppKey("watcher", Watcher)
 REPUTATION_CALCULATOR_KEY = AppKey("reputation_calculator", ReputationCalculator)
 HEALTH_CHECKER_KEY = AppKey("health_checker", HealthChecker)
+SCHEDULER_KEY = AppKey("scheduler", Scheduler)
+
 EXECUTOR_TASK_KEY = AppKey("executor_task", Task)
 WATCHER_TASK_KEY = AppKey("watcher_task", Task)
 REPUTATION_CALCULATOR_TASK_KEY = AppKey("reputation_calculator_task", Task)
 HEALTH_CHECKER_TASK_KEY = AppKey("health_checker_task", Task)
+SCHEDULER_TASK_KEY = AppKey("scheduler_task", Task)
 
 metrics.init_metrics()
 
@@ -66,7 +86,7 @@ async def metrics_handler(_request: web.Request) -> web.Response:
 
 class OrchestratorEngine:
     def __init__(self, storage: StorageBackend, config: Config):
-        setup_logging(config.LOG_LEVEL, config.LOG_FORMAT)
+        setup_logging(config.LOG_LEVEL, config.LOG_FORMAT, config.TZ)
         setup_telemetry()
         self.storage = storage
         self.config = config
@@ -115,7 +135,7 @@ class OrchestratorEngine:
                 storage_class = module.SQLiteHistoryStorage
                 parsed_uri = urlparse(uri)
                 db_path = parsed_uri.path
-                storage_args = [db_path]
+                storage_args = [db_path, self.config.TZ]
             except ImportError as e:
                 logger.error(f"Could not import SQLiteHistoryStorage, perhaps aiosqlite is not installed? Error: {e}")
                 self.history_storage = NoOpHistoryStorage()
@@ -125,7 +145,7 @@ class OrchestratorEngine:
             try:
                 module = import_module(".history.postgres", package="holarchy")
                 storage_class = module.PostgresHistoryStorage
-                storage_args = [uri]
+                storage_args = [uri, self.config.TZ]
             except ImportError as e:
                 logger.error(f"Could not import PostgresHistoryStorage, perhaps asyncpg is not installed? Error: {e}")
                 self.history_storage = NoOpHistoryStorage()
@@ -199,11 +219,13 @@ class OrchestratorEngine:
         app[WATCHER_KEY] = Watcher(self)
         app[REPUTATION_CALCULATOR_KEY] = ReputationCalculator(self)
         app[HEALTH_CHECKER_KEY] = HealthChecker(self)
+        app[SCHEDULER_KEY] = Scheduler(self)
 
         app[EXECUTOR_TASK_KEY] = create_task(app[EXECUTOR_KEY].run())
         app[WATCHER_TASK_KEY] = create_task(app[WATCHER_KEY].run())
         app[REPUTATION_CALCULATOR_TASK_KEY] = create_task(app[REPUTATION_CALCULATOR_KEY].run())
         app[HEALTH_CHECKER_TASK_KEY] = create_task(app[HEALTH_CHECKER_KEY].run())
+        app[SCHEDULER_TASK_KEY] = create_task(app[SCHEDULER_KEY].run())
 
     async def on_shutdown(self, app: web.Application):
         logger.info("Shutdown sequence started.")
@@ -211,6 +233,7 @@ class OrchestratorEngine:
         app[WATCHER_KEY].stop()
         app[REPUTATION_CALCULATOR_KEY].stop()
         app[HEALTH_CHECKER_KEY].stop()
+        app[SCHEDULER_KEY].stop()
         logger.info("Background task running flags set to False.")
 
         if hasattr(self.history_storage, "close"):
@@ -226,6 +249,8 @@ class OrchestratorEngine:
         app[WATCHER_TASK_KEY].cancel()
         app[REPUTATION_CALCULATOR_TASK_KEY].cancel()
         app[EXECUTOR_TASK_KEY].cancel()
+        # Scheduler task manages its own loop cancellation in stop(), but just in case:
+        app[SCHEDULER_TASK_KEY].cancel()
         logger.info("Background tasks cancelled.")
 
         logger.info("Gathering background tasks with a 10s timeout...")
@@ -236,6 +261,7 @@ class OrchestratorEngine:
                     app[WATCHER_TASK_KEY],
                     app[REPUTATION_CALCULATOR_TASK_KEY],
                     app[EXECUTOR_TASK_KEY],
+                    app[SCHEDULER_TASK_KEY],
                     return_exceptions=True,
                 ),
                 timeout=10.0,
@@ -248,6 +274,55 @@ class OrchestratorEngine:
         await app[HTTP_SESSION_KEY].close()
         logger.info("HTTP session closed.")
         logger.info("Shutdown sequence finished.")
+
+    async def create_background_job(
+        self,
+        blueprint_name: str,
+        initial_data: dict[str, Any],
+        source: str = "internal",
+    ) -> str:
+        """Creates a job directly, bypassing the HTTP API layer.
+        Useful for internal schedulers and triggers.
+        """
+        blueprint = self.blueprints.get(blueprint_name)
+        if not blueprint:
+            raise ValueError(f"Blueprint '{blueprint_name}' not found.")
+
+        job_id = str(uuid4())
+        # Use a special internal client config
+        client_config = {
+            "token": "internal-scheduler",
+            "plan": "system",
+            "params": {"source": source},
+        }
+
+        job_state = {
+            "id": job_id,
+            "blueprint_name": blueprint.name,
+            "current_state": blueprint.start_state,
+            "initial_data": initial_data,
+            "state_history": {},
+            "status": JOB_STATUS_PENDING,
+            "tracing_context": {},
+            "client_config": client_config,
+        }
+        await self.storage.save_job_state(job_id, job_state)
+        await self.storage.enqueue_job(job_id)
+        metrics.jobs_total.inc({metrics.LABEL_BLUEPRINT: blueprint.name})
+
+        # Log the creation in history as well (so we can track scheduled jobs)
+        await self.history_storage.log_job_event(
+            {
+                "job_id": job_id,
+                "state": "pending",
+                "event_type": "job_created",
+                "context_snapshot": job_state,
+                "metadata": {"source": source, "scheduled": True},
+            }
+        )
+
+        logger.info(f"Created background job {job_id} for blueprint '{blueprint_name}' (source: {source})")
+        return job_id
 
     def _create_job_handler(self, blueprint: StateMachineBlueprint) -> Callable:
         async def handler(request: web.Request) -> web.Response:
@@ -266,7 +341,7 @@ class OrchestratorEngine:
                 "current_state": blueprint.start_state,
                 "initial_data": initial_data,
                 "state_history": {},
-                "status": "pending",
+                "status": JOB_STATUS_PENDING,
                 "tracing_context": carrier,
                 "client_config": client_config,
             }
@@ -295,7 +370,7 @@ class OrchestratorEngine:
         if not job_state:
             return json_response({"error": "Job not found"}, status=404)
 
-        if job_state.get("status") != "waiting_for_worker":
+        if job_state.get("status") != JOB_STATUS_WAITING_FOR_WORKER:
             return json_response(
                 {"error": "Job is not in a state that can be cancelled (must be waiting for a worker)."},
                 status=409,
@@ -388,7 +463,7 @@ class OrchestratorEngine:
             job_id = data.get("job_id")
             task_id = data.get("task_id")
             result = data.get("result", {})
-            result_status = result.get("status", "success")
+            result_status = result.get("status", TASK_STATUS_SUCCESS)
             error_message = result.get("error")
             payload_worker_id = data.get("worker_id")
         except Exception:
@@ -417,14 +492,14 @@ class OrchestratorEngine:
             return json_response({"error": "Job not found"}, status=404)
 
         # Handle parallel task completion
-        if job_state.get("status") == "waiting_for_parallel_tasks":
+        if job_state.get("status") == JOB_STATUS_WAITING_FOR_PARALLEL:
             await self.storage.remove_job_from_watch(f"{job_id}:{task_id}")
             job_state.setdefault("aggregation_results", {})[task_id] = result
             job_state.setdefault("active_branches", []).remove(task_id)
 
             if not job_state["active_branches"]:
                 logger.info(f"All parallel branches for job {job_id} have completed.")
-                job_state["status"] = "running"
+                job_state["status"] = JOB_STATUS_RUNNING
                 job_state["current_state"] = job_state["aggregation_target"]
                 await self.storage.save_job_state(job_id, job_state)
                 await self.storage.enqueue_job(job_id)
@@ -458,13 +533,13 @@ class OrchestratorEngine:
 
         job_state["tracing_context"] = {str(k): v for k, v in request.headers.items()}
 
-        if result_status == "failure":
+        if result_status == TASK_STATUS_FAILURE:
             error_details = result.get("error", {})
-            error_type = "TRANSIENT_ERROR"
+            error_type = ERROR_CODE_TRANSIENT
             error_message = "No error details provided."
 
             if isinstance(error_details, dict):
-                error_type = error_details.get("code", "TRANSIENT_ERROR")
+                error_type = error_details.get("code", ERROR_CODE_TRANSIENT)
                 error_message = error_details.get("message", "No error message provided.")
             elif isinstance(error_details, str):
                 # Fallback for old format where `error` was just a string
@@ -472,13 +547,13 @@ class OrchestratorEngine:
 
             logging.warning(f"Task {task_id} for job {job_id} failed with error type '{error_type}'.")
 
-            if error_type == "PERMANENT_ERROR":
-                job_state["status"] = "quarantined"
+            if error_type == ERROR_CODE_PERMANENT:
+                job_state["status"] = JOB_STATUS_QUARANTINED
                 job_state["error_message"] = f"Task failed with permanent error: {error_message}"
                 await self.storage.save_job_state(job_id, job_state)
                 await self.storage.quarantine_job(job_id)
-            elif error_type == "INVALID_INPUT_ERROR":
-                job_state["status"] = "failed"
+            elif error_type == ERROR_CODE_INVALID_INPUT:
+                job_state["status"] = JOB_STATUS_FAILED
                 job_state["error_message"] = f"Task failed due to invalid input: {error_message}"
                 await self.storage.save_job_state(job_id, job_state)
             else:  # TRANSIENT_ERROR or any other/unspecified error
@@ -486,15 +561,15 @@ class OrchestratorEngine:
 
             return json_response({"status": "result_accepted_failure"}, status=200)
 
-        if result_status == "cancelled":
+        if result_status == TASK_STATUS_CANCELLED:
             logging.info(f"Task {task_id} for job {job_id} was cancelled by worker.")
-            job_state["status"] = "cancelled"
+            job_state["status"] = JOB_STATUS_CANCELLED
             await self.storage.save_job_state(job_id, job_state)
             # Optionally, trigger a specific 'cancelled' transition if defined in the blueprint
             transitions = job_state.get("current_task_transitions", {})
             if next_state := transitions.get("cancelled"):
                 job_state["current_state"] = next_state
-                job_state["status"] = "running"  # It's running the cancellation handler now
+                job_state["status"] = JOB_STATUS_RUNNING  # It's running the cancellation handler now
                 await self.storage.save_job_state(job_id, job_state)
                 await self.storage.enqueue_job(job_id)
             return json_response({"status": "result_accepted_cancelled"}, status=200)
@@ -510,12 +585,12 @@ class OrchestratorEngine:
                 job_state["state_history"].update(worker_data)
 
             job_state["current_state"] = next_state
-            job_state["status"] = "running"
+            job_state["status"] = JOB_STATUS_RUNNING
             await self.storage.save_job_state(job_id, job_state)
             await self.storage.enqueue_job(job_id)
         else:
             logging.error(f"Job {job_id} failed. Worker returned unhandled status '{result_status}'.")
-            job_state["status"] = "failed"
+            job_state["status"] = JOB_STATUS_FAILED
             job_state["error_message"] = f"Worker returned unhandled status: {result_status}"
             await self.storage.save_job_state(job_id, job_state)
 
@@ -535,7 +610,7 @@ class OrchestratorEngine:
             task_info = job_state.get("current_task_info")
             if not task_info:
                 logging.error(f"Cannot retry job {job_id}: missing 'current_task_info' in job state.")
-                job_state["status"] = "failed"
+                job_state["status"] = JOB_STATUS_FAILED
                 job_state["error_message"] = "Cannot retry: original task info not found."
                 await self.storage.save_job_state(job_id, job_state)
                 return
@@ -544,7 +619,7 @@ class OrchestratorEngine:
             timeout_seconds = task_info.get("timeout_seconds", self.config.WORKER_TIMEOUT_SECONDS)
             timeout_at = now + timeout_seconds
 
-            job_state["status"] = "waiting_for_worker"
+            job_state["status"] = JOB_STATUS_WAITING_FOR_WORKER
             job_state["task_dispatched_at"] = now
             await self.storage.save_job_state(job_id, job_state)
             await self.storage.add_job_to_watch(job_id, timeout_at)
@@ -552,7 +627,7 @@ class OrchestratorEngine:
             await self.dispatcher.dispatch(job_state, task_info)
         else:
             logging.critical(f"Job {job_id} has failed {max_retries + 1} times. Moving to quarantine.")
-            job_state["status"] = "quarantined"
+            job_state["status"] = JOB_STATUS_QUARANTINED
             job_state["error_message"] = f"Task failed after {max_retries + 1} attempts: {error_message}"
             await self.storage.save_job_state(job_id, job_state)
             await self.storage.quarantine_job(job_id)
@@ -571,14 +646,14 @@ class OrchestratorEngine:
         job_state = await self.storage.get_job_state(job_id)
         if not job_state:
             return json_response({"error": "Job not found"}, status=404)
-        if job_state.get("status") not in ["waiting_for_worker", "waiting_for_human"]:
+        if job_state.get("status") not in [JOB_STATUS_WAITING_FOR_WORKER, JOB_STATUS_WAITING_FOR_HUMAN]:
             return json_response({"error": "Job is not in a state that can be approved"}, status=409)
         transitions = job_state.get("current_task_transitions", {})
         next_state = transitions.get(decision)
         if not next_state:
             return json_response({"error": f"Invalid decision '{decision}' for this job"}, status=400)
         job_state["current_state"] = next_state
-        job_state["status"] = "running"
+        job_state["status"] = JOB_STATUS_RUNNING
         await self.storage.save_job_state(job_id, job_state)
         await self.storage.enqueue_job(job_id)
         return json_response({"status": "approval_received", "job_id": job_id})

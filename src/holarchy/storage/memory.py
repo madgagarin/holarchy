@@ -33,7 +33,21 @@ class MemoryStorage(StorageBackend):
         async with self._lock:
             return self._jobs.get(job_id)
 
-    async def save_job_state(self, job_id: str, state: dict[str, Any]) -> None:
+    async def _clean_expired(self):
+        """Helper to remove expired keys."""
+        now = monotonic()
+
+        expired_generic = [k for k, t in self._generic_key_ttls.items() if t < now]
+        for k in expired_generic:
+            self._generic_key_ttls.pop(k, None)
+            self._generic_keys.pop(k, None)
+
+        expired_workers = [k for k, t in self._worker_ttls.items() if t < now]
+        for k in expired_workers:
+            self._worker_ttls.pop(k, None)
+            self._workers.pop(k, None)
+
+    async def save_job_state(self, job_id: str, state: dict[str, Any]):
         async with self._lock:
             self._jobs[job_id] = state
 
@@ -238,9 +252,32 @@ class MemoryStorage(StorageBackend):
 
     async def get_active_worker_count(self) -> int:
         async with self._lock:
-            now = monotonic()
-            worker_ids = list(self._workers.keys())
-            return sum(self._worker_ttls.get(worker_id, 0) > now for worker_id in worker_ids)
+            await self._clean_expired()
+            return len(self._workers)
+
+    async def set_nx_ttl(self, key: str, value: str, ttl: int) -> bool:
+        async with self._lock:
+            await self._clean_expired()
+            if key in self._generic_keys:
+                return False
+
+            self._generic_keys[key] = value
+            self._generic_key_ttls[key] = monotonic() + ttl
+            return True
+
+    async def get_str(self, key: str) -> str | None:
+        async with self._lock:
+            await self._clean_expired()
+            val = self._generic_keys.get(key)
+            return str(val) if val is not None else None
+
+    async def set_str(self, key: str, value: str, ttl: int | None = None) -> None:
+        async with self._lock:
+            self._generic_keys[key] = value
+            if ttl:
+                self._generic_key_ttls[key] = monotonic() + ttl
+            else:
+                self._generic_key_ttls.pop(key, None)
 
     async def get_worker_info(self, worker_id: str) -> dict[str, Any] | None:
         async with self._lock:

@@ -62,3 +62,7 @@ class Config:
         # External config files
         self.WORKERS_CONFIG_PATH: str = getenv("WORKERS_CONFIG_PATH", "")
         self.CLIENTS_CONFIG_PATH: str = getenv("CLIENTS_CONFIG_PATH", "")
+        self.SCHEDULES_CONFIG_PATH: str = getenv("SCHEDULES_CONFIG_PATH", "")
+
+        # Timezone settings
+        self.TZ: str = getenv("TZ", "UTC")

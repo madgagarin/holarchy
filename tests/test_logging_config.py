@@ -1,8 +1,20 @@
 import logging
 from unittest.mock import patch
 
-from pythonjsonlogger import json
-from src.holarchy.logging_config import setup_logging
+import pytest
+
+from holarchy.logging_config import TimezoneFormatter, TimezoneJsonFormatter, setup_logging
+
+
+@pytest.fixture(autouse=True)
+def clear_handlers():
+    logger = logging.getLogger("holarchy")
+    root = logging.getLogger()
+    logger.handlers = []
+    root.handlers = []
+    yield
+    logger.handlers = []
+    root.handlers = []
 
 
 def test_setup_logging_json():
@@ -12,7 +24,7 @@ def test_setup_logging_json():
         logger = logging.getLogger("holarchy")
         assert logger.level == logging.DEBUG
         assert len(logger.handlers) > 0
-        assert isinstance(logger.handlers[0].formatter, json.JsonFormatter)
+        assert isinstance(logger.handlers[0].formatter, TimezoneJsonFormatter)
 
 
 def test_setup_logging_text():
@@ -22,4 +34,4 @@ def test_setup_logging_text():
         logger = logging.getLogger("holarchy")
         assert logger.level == logging.INFO
         assert len(logger.handlers) > 0
-        assert isinstance(logger.handlers[0].formatter, logging.Formatter)
+        assert isinstance(logger.handlers[0].formatter, TimezoneFormatter)

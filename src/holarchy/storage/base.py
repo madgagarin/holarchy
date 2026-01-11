@@ -269,11 +269,25 @@ class StorageBackend(ABC):
         """Completely clears the storage. Used mainly for tests."""
         raise NotImplementedError
 
-    @abstractmethod
     async def get_active_worker_count(self) -> int:
-        """Get the current number of active (registered) workers.
-        Used for metrics.
+        """Returns the number of currently active workers."""
+        raise NotImplementedError
+
+    async def set_nx_ttl(self, key: str, value: str, ttl: int) -> bool:
         """
+        Atomically sets key to value if it does not exist.
+        Sets a TTL (in seconds) on the key.
+        Returns True if set, False if already exists.
+        Critical for distributed locking.
+        """
+        raise NotImplementedError
+
+    async def get_str(self, key: str) -> str | None:
+        """Gets a simple string value from storage."""
+        raise NotImplementedError
+
+    async def set_str(self, key: str, value: str, ttl: int | None = None) -> None:
+        """Sets a simple string value in storage with optional TTL."""
         raise NotImplementedError
 
     @abstractmethod

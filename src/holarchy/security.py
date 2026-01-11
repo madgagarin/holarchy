@@ -4,10 +4,8 @@ from typing import Any, Awaitable, Callable
 from aiohttp import web
 
 from .config import Config
+from .constants import AUTH_HEADER_CLIENT, AUTH_HEADER_WORKER
 from .storage.base import StorageBackend
-
-AUTH_HEADER_HOLARCHY = "X-Holarchy-Token"
-AUTH_HEADER_WORKER = "X-Worker-Token"
 
 Handler = Callable[[web.Request], Awaitable[web.Response]]
 
@@ -21,10 +19,10 @@ def client_auth_middleware_factory(
 
     @web.middleware
     async def middleware(request: web.Request, handler: Handler) -> web.Response:
-        token = request.headers.get(AUTH_HEADER_HOLARCHY)
+        token = request.headers.get(AUTH_HEADER_CLIENT)
         if not token:
             return web.json_response(
-                {"error": "Missing X-Holarchy-Token header"},
+                {"error": f"Missing {AUTH_HEADER_CLIENT} header"},
                 status=401,
             )
 

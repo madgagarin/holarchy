@@ -14,6 +14,7 @@ This document serves as a comprehensive guide for developers looking to build pi
   - [Delegating Tasks to Workers (dispatch_task)](#delegating-tasks-to-workers-dispatch_task)
   - [Parallel Execution and Aggregation (Fan-out/Fan-in)](#parallel-execution-and-aggregation-fan-outfan-in)
   - [Dependency Injection (DataStore)](#dependency-injection-datastore)
+  - [Native Scheduler](#native-scheduler)
 - [Production Configuration](#production-configuration)
   - [Fault Tolerance](#fault-tolerance)
   - [Storage Backend](#storage-backend)
@@ -28,7 +29,17 @@ The project is based on a simple yet powerful architectural pattern that separat
 
 *   **Orchestrator (OrchestratorEngine)** — The Director. It manages the entire process from start to finish, tracks state, handles errors, and decides what should happen next. It does not perform business tasks itself.
 *   **Blueprints (Blueprint)** — The Script. Each blueprint is a detailed plan (a state machine) for a specific business process. It describes the steps (states) and the rules for transitioning between them.
-*   **Workers (Worker)** — The Team of Specialists. These are independent, specialized executors. Each worker knows how to perform a specific set of tasks (e.g., "process video," "send email") and reports back to the Orchestrator.## Installation
+*   **Workers (Worker)** — The Team of Specialists. These are independent, specialized executors. Each worker knows how to perform a specific set of tasks (e.g., "process video," "send email") and reports back to the Orchestrator.
+
+## Ecosystem
+
+Holarchy is part of a larger ecosystem:
+
+*   **[Holarchy Worker SDK](https://github.com/madgagarin/holonode)**: The official Python SDK for building workers that connect to this engine.
+*   **[RCA Protocol](https://github.com/madgagarin/rca)**: The architectural specification and manifesto behind the system.
+*   **[Full Example](https://github.com/madgagarin/holarchy-full-example)**: A complete reference project demonstrating the engine and workers in action.
+
+## Installation
 
 *   **Install the core engine only:**
     ```bash
@@ -282,6 +293,22 @@ async def cache_handler(data_stores):
     user_data = await data_stores.cache.get("user:123")
     print(f"User from cache: {user_data}")
 ```
+
+### 5. Native Scheduler
+
+Holarchy includes a built-in distributed scheduler. It allows you to trigger blueprints periodically (interval, daily, weekly, monthly) without external tools like cron.
+
+*   **Configuration:** Defined in `schedules.toml`.
+*   **Timezone Aware:** Supports global timezone configuration (e.g., `TZ="Europe/Moscow"`).
+*   **Distributed Locking:** Safe to run with multiple orchestrator instances; jobs are guaranteed to run only once per interval using distributed locks (Redis/Memory).
+
+```toml
+# schedules.toml example
+[nightly_backup]
+blueprint = "backup_flow"
+daily_at = "02:00"
+```
+
 ## Production Configuration
 
 The orchestrator's behavior can be configured through environment variables. Additionally, any configuration parameter loaded from environment variables can be programmatically overridden in your application code after the `Config` object has been initialized. This provides flexibility for different deployment and testing scenarios.
@@ -302,6 +329,12 @@ To manage access and worker settings securely, Holarchy uses TOML configuration 
     ```toml
     [gpu-worker-01]
     token = "worker-secret-456"
+    ```
+-   **`schedules.toml`**: Defines periodic tasks (CRON-like) for the native scheduler.
+    ```toml
+    [nightly_backup]
+    blueprint = "backup_flow"
+    daily_at = "02:00"
     ```
 
 For detailed specifications and examples, please refer to the [**Configuration Guide**](docs/configuration.md).

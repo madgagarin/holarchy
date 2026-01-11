@@ -284,6 +284,15 @@ This is a background process responsible for analyzing worker performance and ca
 - **State Update:** Saves the calculated reputation to the worker state record in `StorageBackend`.
 - **Usage:** This reputation score is used by the `best_value` dispatch strategy to make more informed decisions about selecting the most reliable and efficient executor.
 
+### 7. `Scheduler`
+**Location:** `src/holarchy/scheduler.py`
+
+A background process that triggers jobs based on a schedule defined in `schedules.toml`.
+-   **Triggers:** Supports interval (every N seconds), daily, weekly, and monthly triggers.
+-   **Timezones:** Aware of the globally configured timezone (`TZ`).
+-   **Distributed Locking:** Uses atomic locks in `StorageBackend` (`set_nx_ttl`) to ensure that a scheduled job runs exactly once across all Orchestrator instances.
+-   **Integration:** Creates jobs directly via `OrchestratorEngine.create_background_job`, bypassing the HTTP API but logging creation events to history.
+
 ### 9. `StorageBackend`
 **Location:** `src/holarchy/storage/`
 
@@ -297,19 +306,42 @@ Abstraction for storing all **current** states of jobs, workers, and queues.
 -   **Interface:** `storage/base.py` defines methods that must be implemented in any storage implementation.
 
 ### 9.1. `HistoryStorage`
+
 **Location:** `src/holarchy/history/`
+
+
 
 This is an optional component responsible for recording task execution **history** for subsequent analysis and debugging. Unlike `StorageBackend`, which stores only the last actual state, `HistoryStorage` records every event in a job's life.
 
+
+
 -   **Activation:** The component is activated via the `HISTORY_DATABASE_URI` environment variable. If the variable is not set, the "empty" `NoOpHistoryStorage` implementation is used, which performs no actions.
+
 -   **Supported DBs:**
+
     - **SQLite:** if URI starts with `sqlite:` (e.g., `sqlite:history.db`).
+
+        - **Timestamp Storage:** Uses Unix timestamp (REAL) in UTC for correct sorting.
+
+        - **Timezone Handling:** Automatically converts timestamps to the globally configured `TZ` upon retrieval.
+
     - **PostgreSQL:** if URI starts with `postgresql:` (e.g., `postgresql://user:pass@host/db`).
+
+        - **Timestamp Storage:** Uses native `TIMESTAMPTZ`.
+
+        - **JSON Handling:** Explicitly serializes/deserializes JSONB fields for compatibility.
+
 -   **Logged Events:**
-    - **Jobs:** `state_started`, `state_finished`, `state_failed`, `task_dispatched`. Full "snapshot" of job state, duration, and other meta-information is saved for each event.
-    - **Workers:** `registered`, `status_update`.
+
+    -   **Jobs:** `state_started`, `state_finished`, `state_failed`, `task_dispatched`. Full "snapshot" of job state, duration, and other meta-information is saved for each event.
+
+    -   **Workers:** `registered`, `status_update`.
+
 -   **Fault Tolerance:** Errors during writing to `HistoryStorage` do not interrupt the main job execution process. The error is logged, but the job continues to execute, ensuring main system reliability.
+
 -   **Data Access:** History is available via new API endpoint `GET /api/jobs/{job_id}/history`.
+
+
 
 ### 9.2. Access to Blueprint Graph
 

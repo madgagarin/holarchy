@@ -1,10 +1,50 @@
+from datetime import datetime
 from logging import DEBUG, Formatter, StreamHandler, getLogger
 from sys import stdout
+from zoneinfo import ZoneInfo
 
 from pythonjsonlogger import json
 
 
-def setup_logging(log_level: str = "INFO", log_format: str = "json"):
+class TimezoneFormatter(Formatter):
+    """Formatter that respects a custom timezone."""
+
+    def __init__(self, fmt=None, datefmt=None, style="%", validate=True, *, tz_name="UTC"):
+        super().__init__(fmt, datefmt, style, validate)
+        self.tz = ZoneInfo(tz_name)
+
+    def converter(self, timestamp):
+        return datetime.fromtimestamp(timestamp, self.tz)
+
+    def formatTime(self, record, datefmt=None):
+        dt = self.converter(record.created)
+        if datefmt:
+            s = dt.strftime(datefmt)
+        else:
+            try:
+                s = dt.isoformat(timespec="milliseconds")
+            except TypeError:
+                s = dt.isoformat()
+        return s
+
+
+class TimezoneJsonFormatter(json.JsonFormatter):
+    """JSON Formatter that respects a custom timezone."""
+
+    def __init__(self, *args, tz_name="UTC", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tz = ZoneInfo(tz_name)
+
+    def formatTime(self, record, datefmt=None):
+        # Override formatTime to use timezone-aware datetime
+        dt = datetime.fromtimestamp(record.created, self.tz)
+        if datefmt:
+            return dt.strftime(datefmt)
+        # Return ISO format with offset
+        return dt.isoformat()
+
+
+def setup_logging(log_level: str = "INFO", log_format: str = "json", tz_name: str = "UTC"):
     """Configures structured logging for the entire application."""
     logger = getLogger("holarchy")
     logger.setLevel(log_level)
@@ -13,13 +53,15 @@ def setup_logging(log_level: str = "INFO", log_format: str = "json"):
     formatter: Formatter
     if log_format.lower() == "json":
         # Formatter for JSON logs
-        formatter = json.JsonFormatter(
+        formatter = TimezoneJsonFormatter(
             "%(asctime)s %(name)s %(levelname)s %(message)s %(pathname)s %(lineno)d",
+            tz_name=tz_name,
         )
     else:
         # Standard text formatter
-        formatter = Formatter(
+        formatter = TimezoneFormatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            tz_name=tz_name,
         )
 
     handler.setFormatter(formatter)
@@ -30,12 +72,21 @@ def setup_logging(log_level: str = "INFO", log_format: str = "json"):
 
     # Configure the root logger to see logs from libraries (aiohttp, etc.)
     root_logger = getLogger()
-    # Set the root logger level so as not to filter messages
-    # for child loggers prematurely.
     root_logger.setLevel(DEBUG)
+
     if not root_logger.handlers:
         root_handler = StreamHandler(stdout)
-        root_handler.setFormatter(
-            Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"),
+        root_formatter = TimezoneFormatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            tz_name=tz_name,
         )
+        root_handler.setFormatter(root_formatter)
         root_logger.addHandler(root_handler)
+    else:
+        for h in root_logger.handlers:
+            h.setFormatter(
+                TimezoneFormatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                    tz_name=tz_name,
+                )
+            )

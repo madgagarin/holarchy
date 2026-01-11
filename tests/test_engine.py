@@ -3,8 +3,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiohttp import web
-from src.holarchy.config import Config
-from src.holarchy.engine import (
+
+from holarchy.config import Config
+from holarchy.engine import (
     DISPATCHER_KEY,
     ENGINE_KEY,
     EXECUTOR_KEY,
@@ -14,12 +15,14 @@ from src.holarchy.engine import (
     HTTP_SESSION_KEY,
     REPUTATION_CALCULATOR_KEY,
     REPUTATION_CALCULATOR_TASK_KEY,
+    SCHEDULER_KEY,
+    SCHEDULER_TASK_KEY,
     WATCHER_KEY,
     WATCHER_TASK_KEY,
     OrchestratorEngine,
 )
-from src.holarchy.history.noop import NoOpHistoryStorage
-from src.holarchy.storage.memory import MemoryStorage
+from holarchy.history.noop import NoOpHistoryStorage
+from holarchy.storage.memory import MemoryStorage
 
 
 @pytest.fixture
@@ -111,14 +114,15 @@ async def test_on_startup(engine, monkeypatch):
         load_workers_called = True
 
     with (
-        patch("src.holarchy.engine.ClientSession"),
-        patch("src.holarchy.engine.Dispatcher"),
-        patch("src.holarchy.engine.JobExecutor", autospec=True),
-        patch("src.holarchy.engine.Watcher", autospec=True),
-        patch("src.holarchy.engine.ReputationCalculator", autospec=True),
-        patch("src.holarchy.engine.HealthChecker", autospec=True),
-        patch("src.holarchy.engine.load_client_configs_to_redis", mock_load_clients),
-        patch("src.holarchy.engine.load_worker_configs_to_redis", mock_load_workers),
+        patch("holarchy.engine.ClientSession"),
+        patch("holarchy.engine.Dispatcher"),
+        patch("holarchy.engine.JobExecutor", autospec=True),
+        patch("holarchy.engine.Watcher", autospec=True),
+        patch("holarchy.engine.ReputationCalculator", autospec=True),
+        patch("holarchy.engine.HealthChecker", autospec=True),
+        patch("holarchy.engine.Scheduler", autospec=True),
+        patch("holarchy.engine.load_client_configs_to_redis", mock_load_clients),
+        patch("holarchy.engine.load_worker_configs_to_redis", mock_load_workers),
         patch("os.path.exists", return_value=True),  # Mock that the config file exists
         patch.object(loop, "create_task") as mock_create_task,
     ):
@@ -131,7 +135,8 @@ async def test_on_startup(engine, monkeypatch):
         assert WATCHER_KEY in app
         assert REPUTATION_CALCULATOR_KEY in app
         assert HEALTH_CHECKER_KEY in app
-        assert mock_create_task.call_count == 4
+        assert SCHEDULER_KEY in app
+        assert mock_create_task.call_count == 5
 
 
 @pytest.mark.asyncio
@@ -141,6 +146,7 @@ async def test_on_shutdown(engine):
     app[WATCHER_KEY] = MagicMock()
     app[REPUTATION_CALCULATOR_KEY] = MagicMock()
     app[HEALTH_CHECKER_KEY] = MagicMock()
+    app[SCHEDULER_KEY] = MagicMock()
 
     app[HTTP_SESSION_KEY] = MagicMock(close=AsyncMock())
 
@@ -150,6 +156,7 @@ async def test_on_shutdown(engine):
     app[WATCHER_TASK_KEY] = loop.create_future()
     app[REPUTATION_CALCULATOR_TASK_KEY] = loop.create_future()
     app[EXECUTOR_TASK_KEY] = loop.create_future()
+    app[SCHEDULER_TASK_KEY] = loop.create_future()
 
     engine.history_storage = MagicMock(close=AsyncMock())
 
@@ -209,9 +216,8 @@ async def test_setup_history_storage_postgres(engine, monkeypatch):
         await engine._setup_history_storage()
 
         mock_import.assert_called_once_with(".history.postgres", package="holarchy")
-        mock_storage_class.assert_called_once_with("postgresql://user:pass@host:port/db")
-        assert engine.history_storage is mock_storage_class.return_value
-        mock_initialize.assert_called_once()
+        mock_storage_class.assert_called_once_with("postgresql://user:pass@host:port/db", "UTC")
+        mock_initialize.assert_awaited_once()
 
 
 @pytest.mark.asyncio

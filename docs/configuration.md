@@ -79,6 +79,50 @@ description = "General purpose CPU worker"
 
 ---
 
+## 3. schedules.toml
+
+This file configures the Native Scheduler, allowing you to run blueprints periodically without external cron jobs.
+
+**Default Path:** Can be set via `SCHEDULES_CONFIG_PATH` environment variable.
+
+### Structure
+
+Each section represents a scheduled job. The section name serves as the job's unique identifier.
+
+| Field | Type | Mandatory | Description |
+| :--- | :--- | :--- | :--- |
+| `blueprint` | String | **Yes** | The name of the blueprint to execute. |
+| `input_data` | Dictionary | No | Initial data payload for the job. Defaults to empty dict. |
+| `interval_seconds` | Integer | *One of* | Run job every N seconds. |
+| `daily_at` | String | *One of* | Run daily at specific time ("HH:MM"). |
+| `weekly_days` | List[String] | *One of* | Run on specific days ("mon", "tue", ...) at `time`. |
+| `monthly_dates` | List[Integer] | *One of* | Run on specific dates (1-31) at `time`. |
+| `time` | String | *One of* | Required for `weekly_days` and `monthly_dates`. Format "HH:MM". |
+
+**Note on Timezones:** All time fields are interpreted according to the global `TZ` environment variable (default "UTC").
+
+### Example
+
+```toml
+[cleanup_job]
+blueprint = "system_cleanup"
+interval_seconds = 3600
+input_data = { target = "temp_files" }
+
+[daily_report]
+blueprint = "generate_report"
+daily_at = "09:00" # Runs at 09:00 TZ time
+input_data = { type = "full_daily" }
+
+[weekly_backup]
+blueprint = "full_backup"
+weekly_days = ["fri"]
+time = "23:00"
+input_data = { compression = "max" }
+```
+
+---
+
 ## Dynamic Reloading
 
 You can update `workers.toml` without restarting the Orchestrator.
@@ -106,6 +150,8 @@ In addition to configuration files, the Orchestrator is configured via environme
 | `GLOBAL_WORKER_TOKEN` | Global token for workers (fallback if `workers.toml` not used). | `secure-worker-token` |
 | `WORKERS_CONFIG_PATH` | Path to `workers.toml`. | `""` |
 | `CLIENTS_CONFIG_PATH` | Path to `clients.toml`. | `""` |
+| `SCHEDULES_CONFIG_PATH` | Path to `schedules.toml`. | `""` |
+| `TZ` | **Global Timezone:** Affects scheduler triggers, log timestamps, and history API output (e.g., "Europe/Moscow", "UTC"). | `UTC` |
 | `LOG_LEVEL` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). | `INFO` |
 | `LOG_FORMAT` | Log format (`text` or `json`). | `json` |
 | `WORKER_TIMEOUT_SECONDS` | Maximum time allowed for a worker to complete a task. | `300` |
