@@ -3,12 +3,13 @@ from unittest.mock import AsyncMock, MagicMock
 import fakeredis.aioredis as redis
 import pytest
 import pytest_asyncio
-from aiohttp.test_utils import make_mocked_request
-from src.holarchy.config import Config
-from src.holarchy.dispatcher import Dispatcher
-from src.holarchy.engine import OrchestratorEngine
-from src.holarchy.storage.redis import RedisStorage
 
+from holarchy.api.handlers import task_result_handler
+from holarchy.app_keys import ENGINE_KEY
+from holarchy.config import Config
+from holarchy.dispatcher import Dispatcher
+from holarchy.engine import OrchestratorEngine
+from holarchy.storage.redis import RedisStorage
 from tests.test_blueprints import error_flow_bp
 
 
@@ -62,9 +63,11 @@ async def test_transient_error_retries_then_quarantines(monkeypatch, redis_stora
             "result": {"status": "failure", "error": {"code": "TRANSIENT_ERROR", "message": "worker failed"}},
         }
         req = MagicMock()
+        req.app = {ENGINE_KEY: engine}
         req.json = AsyncMock(return_value=payload_data)
-        req["worker_id"] = "test-worker"  # Simulate auth middleware
-        await engine._task_result_handler(req)
+        req.get.return_value = "test-worker"  # Simulate auth middleware (req.get('worker_id'))
+
+        await task_result_handler(req)
 
         # Check that dispatch was called for retries
         if i < config.JOB_MAX_RETRIES:
@@ -117,10 +120,13 @@ async def test_permanent_error_quarantines_immediately(monkeypatch, redis_storag
         "task_id": "some_task",
         "result": {"status": "failure", "error": {"code": "PERMANENT_ERROR", "message": "fatal error"}},
     }
-    req = make_mocked_request("POST", "/_worker/tasks/result", headers={"content-type": "application/json"})
+
+    req = MagicMock()
+    req.app = {ENGINE_KEY: engine}
     req.json = AsyncMock(return_value=payload_data)
-    req["worker_id"] = "test-worker"  # Simulate auth middleware
-    await engine._task_result_handler(req)
+    req.get.return_value = "test-worker"
+
+    await task_result_handler(req)
 
     # 3. Check for immediate quarantine status
     final_state = await storage.get_job_state(job_id)
@@ -161,10 +167,12 @@ async def test_invalid_input_error_fails_immediately(monkeypatch, redis_storage:
         "task_id": "some_task",
         "result": {"status": "failure", "error": {"code": "INVALID_INPUT_ERROR", "message": "bad params"}},
     }
-    req = make_mocked_request("POST", "/_worker/tasks/result", headers={"content-type": "application/json"})
+    req = MagicMock()
+    req.app = {ENGINE_KEY: engine}
     req.json = AsyncMock(return_value=payload_data)
-    req["worker_id"] = "test-worker"  # Simulate auth middleware
-    await engine._task_result_handler(req)
+    req.get.return_value = "test-worker"
+
+    await task_result_handler(req)
 
     # 3. Check for immediate failed status
     final_state = await storage.get_job_state(job_id)
