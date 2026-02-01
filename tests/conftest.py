@@ -1,6 +1,9 @@
 import os
 import sys
 
+# Ensure src is in python path for correct import resolution
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+
 import pytest
 import pytest_asyncio
 from aiohttp.web import AppKey
@@ -11,12 +14,13 @@ from opentelemetry.sdk.trace.export import (
     ConsoleSpanExporter,
     SimpleSpanProcessor,
 )
-from src.holarchy.client_config_loader import load_client_configs_to_redis
-from src.holarchy.config import Config
-from src.holarchy.engine import ENGINE_KEY, OrchestratorEngine
-from src.holarchy.storage.base import StorageBackend
-from src.holarchy.storage.memory import MemoryStorage
-from src.holarchy.storage.redis import RedisStorage
+
+from holarchy.client_config_loader import load_client_configs_to_redis
+from holarchy.config import Config
+from holarchy.engine import ENGINE_KEY, OrchestratorEngine
+from holarchy.storage.base import StorageBackend
+from holarchy.storage.memory import MemoryStorage
+from holarchy.storage.redis import RedisStorage
 
 # Define AppKeys globally for tests
 STORAGE_KEY = AppKey("storage", StorageBackend)
