@@ -1,3 +1,5 @@
+**EN** | [ES](https://github.com/madgagarin/holarchy/blob/main/docs/es/cookbook/creating_worker.md) | [RU](https://github.com/madgagarin/holarchy/blob/main/docs/ru/cookbook/creating_worker.md)
+
 # Cookbook: Creating a Worker
 
 Workers are independent executors performing actual work. This guide shows how to create a worker using `holonode` package.
