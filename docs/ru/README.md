@@ -172,7 +172,9 @@ Holarchy спроектирована для высоконагруженных 
 
 *   **Smart Dispatching (Умная диспетчеризация)**: Высокопроизводительная маршрутизация с использованием Redis.
     *   **Deep Schema Matching**: Приоритет отдается воркерам, чья `input_schema` соответствует параметрам задачи, что гарантирует совместимость до запуска.
+    *   **Overflow Strategy**: Автоматический перелив нагрузки на более дорогих воркеров, если дешевые перегружены (достигли лимита `queue_length > SOFT_LIMIT`).
     *   **Hot Cache & Skill Awareness**: Учет загруженных AI-моделей в памяти воркеров.
+    *   **Work Stealing**: Свободные воркеры могут атомарно «красть» задачи из очередей перегруженных коллег, обеспечивая максимальную пропускную способность.
     *   **Load Balancing**: Оптимистичное управление нагрузкой для предотвращения перегрузки узлов.
 *   **Саморегулирующаяся репутация**:
     *   **Система штрафов**: Мгновенное снижение репутации за нарушение контракта (`REPUTATION_PENALTY_CONTRACT_VIOLATION`) или критические сбои.
@@ -246,7 +248,7 @@ async def transcode_handler(initial_data, actions):
 @my_blueprint.handler_for("process_files")
 async def fan_out_handler(initial_data, actions):
     tasks_to_dispatch = [
-        {"task_type": "file_analysis", "params": {"file": file}})
+        {"task_type": "file_analysis", "params": {"file": file}}
         for file in initial_data.get("files", [])
     ]
     # Используйте dispatch_parallel, чтобы отправить все задачи сразу.
