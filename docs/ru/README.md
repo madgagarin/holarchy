@@ -89,10 +89,12 @@ Holarchy является частью более широкой экосист�
 
 Вы можете легко интегрировать и запустить движок оркестратора внутри вашего собственного приложения.
 
+> **Совет:** Имя состояния в `@bp.handler()` и `@bp.aggregator()` теперь необязательно. Если оно не указано, в качестве имени состояния будет использовано имя функции.
+
 ```python
 # my_app.py
 import asyncio
-from holarchy import OrchestratorEngine, StateMachineBlueprint
+from holarchy import OrchestratorEngine, Blueprint
 from holarchy.context import ActionFactory
 from holarchy.storage import MemoryStorage
 from holarchy.config import Config
@@ -108,28 +110,28 @@ config.CLIENT_TOKEN = "my-secret-client-token"
 config.GLOBAL_WORKER_TOKEN = "my-secret-worker-token"
 
 # 2. Определение Блупринта рабочего процесса
-my_blueprint = StateMachineBlueprint(
-    name="my_first_blueprint",
+bp = Blueprint(
+    name="bp",
     api_version="v1",
     api_endpoint="/jobs/my_flow"
 )
 
 # Используйте внедрение зависимостей, чтобы получить только нужные данные.
-@my_blueprint.handler_for("start", is_start=True)
-async def start_handler(job_id: str, initial_data: dict, actions: ActionFactory):
+@bp.handler(is_start=True)
+async def start(job_id: str, initial_data: dict, actions: ActionFactory):
     """Начальное состояние для каждого нового задания."""
     print(f"Job {job_id} | Start: {initial_data}")
-    actions.transition_to("end")
+    actions.go_to("end")
 
 # Вы все еще можете запросить полный объект контекста, если предпочитаете.
-@my_blueprint.handler_for("end", is_end=True)
-async def end_handler(context):
+@bp.handler(is_end=True)
+async def end(context):
     """Конечное состояние. Пайплайн заканчивается здесь."""
     print(f"Job {context.job_id} | Complete.")
 
 # 3. Инициализация движка Оркестратора
 engine = OrchestratorEngine(storage, config)
-engine.register_blueprint(my_blueprint)
+engine.register_blueprint(bp)
 
 # 4. Доступ к компонентам (Опционально)
 # Вы можете получить доступ к внутреннему приложению aiohttp и компонентам через AppKey
@@ -150,7 +152,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nStopping server.")
+        print("\nОстановка сервера.")
 ```
 
 ### Жизненный цикл движка: `run()` vs. `start()`
@@ -204,14 +206,14 @@ Holarchy спроектирована для высоконагруженных 
 
 ```python
 # Условие `.when()` все еще ссылается на `context`.
-@my_blueprint.handler_for("decision_step").when("context.initial_data.type == 'urgent'")
-async def handle_urgent(actions):
-    actions.transition_to("urgent_processing")
+@bp.handler().when("context.initial_data.type == 'urgent'")
+async def decision_step(actions):
+    actions.go_to("urgent_processing")
 
 # Обработчик по умолчанию, если ни одно условие `.when()` не совпало.
-@my_blueprint.handler_for("decision_step")
-async def handle_normal(actions):
-    actions.transition_to("normal_processing")
+@bp.handler
+async def decision_step(actions):
+    actions.go_to("normal_processing")
 ```
 
 > **Примечание об ограничениях:** Текущая версия `.when()` использует простой парсер со следующими ограничениями:
@@ -224,8 +226,8 @@ async def handle_normal(actions):
 Это основная функция для делегирования работы. Оркестратор поставит задачу в очередь и будет ждать, пока воркер заберет ее и вернет результат.
 
 ```python
-@my_blueprint.handler_for("transcode_video")
-async def transcode_handler(initial_data, actions):
+@bp.handler
+async def transcode_video(initial_data, actions):
     actions.dispatch_task(
         task_type="video_transcoding",
         params={"input_path": initial_data.get("path")},
@@ -245,8 +247,8 @@ async def transcode_handler(initial_data, actions):
 
 ```python
 # 1. Fan-out: Отправка нескольких задач для агрегации в одно состояние
-@my_blueprint.handler_for("process_files")
-async def fan_out_handler(initial_data, actions):
+@bp.handler
+async def process_files(initial_data, actions):
     tasks_to_dispatch = [
         {"task_type": "file_analysis", "params": {"file": file}}
         for file in initial_data.get("files", [])
@@ -258,16 +260,16 @@ async def fan_out_handler(initial_data, actions):
         aggregate_into="aggregate_results"
     )
 
-# 2. Fan-in: Сбор результатов с помощью декоратора @aggregator_for
-@my_blueprint.aggregator_for("aggregate_results")
-async def aggregator_handler(aggregation_results, state_history, actions):
+# 2. Fan-in: Сбор результатов с помощью декоратора @aggregator
+@bp.aggregator
+async def aggregate_results(aggregation_results, state_history, actions):
     # Этот обработчик выполнится ТОЛЬКО ПОСЛЕ ТОГО, как ВСЕ задачи, 
     # отправленные через dispatch_parallel, будут завершены.
 
     # aggregation_results это словарь {task_id: result_dict}
     summary = [res.get("data") for res in aggregation_results.values()]
     state_history["summary"] = summary
-    actions.transition_to("processing_complete")
+    actions.go_to("processing_complete")
 ```
 
 ### 4. Внедрение зависимостей (DataStore)
@@ -279,14 +281,14 @@ import redis.asyncio as redis
 
 # 1. Инициализация и регистрация вашего DataStore
 redis_client = redis.Redis(decode_responses=True)
-bp = StateMachineBlueprint(
+bp = Blueprint(
     "blueprint_with_datastore",
     data_stores={"cache": redis_client}
 )
 
 # 2. Использование его в обработчике через внедрение зависимостей
-@bp.handler_for("get_from_cache")
-async def cache_handler(data_stores):
+@bp.handler
+async def get_from_cache(data_stores):
     # Доступ к redis_client по имени "cache"
     user_data = await data_stores.cache.get("user:123")
     print(f"User from cache: {user_data}")
@@ -323,7 +325,7 @@ dispatch_timeout = 60 # Отмена, если ни один воркер не �
 *   **Поддержка директорий**: Поддерживает рекурсивную загрузку и скачивание целых папок.
 
 ```python
-@bp.handler_for("process_data")
+@bp.handler
 async def process_data(task_files, actions):
     # Потоковое скачивание большого файла
     local_path = await task_files.download("large_dataset.csv")
@@ -333,7 +335,7 @@ async def process_data(task_files, actions):
     # Загрузка результата
     await task_files.write_json("results.json", {"status": "done"})
     
-    actions.transition_to("finished")
+    actions.go_to("finished")
 ```
 
 ## Конфигурация для продакшена
@@ -445,7 +447,7 @@ Holarchy разработана для современных стеков на�
 Holarchy поддерживает автоматическую загрузку блупринтов из указанной директории. Это позволяет развертывать и обновлять логику ваших процессов, просто копируя Python-файлы, без изменения основного кода оркестратора.
 
 *   **Настройка**: Установите переменную окружения `BLUEPRINTS_DIR`, указав путь к папке с вашими файлами блупринтов.
-*   **Как это работает**: При запуске движок сканирует директорию на наличие всех `.py` файлов, импортирует их и автоматически регистрирует все найденные экземпляры `StateMachineBlueprint`.
+*   **Как это работает**: При запуске движок сканирует директорию на наличие всех `.py` файлов, импортирует их и автоматически регистрирует все найденные экземпляры `Blueprint`.
 
 ### Безопасность
 

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from holarchy.blueprint import StateMachineBlueprint
+from holarchy.blueprint import Blueprint
 from holarchy.config import Config
 from holarchy.engine import OrchestratorEngine
 from holarchy.storage.memory import MemoryStorage
@@ -27,14 +27,14 @@ async def test_signature_caching(engine):
     """
     Verifies that inspect.signature is called during validation but NOT during execution.
     """
-    bp = StateMachineBlueprint("test_bp")
+    bp = Blueprint("test_bp")
 
     # Define a simple handler
-    @bp.handler_for("start", is_start=True)
+    @bp.handler("start", is_start=True)
     async def start_handler(job_id, actions):
-        actions.transition_to("end")
+        actions.go_to("end")
 
-    @bp.handler_for("end", is_end=True)
+    @bp.handler("end", is_end=True)
     async def end_handler():
         pass
 
