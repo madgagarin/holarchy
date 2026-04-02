@@ -170,7 +170,9 @@ if __name__ == "__main__":
 
 Holarchy спроектирована для высоконагруженных сред с тысячами конкурентных воркеров.
 
-*   **Smart Dispatching (Умная диспетчеризация)**: Высокопроизводительная маршрутизация с использованием Redis.
+*   **Стандартизированный Holon Matching (RXON v1.0b7)**: Высокопроизводительная маршрутизация с использованием Redis.
+    *   **Унифицированный подбор**: Переход на формализованную логику подбора из `rxon`. Все проверки ресурсов (CPU, RAM, GPU и пользовательские свойства) строго регламентированы стандартом протокола HLN.
+    *   **Умное сравнение чисел**: Автоматическое выполнение проверок **GE (Больше или равно)** для чисел.
     *   **Deep Schema Matching**: Приоритет отдается воркерам, чья `input_schema` соответствует параметрам задачи.
     *   **Overflow Strategy**: Автоматический перелив нагрузки на более дорогих воркеров, если дешевые перегружены (`queue_length > SOFT_LIMIT`).
     *   **Hot Cache & Skill Awareness**: Учет загруженных AI-моделей в памяти воркеров.
@@ -193,7 +195,7 @@ Holarchy спроектирована для высоконагруженных 
 *   **Network Visibility**:
     *   **Skill Catalog**: Агрегированный маркетплейс всех уникальных навыков и контрактов в реальном времени.
     *   **Global Registry**: Контракты хранятся в Redis для консистентности всего кластера.
-*   **Bi-directional Heartbeats**: Двусторонний канал связи, где оркестратор посылает срочные команды в ответ на оптимизированные Heartbeat с использованием Jitter.
+*   **Bi-directional Heartbeats**: Двусторонний канал связи, где оркестратор посылает срочные команды в ответ на оптимизированные Heartbeat с использованием Jitter (защита от Thundering Herd).
 *   **Non-Blocking I/O**:
     *   **Вебхуки**: Отправляются через параллельный пул фоновых воркеров.
     *   **S3 Streaming**: Константное потребление памяти при передаче файлов любого размера.
@@ -428,3 +430,6 @@ pytest tests/
 -   [**Гайд по конфигурации**](https://github.com/madgagarin/holarchy/blob/main/docs/configuration.md)
 -   [**Гайд по развертыванию**](https://github.com/madgagarin/holarchy/blob/main/docs/deployment.md)
 -   [**Cookbook**](https://github.com/madgagarin/holarchy/blob/main/docs/cookbook/README.md)
+звертыванию**](https://github.com/madgagarin/holarchy/blob/main/docs/deployment.md)
+-   [**Cookbook**](https://github.com/madgagarin/holarchy/blob/main/docs/cookbook/README.md)
+.md)
