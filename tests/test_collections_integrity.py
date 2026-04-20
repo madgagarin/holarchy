@@ -11,6 +11,7 @@ import pytest
 
 from holarchy.history.noop import NoOpHistoryStorage
 from holarchy.history.sqlite import SQLiteHistoryStorage
+from holarchy.services.worker_service import WorkerService
 from holarchy.storage.memory import MemoryStorage
 
 
@@ -18,7 +19,6 @@ from holarchy.storage.memory import MemoryStorage
 async def test_memory_storage_collections_integrity():
     storage = MemoryStorage()
 
-    # Test lists
     assert await storage.get_available_workers() == []
     assert await storage.get_active_worker_ids() == []
     assert await storage.get_workers(["non-existent"]) == []
@@ -89,8 +89,6 @@ async def test_redis_storage_collections_integrity(redis_storage):
 
 @pytest.mark.asyncio
 async def test_worker_service_collections_integrity():
-    from holarchy.services.worker_service import WorkerService
-
     mock_storage = MagicMock()
     mock_storage.refresh_worker_ttl = AsyncMock(return_value=False)
 
