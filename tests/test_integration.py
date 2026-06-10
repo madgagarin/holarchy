@@ -3,8 +3,6 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-
-
 import asyncio
 import json
 import os
@@ -14,13 +12,15 @@ from unittest.mock import AsyncMock
 import pytest
 import zstandard
 from aiohttp import web
+from rxon.constants import AUTH_HEADER_CLIENT, AUTH_HEADER_WORKER
 
+from holarchy.app_keys import (
+    STORAGE_KEY,
+)
 from holarchy.blueprint import Blueprint
 from holarchy.client_config_loader import load_client_configs_to_redis
-from holarchy.constants import AUTH_HEADER_CLIENT, AUTH_HEADER_WORKER
 from holarchy.engine import ENGINE_KEY, OrchestratorEngine
 from holarchy.storage.redis import RedisStorage
-from tests.conftest import STORAGE_KEY
 
 # --- Test Blueprints ---
 
