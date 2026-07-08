@@ -18,17 +18,16 @@
 - **Automatización**: Descubrimiento automático de transiciones mediante **análisis AST** del código de los manejadores.
 - **Observability**: Seguimiento distribuido con **OpenTelemetry** y métricas en tiempo real.
 
-
 Este documento sirve como una guía completa para desarrolladores que buscan construir pipelines (blueprints) e integrar el Orquestador en sus aplicaciones.
 
-
 ## Tabla de Contenidos
+
 - [Concepto Principal: Orquestador, Blueprints y Workers](#concepto-principal-orquestador-blueprints-y-workers)
 - [Instalación](#instalación)
 - [Inicio Rápido: Uso como Librería](#inicio-rápido-uso-como-librería)
 - [Conceptos Clave: JobContext y Actions](#conceptos-clave-jobcontext-and-actions)
 - [Recetario de Blueprints: Características Clave](#recetario-de-blueprints-características-clave)
-  - [Transiciones Condicionales (.when())](#transiciones-condicionales-when)
+  - [Transiciones Condicionales](#transiciones-condicionales)
   - [Delegar Tareas a Workers (dispatch_task)](#delegar-tareas-a-workers-dispatch_task)
   - [Ejecución Paralela y Agregación (Fan-out/Fan-in)](#ejecución-paralela-y-agregación-fan-outfan-in)
   - [Inyección de Dependencias (DataStore)](#inyección-de-dependencias-datastore)
@@ -47,81 +46,91 @@ Este documento sirve como una guía completa para desarrolladores que buscan con
 
 El proyecto se basa en un patrón arquitectónico simple pero poderoso que separa la lógica del proceso de la lógica de ejecución.
 
-*   **Orquestador (OrchestratorEngine)** — El Director. Gestiona todo el proceso de principio a fin, rastrea el estado, maneja errores y decide qué debe suceder a continuación. No realiza tareas comerciales por sí mismo.
-*   **Blueprints (Blueprint)** — El Guion. Cada blueprint es un plan detallado (una máquina de estados) para un proceso comercial específico. Describe los pasos (estados) y las reglas para la transición entre ellos.
-*   **Workers (Worker)** — El Equipo de Especialistas. Estos son ejecutores independientes y especializados. Cada worker sabe cómo realizar un conjunto específico de tareas (por ejemplo, "procesar video", "enviar correo electrónico") e informa al Orquestador.
+- **Orquestador (OrchestratorEngine)** — El Director. Gestiona todo el proceso de principio a fin, rastrea el estado, maneja errores y decide qué debe suceder a continuación. No realiza tareas comerciales por sí mismo.
+- **Blueprints (Blueprint)** — El Guion. Cada blueprint es un plan detallado (una máquina de estados) para un proceso comercial específico. Describe los pasos (estados) y las reglas para la transición entre ellos.
+- **Workers (Worker)** — El Equipo de Especialistas. Estos son ejecutores independientes y especializados. Cada worker sabe cómo realizar un conjunto específico de tareas (por ejemplo, "procesar video", "enviar correo electrónico") e informa al Orquestador.
 
 ### ¿Por qué es esto importante?
+
 En el marco de la arquitectura **HLN**, el Orquestador actúa como un "Ghost" (Fantasma — lógica interna), mientras que los Workers actúan como "Shells" (Cáscaras — interfaz de ejecución). Gracias al principio de **Shell-Stacking**, cualquier Orquestador puede ser envuelto en una cáscara de worker, permitiendo construir redes fractales infinitas (Holarquías).
 
 ## Ecosistema
 
 Holarchy es parte de un ecosistema más grande:
 
-*   **[Protocolo Holarchy](https://github.com/madgagarin/rxon)**: Paquete compartido que contiene definiciones de protocolo, modelos de datos y utilidades que garantizan la coherencia en todos los componentes.
-*   **[SDK de Worker de Holarchy](https://github.com/madgagarin/holonode)**: El SDK oficial de Python para construir workers que se conectan a este motor.
-*   **[Protocolo HLN](https://github.com/madgagarin/hln)**: La especificación arquitectónica y el manifiesto detrás del sistema (Hierarchical Logic Network).
-*   **[Ejemplo Completo](https://github.com/madgagarin/holarchy-full-example)**: Un proyecto de referencia completo que demuestra el motor y los workers en acción.
+- **[Protocolo Holarchy](https://github.com/madgagarin/rxon)**: Paquete compartido que contiene definiciones de protocolo, modelos de datos y utilidades que garantizan la coherencia en todos los componentes.
+- **[SDK de Worker de Holarchy](https://github.com/madgagarin/holonode)**: El SDK oficial de Python para construir workers que se conectan a este motor.
+- **[Protocolo HLN](https://github.com/madgagarin/hln)**: La especificación arquitectónica y el manifiesto detrás del sistema (Hierarchical Logic Network).
+- **[Ejemplo Completo](https://github.com/madgagarin/holarchy-full-example)**: Un proyecto de referencia completo que demuestra el motor y los workers en acción.
 
 ## Instalación
 
-*   **Instalar solo el núcleo del motor:**
-    ```bash
-    pip install holarchy
-    ```
+- **Instalar solo el núcleo del motor:**
 
-*   **Instalar con soporte para Redis (recomendado para producción):**
-    ```bash
-    pip install "holarchy[redis]"
-    ```
+  ```bash
+  pip install holarchy
+  ```
 
-*   **Instalar con soporte para almacenamiento de historial (SQLite, PostgreSQL):**
-    ```bash
-    pip install "holarchy[history]"
-    ```
+- **Instalar con soporte para Redis (recomendado para producción):**
 
-*   **Instalar con soporte de telemetría (OpenTelemetry):**
-    ```bash
-    pip install "holarchy[telemetry]"
-    ```
+  ```bash
+  pip install "holarchy[redis]"
+  ```
 
-*   **Instalar con soporte para S3 (Descarga de Carga Útil):**
-    ```bash
-    pip install "holarchy[s3]"
-    ```
+- **Instalar con soporte para almacenamiento de historial (SQLite, PostgreSQL):**
 
-*   **Instalar todas las dependencias, incluidas las pruebas:**
-    ```bash
-    pip install "holarchy[all,test]"
-    ```
+  ```bash
+  pip install "holarchy[history]"
+  ```
+
+- **Instalar con soporte de telemetría (OpenTelemetry):**
+
+  ```bash
+  pip install "holarchy[telemetry]"
+  ```
+
+- **Instalar con soporte para S3 (Descarga de Carga Útil):**
+
+  ```bash
+  pip install "holarchy[s3]"
+  ```
+
+- **Instalar todas las dependencias, incluidas las pruebas:**
+  ```bash
+  pip install "holarchy[all,test]"
+  ```
 
 ## Estados del Trabajo (Job Statuses)
 
 Los trabajos en Holarchy pasan por varios estados:
 
-| Estado | Tipo | Descripción |
-| :--- | :--- | :--- |
-| `pending` | Intermedio | Trabajo creado, esperando a ser encolado. |
-| `running` | Intermedio | Ejecución activa de la lógica o tareas. |
-| `waiting_for_worker` | Intermedio | Tarea enviada, esperando que un worker la recoja. |
-| `waiting_for_human` | Intermedio | Pausado, esperando aprobación manual vía webhook. |
-| `waiting_for_parallel` | Intermedio | Esperando que se completen las subtareas paralelas. |
-| `finished` | **Terminal** | Completado con éxito. **El resultado es visible.** |
-| `failed` | **Terminal** | Fallo de lógica o del worker. **El resultado es visible.** |
-| `cancelled` | **Terminal** | Cancelado manualmente por el usuario o el sistema. |
-| `error` | **Terminal** | Error crítico del sistema o de infraestructura. |
-| `quarantined` | **Terminal** | Marcado para revisión manual (ej. violación de contrato). |
+| Estado                 | Tipo         | Descripción                                                |
+| :--------------------- | :----------- | :--------------------------------------------------------- |
+| `pending`              | Intermedio   | Trabajo creado, esperando a ser encolado.                  |
+| `running`              | Intermedio   | Ejecución activa de la lógica o tareas.                    |
+| `waiting_for_worker`   | Intermedio   | Tarea enviada, esperando que un worker la recoja.          |
+| `waiting_for_human`    | Intermedio   | Pausado, esperando aprobación manual vía webhook.          |
+| `waiting_for_parallel` | Intermedio   | Esperando que se completen las subtareas paralelas.        |
+| `finished`             | **Terminal** | Completado con éxito. **El resultado es visible.**         |
+| `failed`               | **Terminal** | Fallo de lógica o del worker. **El resultado es visible.** |
+| `cancelled`            | **Terminal** | Cancelado manualmente por el usuario o el sistema.         |
+| `error`                | **Terminal** | Error crítico del sistema o de infraestructura.            |
+| `quarantined`          | **Terminal** | Marcado para revisión manual (ej. violación de contrato).  |
 
 ### Observabilidad Moderna
+
 Holarchy está construida con una observabilidad profunda en mente utilizando el estándar **OpenTelemetry**. Proporciona:
+
 - **Rastreo Distribuido**: Siga las solicitudes a través de toda la red HLN (Orquestador ↔ Worker).
 - **Métricas en Tiempo Real**: Monitoree la longitud de las colas, la salud de los workers y las latencias de los trabajos.
 - **OTLP Nativo**: Envíe datos de telemetría directamente a Jaeger, Prometheus o Grafana.
 
 Para habilitar el soporte de telemetría durante la instalación:
+
 ```bash
 pip install "holarchy[telemetry]"
 ```
+
 Consulte la [**Guía de Observabilidad**](https://github.com/madgagarin/holarchy/blob/main/docs/es/observability.md) para detalles de configuración.
 
 ## Inicio Rápido: Uso como Librería
@@ -179,7 +188,7 @@ engine.register_blueprint(bp)
 # 5. Definir el punto de entrada principal para ejecutar el servidor
 async def main():
     await engine.start()
-    
+
     try:
         await asyncio.Event().wait()
     finally:
@@ -196,11 +205,12 @@ if __name__ == "__main__":
 
 El `OrchestratorEngine` ofrece dos formas de iniciar el servidor:
 
-*   **`engine.run()`**: Este es un método simple y **bloqueante**. Se encarga de iniciar y detener el servidor por ti. No debes usar esto dentro de una función `async def` que sea parte de una aplicación más grande.
+- **`engine.run()`**: Este es un método simple y **bloqueante**. Se encarga de iniciar y detener el servidor por ti. No debes usar esto dentro de una función `async def` que sea parte de una aplicación más grande.
 
-*   **`await engine.start()`** y **`await engine.stop()`**: Estos son los métodos no bloqueantes para integrar el motor en una aplicación `asyncio` más grande.
-    *   `start()` configura e inicia el servidor web en segundo plano.
-    *   `stop()` apaga el servidor con elegancia y limpia los recursos.
+- **`await engine.start()`** y **`await engine.stop()`**: Estos son los métodos no bloqueantes para integrar el motor en una aplicación `asyncio` más grande.
+  - `start()` configura e inicia el servidor web en segundo plano.
+  - `stop()` apaga el servidor con elegancia y limpia los recursos.
+
 ## Handler Arguments e Inyección de Dependencias
 
 State handlers son el núcleo de la lógica de tu flujo de trabajo. Holarchy proporciona un potente sistema de inyección de dependencias.
@@ -209,15 +219,15 @@ State handlers son el núcleo de la lógica de tu flujo de trabajo. Holarchy pro
 
 Los siguientes argumentos se pueden inyectar por nombre:
 
-*   **Desde el contexto principal del trabajo:**
-    *   `job_id` (str): El ID del trabajo actual.
-    *   `initial_data` (dict): Los datos iniciales.
-    *   `state_history` (dict): Diccionario de datos entre pasos.
-    *   `actions` (ActionFactory): Control de flujo del orquestador.
-    *   `client` (ClientConfig): Información del cliente API.
-    *   `data_stores` (SimpleNamespace): Acceso a recursos compartidos.
-*   **Desde los resultados del worker:**
-    *   Cualquier clave de un diccionario devuelto por un worker anterior se puede inyectar por nombre.
+- **Desde el contexto principal del trabajo:**
+  - `job_id` (str): El ID del trabajo actual.
+  - `initial_data` (dict): Los datos iniciales.
+  - `state_history` (dict): Diccionario de datos entre pasos.
+  - `actions` (ActionFactory): Control de flujo del orquestador.
+  - `client` (ClientConfig): Información del cliente API.
+  - `data_stores` (SimpleNamespace): Acceso a recursos compartidos.
+- **Desde los resultados del worker:**
+  - Cualquier clave de un diccionario devuelto por un worker anterior se puede inyectar por nombre.
 
 ### Ejemplo: Inyección de Dependencias
 
@@ -235,11 +245,11 @@ async def publish_video(
 
 ### El Objeto `actions`
 
-*   `actions.go_to("next_state")`: Mueve el trabajo a un nuevo estado.
-*   `actions.dispatch_task(...)`: Delega el trabajo a un Worker.
-*   `actions.dispatch_parallel(...)`: Ejecuta múltiples tareas a la vez.
-*   `actions.await_human_approval(...)`: Pausa para entrada externa.
-*   `actions.run_blueprint(...)`: Inicia un flujo secundario.
+- `actions.go_to("next_state")`: Mueve el trabajo a un nuevo estado.
+- `actions.dispatch_task(...)`: Delega el trabajo a un Worker.
+- `actions.dispatch_parallel(...)`: Ejecuta múltiples tareas a la vez.
+- `actions.await_human_approval(...)`: Pausa para entrada externa.
+- `actions.run_blueprint(...)`: Inicia un flujo secundario.
 
 ## Conceptos Clave: JobContext y Actions
 
@@ -247,40 +257,59 @@ async def publish_video(
 
 Holarchy está diseñada para entornos de alta carga con miles de workers concurrentes.
 
-*   **Smart Matching Unificado (RXON)**:
-    *   **Matching Unificado**: Migración a la lógica de selección formalizada de `rxon`. Todos los recursos (CPU, RAM, GPU, etc.) se rigen estrictamente por el estándar del protocolo HLN.
-    *   **Comparación Numérica Inteligente**: Realiza automáticamente verificaciones **GE (Mayor o Igual)** para números.
-    *   **Hot Cache y Skills**: Prioriza workers que ya tienen modelos de IA específicos cargados.
-    *   **Deep Schema Matching**: Prioriza a los workers cuyos esquemas coinciden con la tarea.
-    *   **Overflow Strategy**: Desvío automático a workers costosos si los económicos están saturados.
-    *   **Work Stealing**: Los trabajadores inactivos pueden robar tareas atómicamente a velocidad O(1).
-    *   **Load Balancing**: Incrementos de carga optimistas entre latidos (heartbeats).
-    *   **Networking Eficiente**: TCP Keep-Alive y compresión Zstd/Gzip.
-    *   **Logging Asíncrono**: Procesamiento no bloqueante vía `QueueHandler`.
-    *   **IO Optimizado**: Serialización pesada en hilos e índices de DB para el historial.
-*   **Reputación Autoregulada**:
-    *   **Penalizaciones**: Reducción inmediata por violaciones de contrato (-0.2) o fallos (-0.05).
-    *   **Trusted Guard**: Parámetro `REPUTATION_MIN_THRESHOLD` para ignorar nodos poco fiables.
-*   **Arquitectura basada en Contratos**:
-    *   **Validación de API**: Verificación de `initial_data` antes de crear el trabajo.
-    *   **Validación de Resultados**: Verificación de las respuestas de los workers contra su esquema.
-*   **Heartbeats Bi-direccionales**: Canal de comunicación robusto con Jitter para evitar tormentas de peticiones.
-*   **Seguridad de Confianza Cero**: 
-    *   **Verificación de Cadena de Identidad**: Valida la ruta completa ("bubbling path") para eventos en holarquías profundas mediante firmas digitales.
-    *   **mTLS y STS**: mTLS y STS para rotación de tokens de acceso.
-*   **E/S No Bloqueante**:
-    *   **Webhooks**: Enviados vía un pool paralelo de workers de fondo.
-    *   **Streaming S3**: Uso de memoria constante independientemente del tamaño del archivo.
+- **Smart Matching Unificado (RXON)**:
+  - **Matching Unificado**: Migración a la lógica de selección formalizada de `rxon`. Todos los recursos (CPU, RAM, GPU, etc.) se rigen estrictamente por el estándar del protocolo HLN.
+  - **Comparación Numérica Inteligente**: Realiza automáticamente verificaciones **GE (Mayor o Igual)** para números.
+  - **Hot Cache y Skills**: Prioriza workers que ya tienen modelos de IA específicos cargados.
+  - **Deep Schema Matching**: Prioriza a los workers cuyos esquemas coinciden con la tarea.
+  - **Overflow Strategy**: Desvío automático a workers costosos si los económicos están saturados.
+  - **Work Stealing**: Los trabajadores inactivos pueden robar tareas atómicamente a velocidad O(1).
+  - **Load Balancing**: Incrementos de carga optimistas entre latidos (heartbeats).
+  - **Networking Eficiente**: TCP Keep-Alive y compresión Zstd/Gzip.
+  - **Logging Asíncrono**: Procesamiento no bloqueante vía `QueueHandler`.
+  - **IO Optimizado**: Serialización pesada en hilos e índices de DB para el historial.
+- **Reputación Autoregulada**:
+  - **Penalizaciones**: Reducción inmediata por violaciones de contrato (-0.2) o fallos (-0.05).
+  - **Trusted Guard**: Parámetro `REPUTATION_MIN_THRESHOLD` para ignorar nodos poco fiables.
+- **Arquitectura basada en Contratos**:
+  - **Validación de API**: Verificación de `initial_data` antes de crear el trabajo.
+  - **Validación de Resultados**: Verificación de las respuestas de los workers contra su esquema.
+- **Heartbeats Bi-direccionales**: Canal de comunicación robusto con Jitter para evitar tormentas de peticiones.
+- **Seguridad de Confianza Cero**:
+  - **Verificación de Cadena de Identidad**: Valida la ruta completa ("bubbling path") para eventos en holarquías profundas mediante firmas digitales.
+  - **mTLS y STS**: mTLS y STS para rotación de tokens de acceso.
+- **E/S No Bloqueante**:
+  - **Webhooks**: Enviados vía un pool paralelo de workers de fondo.
+  - **Streaming S3**: Uso de memoria constante independientemente del tamaño del archivo.
 
 ## Recetario de Blueprints: Características Clave
 
-### 1. Transiciones Condicionales (`.when()`)
+### 1. Transiciones Condicionales
+
+Pasa condiciones directamente a `@bp.handler()` para crear ramas de lógica condicional. Las condiciones se definen como **expresiones `FastF`** de la biblioteca `fast-filter`, compiladas a lambdas nativas de Python para máximo rendimiento.
 
 ```python
-@bp.handler().when("context.initial_data.type == 'urgent'")
+from holarchy import F  # F se re-exporta desde fast-filter
+
+# Comparación simple sobre initial_data (nombre de estado inferido "decision_step")
+@bp.handler(F.initial_data["type"] == "urgent")
 async def decision_step(actions):
     actions.go_to("urgent_processing")
+
+# Condición compuesta con AND lógico (nombre de estado personalizado "decision_step")
+@bp.handler("decision_step", (F.initial_data["priority"] >= 8) & (F.initial_data["active"] == True))
+async def high_priority_step(actions):
+    actions.go_to("priority_lane")
+
+# Manejador por defecto si ninguna condición coincide
+@bp.handler
+async def decision_step(actions):
+    actions.go_to("normal_processing")
 ```
+
+**Sintaxis soportada:** acceso a atributos (`F.status == "done"`), acceso a dict (`F.data["key"]`), lógica AND/OR/NOT (`&`, `|`, `~`), `in_()`, `regexp()`, agregadores de lista (`.any()`, `.all()`).
+
+> **Nota:** Los atributos faltantes devuelven `False` en lugar de lanzar `AttributeError`.
 
 ### 2. Delegar Tareas a Workers (`dispatch_task`)
 
@@ -320,8 +349,8 @@ async def get_from_cache(data_stores):
 
 ### 5. Programador Nativo (Scheduler)
 
-*   **Configuración:** `schedules.toml`.
-*   **Bloqueo Distribuido:** Seguro para múltiples instancias vía Redis.
+- **Configuración:** `schedules.toml`.
+- **Bloqueo Distribuido:** Seguro para múltiples instancias vía Redis.
 
 ```toml
 [nightly_backup]
@@ -336,8 +365,8 @@ Notificaciones asíncronas para `job_finished`, `job_failed` o `job_quarantined`
 
 ### 7. Descarga de Carga Útil en S3
 
-*   **Streaming**: Uso eficiente de memoria vía `obstore` (Rust).
-*   **Gestionado**: Limpieza automática de objetos S3.
+- **Streaming**: Uso eficiente de memoria vía `obstore` (Rust).
+- **Gestionado**: Limpieza automática de objetos S3.
 
 ```python
 @bp.handler
@@ -352,6 +381,7 @@ async def process_data(task_files, actions):
 Todos los endpoints externos están prefijados con `/api/v1/`.
 
 **Ejemplo de Solicitud:**
+
 ```json
 POST /api/v1/jobs/my_flow
 {
@@ -365,42 +395,45 @@ POST /api/v1/jobs/my_flow
 
 ### Archivos de Configuración
 
--   **`clients.toml`**: Clientes API, tokens y cuotas.
--   **`workers.toml`**: Tokens individuales para workers. Soporta **patrones fnmatch** (ej. `cpu-worker-*`) para escalado dinámico.
--   **`schedules.toml`**: Tareas periódicas.
+- **`clients.toml`**: Clientes API, tokens y cuotas.
+- **`workers.toml`**: Tokens individuales para workers. Soporta **patrones fnmatch** (ej. `cpu-worker-*`) para escalado dinámico.
+- **`schedules.toml`**: Tareas periódicas.
 
 Para más detalles, consulta la [**Guía de Configuración**](https://github.com/madgagarin/holarchy/blob/main/docs/es/configuration.md).
 
 ### Concurrencia y Rendimiento
 
-*   **`EXECUTOR_MAX_CONCURRENT_JOBS`**: Límite de manejadores internos (default: `1000`).
-*   **`WATCHER_LIMIT`**: Reacción ante tiempos de espera por ciclo (default: `500`).
-*   **`DISPATCHER_MAX_CANDIDATES`**: Límite de chequeos de cumplimiento (default: `50`).
+- **`EXECUTOR_MAX_CONCURRENT_JOBS`**: Límite de manejadores internos (default: `1000`).
+- **`WATCHER_LIMIT`**: Reacción ante tiempos de espera por ciclo (default: `500`).
+- **`DISPATCHER_MAX_CANDIDATES`**: Límite de chequeos de cumplimiento (default: `50`).
 
 ### Observabilidad
 
-*   **Structured JSON Logging**: Vía `QueueHandler` no bloqueante.
-*   **Observabilidad Profunda**: Rastreo y métricas basadas en OpenTelemetry (vía OTLP).
+- **Structured JSON Logging**: Vía `QueueHandler` no bloqueante.
+- **Observabilidad Profunda**: Rastreo y métricas basadas en OpenTelemetry (vía OTLP).
 
 ### Seguridad y Protección de Datos
-*   **Seguridad Zero Trust**: Autenticación mutua (mTLS) y firma obligatoria de mensajes **HMAC SHA256** para proteger contra la suplantación de datos y trabajadores.
-*   **Protección contra Replay**: Validación estricta de la marca de tiempo (`timestamp`) con una ventana de 60 segundos.
-*   **Integridad de la Cadena de Identidad**: Verificación matemática de las cadenas de identidad en holarquías (la firma cubre toda la ruta de la señal).
-*   **Envelope Encryption**: Si se establece `REDIS_ENCRYPTION_KEY`, los tokens de worker se cifran en Redis (AES-GCM).
-*   **Modos de Autenticación**: Soporte para `WORKER_AUTH_MODE` (`mixed`, `mtls-only`, `token-only`).
-*   **Aislamiento Estricto de Clientes**: Los trabajos están estrictamente vinculados al `client_token`. Un cliente solo puede acceder, gestionar o descargar archivos de los trabajos que creó.
+
+- **Seguridad Zero Trust**: Autenticación mutua (mTLS) y firma obligatoria de mensajes **HMAC SHA256** para proteger contra la suplantación de datos y trabajadores.
+- **Protección contra Replay**: Validación estricta de la marca de tiempo (`timestamp`) con una ventana de 60 segundos.
+- **Integridad de la Cadena de Identidad**: Verificación matemática de las cadenas de identidad en holarquías (la firma cubre toda la ruta de la señal).
+- **Envelope Encryption**: Si se establece `REDIS_ENCRYPTION_KEY`, los tokens de worker se cifran en Redis (AES-GCM).
+- **Modos de Autenticación**: Soporte para `WORKER_AUTH_MODE` (`mixed`, `mtls-only`, `token-only`).
+- **Aislamiento Estricto de Clientes**: Los trabajos están estrictamente vinculados al `client_token`. Un cliente solo puede acceder, gestionar o descargar archivos de los trabajos que creó.
 
 ### Límite de Tasa
 
 Limitador de tasa granular basado en Redis (Heartbeats: 120/min, Polling: 60/min, General: 100/min).
+
 > **Nota:** Los workers reciben un encabezado estándar **`Retry-After`** al ser bloqueados para gestionar el backoff inteligente.
 
 ### Capa de Almacenamiento
 
-*   **Redis**: Estados (`msgpack`) y colas (Streams).
-*   **PostgreSQL/SQLite**: Historial con índices optimizados.
+- **Redis**: Estados (`msgpack`) y colas (Streams).
+- **PostgreSQL/SQLite**: Historial con índices optimizados.
 
 ### Modo Holon Puro
+
 Establece `ENABLE_CLIENT_API="false"` para deshabilitar la API pública y solo aceptar tareas vía RXON.
 
 ## Guía para Contribuidores
@@ -412,6 +445,7 @@ pytest tests/
 ```
 
 ### Documentación API Interactiva
+
 Disponible en `/_public/docs`.
 
 ## Documentación Detallada
