@@ -19,10 +19,12 @@ class ActionFactory:
         job_id: str,
         default_dispatch_timeout: int | None = None,
         default_result_timeout: int | None = None,
+        policy: dict[str, Any] | None = None,
     ):
         self._job_id = job_id
         self._default_dispatch_timeout = default_dispatch_timeout
         self._default_result_timeout = default_result_timeout
+        self._policy = policy or {}
         self._next_state_val: str | None = None
         self._task_to_dispatch_val: dict[str, Any] | None = None
         self._sub_blueprint_to_run_val: dict[str, Any] | None = None
@@ -89,6 +91,15 @@ class ActionFactory:
         """
         self._check_for_existing_action()
 
+        allowed_skills = self._policy.get("allowed_skills")
+        if allowed_skills is not None:
+            for task in tasks:
+                t_type = task.get("type")
+                if t_type and t_type not in allowed_skills:
+                    raise PermissionError(
+                        f"Task type '{t_type}' is not permitted by job policy. Allowed skills: {allowed_skills}"
+                    )
+
         for task in tasks:
             if "skill_version" not in task:
                 task["skill_version"] = "1.0.0"
@@ -126,6 +137,12 @@ class ActionFactory:
     ) -> None:
         """Dispatches a task to a worker for execution."""
         self._check_for_existing_action()
+
+        allowed_skills = self._policy.get("allowed_skills")
+        if allowed_skills is not None and task_type not in allowed_skills:
+            raise PermissionError(
+                f"Task type '{task_type}' is not permitted by job policy. Allowed skills: {allowed_skills}"
+            )
         logger.debug(f"Job {self._job_id}: Dispatching task '{task_type}' (version {skill_version})")
 
         if resource_hint:

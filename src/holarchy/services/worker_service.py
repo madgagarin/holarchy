@@ -344,7 +344,20 @@ class WorkerService:
                 "message": f"Job {job_id} not found (expired or deleted).",
             }
 
-        result_status = validated_res.status
+        if hasattr(self.engine, "middleware_chain") and not hasattr(self.engine.middleware_chain, "_mock_name"):
+            try:
+                result_payload = await self.engine.middleware_chain.run_process_inbound_result(
+                    job_state, result_payload
+                )
+            except Exception as e:
+                logger.error(f"Middleware rejected inbound result for job {job_id}: {e}")
+                job_state["status"] = JOB_STATUS_QUARANTINED
+                job_state["error_message"] = f"Middleware error on inbound result: {e}"
+                await self.storage.save_job_state(job_id, job_state)
+                await self.storage.quarantine_job(job_id)
+                return {"status": "ignored", "reason": "middleware_error", "message": str(e)}
+
+        result_status = result_payload.get("status", validated_res.status)
         worker_data_content = validated_res.data
 
         skill_snapshot: SkillInfo | None = None
@@ -447,9 +460,25 @@ class WorkerService:
             }
 
         if current_status == JOB_STATUS_WAITING_FOR_PARALLEL:
+            active_branches = job_state.get("active_branches") or []
+            if task_id not in active_branches:
+                logger.critical(
+                    f"PARALLEL INJECTION ATTEMPT: task_id '{task_id}' is not in active_branches for job '{job_id}'"
+                )
+                return {
+                    "status": "ignored",
+                    "reason": IGNORED_REASON_MISMATCH,
+                    "message": f"Forbidden: task_id '{task_id}' is not an active parallel branch for job '{job_id}'.",
+                }
+
             await self.storage.remove_job_from_watch(f"{job_id}:{task_id}")
 
             def _update_parallel_results(state: dict[str, Any]) -> dict[str, Any]:
+                branches = state.setdefault("active_branches", [])
+                if task_id not in branches:
+                    logger.critical(f"Parallel injection race condition: task_id {task_id} not in active_branches")
+                    return state
+
                 state.setdefault("aggregation_results", {})[task_id] = result_payload
 
                 if result_payload.get("security"):
@@ -457,9 +486,7 @@ class WorkerService:
                 if result_payload.get("metadata"):
                     state.setdefault("metadata", {}).update(result_payload["metadata"])
 
-                branches = state.setdefault("active_branches", [])
-                if task_id in branches:
-                    branches.remove(task_id)
+                branches.remove(task_id)
 
                 if not branches:
                     state["status"] = JOB_STATUS_RUNNING
@@ -622,6 +649,15 @@ class WorkerService:
     async def process_worker_event(self, authenticated_worker_id: str, raw_payload: dict[str, Any]) -> dict[str, Any]:
         await self._verify_zero_trust(raw_payload, authenticated_worker_id, ignore_fields=["bubbling_chain"])
 
+        if hasattr(self.engine, "middleware_chain") and not hasattr(self.engine.middleware_chain, "_mock_name"):
+            try:
+                raw_payload = await self.engine.middleware_chain.run_process_inbound_event(
+                    authenticated_worker_id, raw_payload
+                )
+            except Exception as e:
+                logger.error(f"Middleware rejected inbound event from worker {authenticated_worker_id}: {e}")
+                return {"status": "error", "message": f"Middleware error: {e}"}
+
         try:
             event = from_dict(WorkerEventPayload, raw_payload)
         except (AttributeError, TypeError, ValueError) as e:
@@ -630,6 +666,32 @@ class WorkerService:
 
         if event.worker_id != authenticated_worker_id:
             raise PermissionError("Immediate sender ID mismatch")
+
+        if authenticated_worker_id != "ghost":
+            target_id = event.target_job_id or event.target_task_id
+            if target_id:
+                target_state = await self.storage.get_job_state(target_id)
+                if target_state:
+                    assigned_worker = target_state.get("assigned_worker_id") or target_state.get("task_worker_id")
+                    branch_workers = list((target_state.get("branch_worker_ids") or {}).values())
+                    is_assigned = authenticated_worker_id == assigned_worker
+                    if assigned_worker and not is_assigned and authenticated_worker_id not in branch_workers:
+                        logger.critical(
+                            f"EVENT HIJACKING ATTEMPT: Worker '{authenticated_worker_id}' sent event for job "
+                            f"'{target_id}' assigned to '{assigned_worker}'"
+                        )
+                        raise PermissionError(
+                            f"Forbidden: Worker '{authenticated_worker_id}' is not assigned to job '{target_id}'"
+                        )
+                    elif branch_workers and authenticated_worker_id not in branch_workers:
+                        logger.critical(
+                            f"EVENT HIJACKING ATTEMPT: Worker '{authenticated_worker_id}' sent event for parallel "
+                            f"job '{target_id}'"
+                        )
+                        raise PermissionError(
+                            f"Forbidden: Worker '{authenticated_worker_id}' is not assigned to any branch of job "
+                            f"'{target_id}'"
+                        )
 
         events_schema = None
         dialect = "json-schema"

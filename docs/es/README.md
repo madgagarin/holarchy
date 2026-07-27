@@ -12,11 +12,14 @@
 
 - **State-Machine Driven**: Blueprints declarativos en Python para lógica compleja.
 - **Alto Rendimiento**: Indexación de colas vía **ZSET**, mecanismo de **Work Stealing** (robo de tareas) en Lua y transiciones de estado atómicas.
-- **Seguridad Zero Trust**: Implementación completa de `SecurityContext`, firma automática HMAC SHA256 y verificación de cadenas de identidad.
+- **Seguridad Zero Trust y Capa de Políticas**: Implementación completa de `SecurityContext`, firma automática HMAC SHA256 para estados en Redis, verificación de cadenas de identidad (Identity Chains) y políticas granulares para habilidades (`allowed_skills`).
+- **Protección de Profundidad de Holarquía**: Límite configurable (`MAX_HOLARCHY_DEPTH`) para prevenir la recursión infinita en sub-blueprints con cuarentena automática.
+- **Infraestructura de Middleware**: `MiddlewareChain` flexible para interceptar solicitudes, respuestas, resultados de воркеров y tareas salientes.
+- **Criptoauditoría D-DNA**: Herramientas CLI de verificación (`holarchy.cli.audit`) que garantizan la integridad de la cadena de historial de eventos.
 - **Protección de Datos**: **Envelope Encryption** (cifrado de sobres) para tokens en Redis, aislamiento estricto de clientes y protección contra reenvío (Replay Protection).
 - **Gestión de Archivos**: Streaming Async S3 de alto rendimiento mediante la librería `obstore`.
 - **Automatización**: Descubrimiento automático de transiciones mediante **análisis AST** del código de los manejadores.
-- **Observability**: Seguimiento distribuido con **OpenTelemetry** y métricas en tiempo real.
+- **Observabilidad**: Seguimiento distribuido **Orquestador ↔ Worker** con **OpenTelemetry** y métricas en tiempo real.
 
 Este documento sirve como una guía completa para desarrolladores que buscan construir pipelines (blueprints) e integrar el Orquestador en sus aplicaciones.
 
@@ -414,12 +417,52 @@ Para más detalles, consulta la [**Guía de Configuración**](https://github.com
 
 ### Seguridad y Protección de Datos
 
-- **Seguridad Zero Trust**: Autenticación mutua (mTLS) y firma obligatoria de mensajes **HMAC SHA256** para proteger contra la suplantación de datos y trabajadores.
+- **Seguridad Zero Trust**: Autenticación mutua (mTLS) y firma obligatoria de mensajes **HMAC SHA256** para la integridad de estados en Redis y verificación de workers.
+- **Políticas Granulares para Habilidades (`policy`)**: Restringe las habilidades de workers permitidas para un trabajo mediante `policy: {"allowed_skills": ["skill_a", "skill_b"]}`.
+- **Protección de Profundidad de Holarquía (`MAX_HOLARCHY_DEPTH`)**: Límite configurable (default 10) que previene la recursión infinita en sub-blueprints con cuarentena automática.
+- **Infraestructura de Middleware (`MiddlewareChain`)**: Intercepta solicitudes/respuestas de manejadores, tareas salientes y eventos de workers.
+- **Criptoauditoría D-DNA (`holarchy.cli.audit`)**: Verifica la integridad de la cadena del historial de eventos mediante firmas criptográficas.
 - **Protección contra Replay**: Validación estricta de la marca de tiempo (`timestamp`) con una ventana de 60 segundos.
 - **Integridad de la Cadena de Identidad**: Verificación matemática de las cadenas de identidad en holarquías (la firma cubre toda la ruta de la señal).
 - **Envelope Encryption**: Si se establece `REDIS_ENCRYPTION_KEY`, los tokens de worker se cifran en Redis (AES-GCM).
 - **Modos de Autenticación**: Soporte para `WORKER_AUTH_MODE` (`mixed`, `mtls-only`, `token-only`).
 - **Aislamiento Estricto de Clientes**: Los trabajos están estrictamente vinculados al `client_token`. Un cliente solo puede acceder, gestionar o descargar archivos de los trabajos que creó.
+
+#### Ejemplo de Políticas de Habilidades (`policy`):
+
+```json
+POST /api/v1/jobs/my_flow
+{
+    "initial_data": {"input_val": 42},
+    "policy": {
+        "allowed_skills": ["data_extractor", "pdf_generator"]
+    },
+    "max_transitions": 50
+}
+```
+
+#### Ejemplo de Middleware Personalizado (`MiddlewareChain`):
+
+```python
+from holarchy.middleware import BaseMiddleware
+
+class AuditLogMiddleware(BaseMiddleware):
+    async def process_outbound_task(self, context, task_payload):
+        task_payload["audit_tag"] = "monitored"
+        return task_payload
+
+engine.middleware_chain.add(AuditLogMiddleware())
+```
+
+#### Ejemplo de Verificación de Criptoauditoría D-DNA (`holarchy.cli.audit`):
+
+```python
+from holarchy.cli.audit import verify_d_dna_integrity
+
+is_valid, error = verify_d_dna_integrity(job_history_events, audit_salt="mi_clave_secreta")
+if not is_valid:
+    print(f"Alteración del historial detectada: {error}")
+```
 
 ### Límite de Tasa
 

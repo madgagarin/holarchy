@@ -188,7 +188,6 @@ class RedisStorage(StorageBackend):
             try:
                 return loads(data)
             except Exception:
-                # Fallback to msgpack if it's old data
                 return self._unpack(data)
         return self._unpack(data)
 
@@ -311,7 +310,16 @@ class RedisStorage(StorageBackend):
         data = await self._redis.get(key)
         if data:
             unpacked = await self._unpack_async(data)
-            return cast(dict[str, Any], unpacked)
+            state = cast(dict[str, Any], unpacked)
+            if isinstance(state, dict):
+                signature = state.get("_signature")
+                secret = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
+                if signature and secret:
+                    from rxon.security import verify_signature  # noqa: PLC0415
+                    if not verify_signature(state, signature, secret, ignore_fields=["_signature"]):
+                        logger.critical(f"JOB STATE HMAC MISMATCH: Job state integrity corrupted for {job_id}")
+                        raise PermissionError("Job state HMAC signature verification failed")
+            return state
         return None
 
     async def get_priority_queue_stats(self, task_type: str) -> dict[str, Any]:
@@ -348,6 +356,12 @@ class RedisStorage(StorageBackend):
     async def save_job_state(self, job_id: str, state: dict[str, Any]) -> None:
         """Save the job state to Redis."""
         key = self._get_key(job_id)
+        secret = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
+        if secret and isinstance(state, dict):
+            from rxon.security import sign_payload  # noqa: PLC0415
+            normalized = RedisStorage._normalize_unpacked(state)
+            state["_signature"] = sign_payload(normalized, secret, ignore_fields=["_signature"])
+
         packed = await self._pack_async(state)
         await self._redis.set(key, packed)
 
@@ -387,6 +401,12 @@ class RedisStorage(StorageBackend):
                         updated_state = await update_callback(current_state)
                     else:
                         updated_state = update_callback(current_state)
+
+                    secret = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
+                    if secret and isinstance(updated_state, dict):
+                        from rxon.security import sign_payload  # noqa: PLC0415
+                        normalized = RedisStorage._normalize_unpacked(updated_state)
+                        updated_state["_signature"] = sign_payload(normalized, secret, ignore_fields=["_signature"])
 
                     pipe.multi()
                     packed = await self._pack_async(updated_state)

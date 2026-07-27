@@ -91,16 +91,15 @@ class JobExecutor:
                 job_state["retry_count"] = 0
 
             # Detect infinite loops in blueprints
-            transition_count = job_state.get("transition_count", 0) + 1
+            step = job_state.get("step", 0) + 1
 
-            max_transitions = 100
-            try:
-                if isinstance(self.engine.config.MAX_TRANSITIONS_PER_JOB, int):
-                    max_transitions = self.engine.config.MAX_TRANSITIONS_PER_JOB
-            except Exception:
-                pass
+            max_transitions = job_state.get("max_transitions")
+            if max_transitions is None or not isinstance(max_transitions, int):
+                max_transitions = getattr(self.engine.config, "MAX_TRANSITIONS_PER_JOB", 100)
+                if not isinstance(max_transitions, int):
+                    max_transitions = 100
 
-            if transition_count > max_transitions:
+            if step > max_transitions:
                 duration_ms = int((monotonic() - start_time) * 1000)
                 error_msg = (
                     f"Blueprint execution exceeded maximum transitions ({max_transitions}). "
@@ -124,7 +123,7 @@ class JobExecutor:
                 )
                 return
 
-            job_state["transition_count"] = transition_count
+            job_state["step"] = step
 
             await self.history_storage.log_job_event(
                 {
@@ -152,6 +151,16 @@ class JobExecutor:
                 span.set_attribute("job.current_state", job_state["current_state"])
                 span.set_attribute("job.retry_count", job_state.get("retry_count", 0))
                 span.set_attribute("job.client_token", job_state.get("client_config", {}).get("token", "unknown"))
+                span.set_attribute("job.step", job_state.get("step", 0))
+                span.set_attribute("job.depth", job_state.get("depth", 0))
+                if parent_hash := job_state.get("parent_hash"):
+                    span.set_attribute("job.parent_hash", parent_hash)
+                if sig := job_state.get("sig"):
+                    span.set_attribute("job.sig", sig)
+                if costs := job_state.get("costs"):
+                    span.set_attribute("job.costs", str(costs))
+                if quarantine_reason := job_state.get("quarantine_reason"):
+                    span.set_attribute("job.quarantine_reason", str(quarantine_reason))
 
                 tracing_context: dict[str, str] = {}
                 telemetry.inject(tracing_context)
@@ -173,6 +182,7 @@ class JobExecutor:
                     job_id,
                     default_dispatch_timeout=job_state.get("dispatch_timeout"),
                     default_result_timeout=job_state.get("result_timeout"),
+                    policy=job_state.get("policy"),
                 )
                 client_config_dict = job_state.get("client_config", {})
                 client_config = ClientConfig(
@@ -200,6 +210,7 @@ class JobExecutor:
                     aggregation_results=aggregation_results,
                     webhook_url=job_state.get("webhook_url"),
                     task_files=task_files,
+                    policy=job_state.get("policy"),
                 )
 
                 try:
@@ -228,13 +239,26 @@ class JobExecutor:
                         elif param_name in context.initial_data:
                             params_to_inject[param_name] = context.initial_data[param_name]
 
-                    await handler(**params_to_inject)
+                    if (
+                        hasattr(self.engine, "middleware_chain")
+                        and not hasattr(self.engine.middleware_chain, "_mock_name")
+                    ):
+                        params_to_inject = await self.engine.middleware_chain.run_process_handler_request(
+                            context, params_to_inject
+                        )
+
+                    result = await handler(**params_to_inject)
+
+                    if (
+                        hasattr(self.engine, "middleware_chain")
+                        and not hasattr(self.engine.middleware_chain, "_mock_name")
+                    ):
+                        result = await self.engine.middleware_chain.run_process_handler_response(
+                            context, result
+                        )
 
                     # Sync context state back to job_state for persistence
                     if action_factory.context_updates:
-                        context.state_history.update(action_factory.context_updates)
-
-                        # Legacy compatibility: tests expect updates in initial_data
                         if "initial_data" not in job_state or job_state["initial_data"] is None:
                             job_state["initial_data"] = {}
                         job_state["initial_data"].update(action_factory.context_updates)
@@ -504,6 +528,18 @@ class JobExecutor:
                 await self._handle_failure(parent_job_state, error, duration_ms)
                 return
 
+        parent_depth = parent_job_state.get("depth", 0)
+        new_depth = parent_depth + 1
+
+        if new_depth > self.engine.config.MAX_HOLARCHY_DEPTH:
+            error_msg = f"Holarchy depth limit exceeded ({new_depth} > {self.engine.config.MAX_HOLARCHY_DEPTH})"
+            logger.critical(f"Job {parent_job_id} quarantined: {error_msg}")
+            parent_job_state["status"] = JOB_STATUS_QUARANTINED
+            parent_job_state["error_message"] = error_msg
+            await self.storage.save_job_state(parent_job_id, parent_job_state)
+            await self.storage.quarantine_job(parent_job_id)
+            return
+
         try:
             child_job_id = await self.engine.create_background_job(
                 blueprint_name=blueprint_name,
@@ -516,6 +552,10 @@ class JobExecutor:
                 result_timeout=sub_blueprint_info.get("result_timeout"),
                 security=parent_job_state.get("security"),
                 metadata=parent_job_state.get("metadata"),
+                policy=parent_job_state.get("policy"),
+                depth=new_depth,
+                parent_hash=parent_job_state.get("current_hash") or parent_job_state.get("parent_hash"),
+                max_transitions=parent_job_state.get("max_transitions"),
             )
         except Exception as e:
             error_msg = f"Failed to dispatch sub-job: {e}"

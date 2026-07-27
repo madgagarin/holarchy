@@ -43,7 +43,7 @@ async def test_executor_updates_result_field_multi_step():
         "current_state": "step_1",
         "status": "running",
         "state_history": {},
-        "transition_count": 0,
+        "step": 0,
     }
     storage.get_job_state.return_value = job_state
 
@@ -130,7 +130,7 @@ async def test_executor_result_field_empty_history_safe():
         "current_state": "start",
         "status": "running",
         "state_history": {},
-        "transition_count": 0,
+        "step": 0,
     }
     storage.get_job_state.return_value = job_state
 

@@ -37,6 +37,15 @@ class Config:
         )
         self.GLOBAL_WORKER_TOKEN: str = getenv("GLOBAL_WORKER_TOKEN", "secure-worker-token")
 
+        secret_key = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
+        if not secret_key:
+            from secrets import token_hex  # noqa: PLC0415
+            secret_key = token_hex(32)
+        self.ORCHESTRATOR_SECRET_KEY: str = secret_key
+        self.ORCHESTRATOR_INTERNAL_KEY: str = secret_key
+
+        self.AUDIT_SALT: str = getenv("AUDIT_SALT", "default_audit_salt")
+
         self.WORKER_AUTH_MODE: str = getenv("WORKER_AUTH_MODE", "mixed").lower()
         if self.WORKER_AUTH_MODE not in ("mixed", "mtls-only", "token-only"):
             raise ValueError(
@@ -111,6 +120,8 @@ class Config:
         self.WORK_STEALING_ENABLED: bool = getenv("WORK_STEALING_ENABLED", "true").lower() == "true"
 
         self.MAX_TRANSITIONS_PER_JOB: int = int(getenv("MAX_TRANSITIONS_PER_JOB", 100))
+        self.MAX_HOLARCHY_DEPTH: int = int(getenv("MAX_HOLARCHY_DEPTH", 10))
+        self.MAX_POLICY_SIZE_BYTES: int = int(getenv("MAX_POLICY_SIZE_BYTES", 4096))
 
         self.DETAILED_API_RESPONSES: bool = getenv("DETAILED_API_RESPONSES", "false").lower() == "true"
 

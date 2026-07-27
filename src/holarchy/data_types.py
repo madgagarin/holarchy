@@ -35,6 +35,7 @@ class JobContext(NamedTuple):
     aggregation_results: dict[str, Any] | None = None
     webhook_url: str | None = None
     task_files: Any | None = None
+    policy: dict[str, Any] | None = None
 
 
 class WorkerInfo(NamedTuple):

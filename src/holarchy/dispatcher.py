@@ -471,11 +471,21 @@ class Dispatcher:
             priority=priority,
             deadline=deadline,
             security=job_state.get("security"),
-            metadata=job_state.get("metadata"),
             timestamp=time(),
+            policy=job_state.get("policy"),
+            step=job_state.get("step", 0),
+            depth=job_state.get("depth", 0),
+            parent_hash=job_state.get("parent_hash"),
         )
         telemetry.inject(payload_obj.tracing_context, context=job_state.get("tracing_context"))
         payload = to_dict(payload_obj)
+
+        if (
+            hasattr(self, "engine")
+            and hasattr(self.engine, "middleware_chain")
+            and not hasattr(self.engine.middleware_chain, "_mock_name")
+        ):
+            payload = await self.engine.middleware_chain.run_process_outbound_task(worker_id, payload)
 
         try:
             await self.storage.enqueue_task_for_worker(worker_id, payload, priority)

@@ -257,7 +257,6 @@ class MemoryStorage(StorageBackend):
 
                 hot_skills = info.get("hot_skills", [])
                 for hs in hot_skills or []:
-                    # Handle both strings and old objects if any
                     hs_name = hs if isinstance(hs, str) else hs.get("name")
                     if hs_name == skill_name:
                         candidates.append(worker_id)

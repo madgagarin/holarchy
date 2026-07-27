@@ -130,7 +130,7 @@ async def test_infinite_loop_prevention(config, redis_storage):
         final_state = await redis_storage.get_job_state(job_id)
         assert final_state["status"] == JOB_STATUS_FAILED
         assert "infinite loop" in final_state["error_message"].lower()
-        assert final_state["transition_count"] == 5
+        assert final_state["step"] == 5
     finally:
         await engine.on_shutdown(engine.app)
 

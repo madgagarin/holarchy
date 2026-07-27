@@ -65,6 +65,37 @@ class Metrics:
             description="Total number of certificate identity mismatches.",
         )
 
+        self.policy_violations_total = get_or_create(
+            "orchestrator_policy_violations_total",
+            meter.create_counter,
+            unit="1",
+            description="Blocked skill calls due to policy.allowed_skills",
+        )
+        self.holarchy_depth_exceeded_total = get_or_create(
+            "orchestrator_holarchy_depth_exceeded_total",
+            meter.create_counter,
+            unit="1",
+            description="Jobs quarantined due to exceeding MAX_HOLARCHY_DEPTH",
+        )
+        self.signature_invalid_total = get_or_create(
+            "orchestrator_signature_invalid_total",
+            meter.create_counter,
+            unit="1",
+            description="Invalid HMAC signatures for states or tasks",
+        )
+        self.history_integrity_failures_total = get_or_create(
+            "orchestrator_history_integrity_failures_total",
+            meter.create_counter,
+            unit="1",
+            description="Failed D-DNA integrity checks",
+        )
+        self.middleware_errors_total = get_or_create(
+            "orchestrator_middleware_errors_total",
+            meter.create_counter,
+            unit="1",
+            description="Errors in the middleware chain",
+        )
+
         # Observable Gauges for state tracking
         self._gauge_values: dict[str, float] = {
             "task_queue_length": 0.0,

@@ -31,7 +31,6 @@ from rxon.constants import (
     COMMAND_CANCEL_TASK,
     JOB_STATUS_CANCELLED,
     JOB_STATUS_FAILED,
-    JOB_STATUS_PENDING,
     JOB_STATUS_QUARANTINED,
     JOB_STATUS_WAITING_FOR_PARALLEL,
     JOB_STATUS_WAITING_FOR_WORKER,
@@ -74,6 +73,7 @@ from .health_checker import HealthChecker
 from .history.base import HistoryStorageBase
 from .history.noop import NoOpHistoryStorage
 from .logging_config import LogManager
+from .middleware.base import MiddlewareChain
 from .ratelimit import rate_limit_middleware_factory
 from .reputation import ReputationCalculator
 from .s3 import S3Service
@@ -101,6 +101,7 @@ class OrchestratorEngine:
         self.blueprint_contracts: dict[str, dict[str, Any]] = {}
         self.history_storage: HistoryStorageBase = NoOpHistoryStorage()
         self.ws_manager = WebSocketManager(self.storage)
+        self.middleware_chain = MiddlewareChain()
         self.token_hash_cache = cachebox.TTLCache(maxsize=10000, global_ttl=60.0)
         self.instrument_cache = cachebox.LRUCache(maxsize=1000)
         self.fernet_cache = cachebox.LRUCache(maxsize=1000)
@@ -617,6 +618,10 @@ class OrchestratorEngine:
         security: Any | None = None,
         metadata: dict[str, Any] | None = None,
         parent_job_id: str | None = None,
+        policy: dict[str, Any] | None = None,
+        depth: int = 0,
+        parent_hash: str | None = None,
+        max_transitions: int | None = None,
     ) -> str:
         """Creates a job directly, bypassing the HTTP API layer.
         Useful for internal schedulers and triggers.
@@ -648,11 +653,14 @@ class OrchestratorEngine:
 
             job_state = {
                 "id": job_id,
-                "blueprint_name": blueprint.name,
+                "blueprint_name": blueprint_name,
+                "status": "pending",
                 "current_state": blueprint.start_state,
                 "initial_data": initial_data,
-                "state_history": {},
-                "status": JOB_STATUS_PENDING,
+                "state_history": initial_data.copy(),
+                "created_at": now,
+                "updated_at": now,
+                "retry_count": 0,
                 "tracing_context": final_tracing_context,
                 "client_config": client_config,
                 "data_metadata": data_metadata or {},
@@ -661,6 +669,11 @@ class OrchestratorEngine:
                 "security": to_dict(security) if security else None,
                 "metadata": metadata or {},
                 "parent_job_id": parent_job_id,
+                "policy": policy or {},
+                "depth": depth,
+                "step": 0,
+                "parent_hash": parent_hash,
+                "max_transitions": max_transitions,
                 "timestamp": now,
             }
             await self.storage.save_job_state(job_id, job_state)
@@ -674,7 +687,7 @@ class OrchestratorEngine:
             await self.history_storage.log_job_event(
                 {
                     "job_id": job_id,
-                    "client_token": job_state.get("client_config", {}).get("token"),
+                    "client_token": client_config.get("token") if isinstance(client_config, dict) else None,
                     "state": "pending",
                     "event_type": "job_created",
                     "context_snapshot": job_state,

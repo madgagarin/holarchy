@@ -52,8 +52,37 @@ def create_job_handler_factory(blueprint: Blueprint) -> Callable[[web.Request], 
             result_timeout = request_body.get("result_timeout")
             security = request_body.get("security")
             metadata = request_body.get("metadata")
+            policy = request_body.get("policy")
+            max_transitions = request_body.get("max_transitions")
         except Exception:
             return json_response({"error": "Invalid JSON body"}, status=400)
+
+        if policy is not None:
+            if not isinstance(policy, dict):
+                return json_response({"error": "'policy' must be a dictionary"}, status=400)
+            policy_bytes = len(dumps(policy))
+            max_policy_bytes = getattr(engine.config, "MAX_POLICY_SIZE_BYTES", 4096)
+            if policy_bytes > max_policy_bytes:
+                return json_response(
+                    {"error": f"Policy size exceeds MAX_POLICY_SIZE_BYTES limit ({policy_bytes} > {max_policy_bytes})"},
+                    status=400,
+                )
+            allowed_skills = policy.get("allowed_skills")
+            if allowed_skills is not None and (
+                not isinstance(allowed_skills, list)
+                or not allowed_skills
+                or not all(isinstance(s, str) for s in allowed_skills)
+            ):
+                return json_response(
+                    {"error": "'policy.allowed_skills' must be a non-empty list of strings"}, status=400
+                )
+
+        if max_transitions is not None:
+            max_allowed = getattr(engine.config, "MAX_TRANSITIONS_PER_JOB", 100)
+            if not isinstance(max_transitions, int) or max_transitions < 1 or max_transitions > max_allowed:
+                return json_response(
+                    {"error": f"'max_transitions' must be an integer between 1 and {max_allowed}"}, status=400
+                )
 
         client_config = request.get(CLIENT_CONFIG_KEY) or request.get("client_config", {})
 
@@ -83,6 +112,8 @@ def create_job_handler_factory(blueprint: Blueprint) -> Callable[[web.Request], 
             "result_timeout": result_timeout,
             "security": security,
             "metadata": metadata,
+            "policy": policy,
+            "max_transitions": max_transitions,
         }
         await engine.storage.save_job_state(job_id, job_state)
 
@@ -120,6 +151,10 @@ def _filter_job_state(
         "blueprint_name",
         "context_snapshot",
         "child_job_id",
+        "step",
+        "depth",
+        "parent_hash",
+        "max_transitions",
     }
 
     # Define terminal states for access control

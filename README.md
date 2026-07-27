@@ -12,7 +12,10 @@
 
 - **State-Machine Driven**: Declarative Python Blueprints for complex logic.
 - **High-Performance**: **ZSET-based** queue indexing, **Work Stealing** mechanism (Lua), and atomic state transitions.
-- **Zero Trust Security**: Full `SecurityContext` implementation, automatic HMAC SHA256 signing, and identity chain verification.
+- **Zero Trust Security & Policy Enforcement**: Full `SecurityContext` implementation, automatic HMAC SHA256 signing for Redis job states, identity chain verification, and granular skill execution policies (`allowed_skills`).
+- **Holarchy Depth Guard**: Configurable limit (`MAX_HOLARCHY_DEPTH`) to prevent infinite recursion in sub-blueprints with automatic process quarantine.
+- **Middleware Infrastructure**: Flexible `MiddlewareChain` for intercepting handlers, worker results, and outbound tasks.
+- **D-DNA Crypto-Audit**: CLI verification tools (`holarchy.cli.audit`) ensuring tamper-proof event history integrity.
 - **Data Protection**: **Envelope Encryption** for tokens in Redis, strict client isolation, and Replay Protection.
 - **File Management**: High-performance Async S3 streaming via the `obstore` library.
 - **Automation**: Automatic transition discovery via **AST analysis** of handler code.
@@ -549,12 +552,53 @@ Multiple Orchestrator instances can run behind a load balancer.
 
 ### Security & Data Protection
 
-- **Zero Trust Security**: Mutual authentication (mTLS) and mandatory **HMAC SHA256** message signing to protect against data and worker spoofing.
+- **Zero Trust Security**: Mutual authentication (mTLS) and mandatory **HMAC SHA256** message signing for Redis state integrity and worker identity verification.
+- **Granular Skill Policy (`policy`)**: Restrict permitted worker skills for a job via `policy: {"allowed_skills": ["skill_a", "skill_b"]}`.
+- **Holarchy Depth Guard (`MAX_HOLARCHY_DEPTH`)**: Configurable limit (default 10) preventing infinite recursion in sub-blueprints with automatic process quarantine.
+- **Middleware Infrastructure (`MiddlewareChain`)**: Intercept handler requests/responses, outbound tasks, and inbound worker events.
+- **D-DNA Crypto-Audit (`holarchy.cli.audit`)**: Verify event history log integrity via cryptographic hash chains.
 - **Replay Protection**: Strict validation of `timestamp` with a 60-second window.
 - **Identity Chain Integrity**: Mathematical verification of identity chains in holarchies (signature covers the entire signal path).
 - **Envelope Encryption**: When `REDIS_ENCRYPTION_KEY` is provided, worker tokens are stored encrypted in Redis (AES-GCM).
 - **Auth Modes**: Support for `WORKER_AUTH_MODE` (`mixed`, `mtls-only`, `token-only`).
 - **Strict Client Isolation**: Jobs are strictly tied to the `client_token`. A client can only access, manage, or download files for jobs they created.
+- **API Detail Policy**: By default, API returns minimal fields for security. Full detail enabled via `DETAILED_API_RESPONSES="true"`.
+
+#### Skill Policy Example (`policy`):
+
+```json
+POST /api/v1/jobs/my_flow
+{
+    "initial_data": {"input_val": 42},
+    "policy": {
+        "allowed_skills": ["data_extractor", "pdf_generator"]
+    },
+    "max_transitions": 50
+}
+```
+
+#### Custom Middleware Example (`MiddlewareChain`):
+
+```python
+from holarchy.middleware import BaseMiddleware
+
+class AuditLogMiddleware(BaseMiddleware):
+    async def process_outbound_task(self, context, task_payload):
+        task_payload["audit_tag"] = "monitored"
+        return task_payload
+
+engine.middleware_chain.add(AuditLogMiddleware())
+```
+
+#### D-DNA Crypto-Audit Verification Example (`holarchy.cli.audit`):
+
+```python
+from holarchy.cli.audit import verify_d_dna_integrity
+
+is_valid, error = verify_d_dna_integrity(job_history_events, audit_salt="my_secret_salt")
+if not is_valid:
+    print(f"History tampering detected: {error}")
+```
 
 ### Rate Limiting
 
