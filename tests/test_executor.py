@@ -3,9 +3,10 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
+
 from unittest.mock import ANY, AsyncMock, MagicMock
 
-import pytest
+from pytest import fixture, mark
 from src.holarchy.app_keys import S3_SERVICE_KEY
 from src.holarchy.blueprint import Blueprint
 from src.holarchy.config import Config
@@ -14,7 +15,7 @@ from src.holarchy.data_types import JobContext
 from src.holarchy.executor import JobExecutor
 
 
-@pytest.fixture
+@fixture
 def mock_engine():
     engine = MagicMock()
     engine.storage = AsyncMock()
@@ -35,12 +36,12 @@ def mock_engine():
     return engine
 
 
-@pytest.fixture
+@fixture
 def job_executor(mock_engine):
     return JobExecutor(mock_engine, mock_engine.history_storage, metrics=MagicMock())
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_job_not_found(job_executor, caplog):
     job_executor.storage.get_job_state.return_value = None
     job_executor.storage.ack_job = AsyncMock()
@@ -49,7 +50,7 @@ async def test_process_job_not_found(job_executor, caplog):
     job_executor.storage.ack_job.assert_called_with("msg-123")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_job_in_terminal_state(job_executor, caplog):
     job_executor.storage.get_job_state.return_value = {
         "status": "finished",
@@ -62,7 +63,7 @@ async def test_process_job_in_terminal_state(job_executor, caplog):
     job_executor.storage.ack_job.assert_called_with("msg-123")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_job_calls_webhook(job_executor):
     """
     Tests that send_job_webhook is called when a job reaches a terminal state.
@@ -107,7 +108,7 @@ async def test_process_job_calls_webhook(job_executor):
     assert call_args[0][1] == "job_finished"  # event_type
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_job_blueprint_not_found(job_executor):
     job_executor.engine.config.JOB_MAX_RETRIES = 3
     job_state = {"id": "test-job", "blueprint_name": "test-bp", "current_state": "start", "initial_data": {}}
@@ -131,7 +132,7 @@ async def test_process_job_blueprint_not_found(job_executor):
     job_executor.storage.ack_job.assert_called_with("msg-123")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_job_handler_not_found(job_executor):
     bp = MagicMock()
     bp.find_handler.side_effect = ValueError("Handler not found")
@@ -158,7 +159,7 @@ async def test_process_job_handler_not_found(job_executor):
     job_executor.storage.ack_job.assert_called_with("msg-123")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_job_handler_dependency_injection(job_executor, mocker):
     """
     Tests that the new dependency injection for handlers works correctly.
@@ -237,7 +238,7 @@ async def test_process_job_handler_dependency_injection(job_executor, mocker):
     job_executor.storage.ack_job.assert_called_with("msg-123")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_job_handler_backward_compatibility(job_executor):
     """
     Tests that the old handler style (context, actions) still works.
@@ -302,7 +303,7 @@ async def test_process_job_handler_backward_compatibility(job_executor):
     job_executor.storage.ack_job.assert_called_with("msg-123")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_di_name_collision_precedence(job_executor, mocker):
     """
     Tests that JobContext fields take precedence over state_history and initial_data
@@ -375,7 +376,7 @@ async def test_di_name_collision_precedence(job_executor, mocker):
     job_executor.storage.ack_job.assert_called_with("msg-123")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_di_missing_argument_fails_job(job_executor, caplog):
     """
     Tests that if a handler requests an argument that cannot be injected,
@@ -443,7 +444,7 @@ async def test_di_missing_argument_fails_job(job_executor, caplog):
     job_executor.storage.ack_job.assert_called_with("msg-123")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_process_job_handles_none_fields_gracefully(job_executor):
     """
     Tests that JobExecutor can handle job_state fields being None (null in Redis).
@@ -504,7 +505,7 @@ async def test_process_job_handles_none_fields_gracefully(job_executor):
     )
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_data_stores_attribute_access(job_executor):
     """Verifies that handlers can access data_stores using dot notation."""
     mock_store = AsyncMock()
@@ -538,7 +539,7 @@ async def test_data_stores_attribute_access(job_executor):
     # If no AttributeError, success
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_executor_injection_deep():
     """Verifies that all possible parameters are correctly injected into handlers."""
     engine = MagicMock()

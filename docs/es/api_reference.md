@@ -106,6 +106,7 @@ El sistema utiliza los siguientes estados para gestionar el ciclo de vida del tr
 - `GET /api/v1/workers` — lista de todos los workers activos.
 - `GET /api/v1/dashboard` — estadísticas agregadas del sistema.
 - `GET /api/v1/workers/catalog` — catálogo de habilidades (caché 10s).
+- `GET /api/v1/jobs/quarantined` — lista de identificadores de trabajos en cuarentena.
 
 ---
 

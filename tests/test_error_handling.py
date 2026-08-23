@@ -4,12 +4,11 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from unittest.mock import AsyncMock, MagicMock
 
-import fakeredis.aioredis as redis
-import pytest
-import pytest_asyncio
+from fakeredis import aioredis as redis
+from pytest import mark
+from pytest_asyncio import fixture
 
 from holarchy.config import Config
 from holarchy.dispatcher import Dispatcher
@@ -19,7 +18,7 @@ from holarchy.storage.redis import RedisStorage
 from tests.test_blueprints import error_flow_bp
 
 
-@pytest_asyncio.fixture
+@fixture
 async def redis_storage():
     client = redis.FakeRedis(decode_responses=False)
     storage = RedisStorage(client)
@@ -27,7 +26,7 @@ async def redis_storage():
     await client.aclose()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_transient_error_retries_then_quarantines(monkeypatch, redis_storage: RedisStorage):
     """
     Tests that a task failing with a TRANSIENT_ERROR is retried and then quarantined,
@@ -95,7 +94,7 @@ async def test_transient_error_retries_then_quarantines(monkeypatch, redis_stora
     assert f"failed after {config.JOB_MAX_RETRIES + 1} attempts" in final_state["error_message"]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_permanent_error_quarantines_immediately(monkeypatch, redis_storage: RedisStorage):
     """
     Tests that a PERMANENT_ERROR quarantines immediately without retries.
@@ -139,7 +138,7 @@ async def test_permanent_error_quarantines_immediately(monkeypatch, redis_storag
     mock_dispatch.assert_not_called()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_invalid_input_error_fails_immediately(monkeypatch, redis_storage: RedisStorage):
     """
     Tests that an INVALID_INPUT_ERROR fails the job immediately without retries.

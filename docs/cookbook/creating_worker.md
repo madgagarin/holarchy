@@ -20,11 +20,20 @@ pip install "holonode[s3,pydantic]"
 
 Create a Python file (e.g., `my_worker.py`) and import the `Worker` class.
 
-# 2. Define Task Handlers
+```python
+import asyncio
+from holonode import Worker
+from pydantic import BaseModel
+
+# 1. Initialize Worker instance
+worker = Worker(worker_type="inventory-checker")
+```
+
+### 2. Define Task Handlers
 
 You can use **standard dictionaries** (no dependencies) or **Pydantic models** (for automatic validation).
 
-### Option A: Simple Dictionary (No Pydantic)
+#### Option A: Simple Dictionary (No Pydantic)
 
 ```python
 @worker.skill("check_inventory")
@@ -34,11 +43,9 @@ async def check_inventory_handler(params: dict, **kwargs) -> dict:
     return {"status": "success", "data": {"warehouse_info": "ok"}}
 ```
 
-### Option B: Pydantic Model (Auto-validation)
+#### Option B: Pydantic Model (Auto-validation)
 
 ```python
-from pydantic import BaseModel
-
 class CheckParams(BaseModel):
     items: list[str]
 
@@ -49,12 +56,13 @@ async def check_inventory_handler(params: CheckParams, **kwargs) -> dict:
     return {"status": "success", "data": {"warehouse_info": "ok"}}
 ```
 
-# Example handler for long task with cooperative cancellation
+#### Option C: Long-running Task with Cooperative Cancellation
 
+```python
 @worker.skill("long_running_task")
-async def long_task_handler(params: dict, \*\*kwargs) -> dict:
-task_id = kwargs["task_id"]
-print(f"Starting long task {task_id}...")
+async def long_task_handler(params: dict, **kwargs) -> dict:
+    task_id = kwargs["task_id"]
+    print(f"Starting long task {task_id}...")
 
     for i in range(10):
         # Check if Orchestrator requested cancellation
@@ -67,12 +75,10 @@ print(f"Starting long task {task_id}...")
 
     return {"status": "success"}
 
-# 4. Run worker
-
-if **name** == "**main**":
-worker.run()
-
-````
+# 3. Run worker
+if __name__ == "__main__":
+    worker.run()
+```
 
 ## Step 3: Connection and Authentication Setup
 

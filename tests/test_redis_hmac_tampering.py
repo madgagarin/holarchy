@@ -1,20 +1,21 @@
-# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import os
+from os import environ
 from unittest.mock import AsyncMock
 
-import pytest
+from pytest import mark, raises
 
 from holarchy.storage.redis import RedisStorage
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_redis_hmac_signature_happy_path_and_tamper_detection():
     secret_key = "test_secret_key_12345"
-    os.environ["ORCHESTRATOR_SECRET_KEY"] = secret_key
+    environ["ORCHESTRATOR_SECRET_KEY"] = secret_key
 
     fake_redis_dict = {}
 
@@ -48,16 +49,16 @@ async def test_redis_hmac_signature_happy_path_and_tamper_detection():
     fake_redis_dict["orchestrator:job:job-tamper-test"] = packed_tampered
 
     # 4. Fetch tampered state -> must raise PermissionError
-    with pytest.raises(PermissionError) as exc_info:
+    with raises(PermissionError) as exc_info:
         await storage.get_job_state("job-tamper-test")
 
     assert "Job state HMAC signature verification failed" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_redis_hmac_corrupted_signature_string():
     secret_key = "secret_abc"
-    os.environ["ORCHESTRATOR_SECRET_KEY"] = secret_key
+    environ["ORCHESTRATOR_SECRET_KEY"] = secret_key
 
     fake_redis_dict = {}
 
@@ -82,18 +83,18 @@ async def test_redis_hmac_corrupted_signature_string():
     packed_corrupted = await storage._pack_async(restored)
     fake_redis_dict["orchestrator:job:job-sig-corrupt"] = packed_corrupted
 
-    with pytest.raises(PermissionError) as exc_info:
+    with raises(PermissionError) as exc_info:
         await storage.get_job_state("job-sig-corrupt")
 
     assert "Job state HMAC signature verification failed" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_redis_hmac_disabled_when_no_secret():
-    if "ORCHESTRATOR_SECRET_KEY" in os.environ:
-        del os.environ["ORCHESTRATOR_SECRET_KEY"]
-    if "ORCHESTRATOR_INTERNAL_KEY" in os.environ:
-        del os.environ["ORCHESTRATOR_INTERNAL_KEY"]
+    if "ORCHESTRATOR_SECRET_KEY" in environ:
+        del environ["ORCHESTRATOR_SECRET_KEY"]
+    if "ORCHESTRATOR_INTERNAL_KEY" in environ:
+        del environ["ORCHESTRATOR_INTERNAL_KEY"]
 
     fake_redis_dict = {}
 

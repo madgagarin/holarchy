@@ -3,13 +3,13 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import ssl
-import subprocess
+
+from ssl import CERT_OPTIONAL, Purpose, create_default_context
+from subprocess import DEVNULL, check_call
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import aiohttp
-import pytest
-from aiohttp import web
+from aiohttp import ClientSession, web
+from pytest import fixture, mark
 from rxon.constants import AUTH_HEADER_WORKER
 from rxon.security import create_server_ssl_context
 
@@ -21,10 +21,10 @@ from holarchy.storage.memory import MemoryStorage
 
 # Helper to run shell commands (reused from test_mtls)
 def run_cmd(cmd):
-    subprocess.check_call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    check_call(cmd, shell=True, stdout=DEVNULL, stderr=DEVNULL)
 
 
-@pytest.fixture(scope="module")
+@fixture(scope="module")
 def pki(tmp_path_factory):
     """Generates a temporary PKI infrastructure for mTLS testing."""
     pki_dir = tmp_path_factory.mktemp("pki_sts")
@@ -91,7 +91,7 @@ authorityKeyIdentifier = keyid:always,issuer
     }
 
 
-@pytest.fixture
+@fixture
 def mtls_config(pki):
     conf = Config()
     conf.TLS_ENABLED = True
@@ -103,7 +103,7 @@ def mtls_config(pki):
     return conf
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_sts_flow(pki, mtls_config):
     """
     Test the full Security Token Service flow:
@@ -132,13 +132,13 @@ async def test_sts_flow(pki, mtls_config):
     base_url = f"https://localhost:{port}"
     worker_id = "worker-sts-test"  # Must match cert CN
 
-    client_ssl_ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=pki["ca_crt"])
+    client_ssl_ctx = create_default_context(Purpose.SERVER_AUTH, cafile=pki["ca_crt"])
     client_ssl_ctx.load_cert_chain(certfile=pki["client_crt"], keyfile=pki["client_key"])
 
     access_token = None
 
     async with (
-        aiohttp.ClientSession() as session,
+        ClientSession() as session,
         session.post(f"{base_url}/_worker/auth/token", ssl=client_ssl_ctx) as resp,
     ):
         assert resp.status == 200, f"STS request failed: {await resp.text()}"
@@ -164,14 +164,14 @@ async def test_sts_flow(pki, mtls_config):
     await site.stop()  # Stop server to reconfigure
 
     # Reconfigure server to allow connections without client cert
-    server_ssl_ctx.verify_mode = ssl.CERT_OPTIONAL
+    server_ssl_ctx.verify_mode = CERT_OPTIONAL
     site = web.TCPSite(runner, "localhost", port, ssl_context=server_ssl_ctx)
     await site.start()
 
     # Client context without client cert
-    no_cert_ssl_ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=pki["ca_crt"])
+    no_cert_ssl_ctx = create_default_context(Purpose.SERVER_AUTH, cafile=pki["ca_crt"])
 
-    async with aiohttp.ClientSession() as session:
+    async with ClientSession() as session:
         # Try to register using the Token
         headers = {AUTH_HEADER_WORKER: access_token}
         reg_data = {
@@ -195,7 +195,7 @@ async def test_sts_flow(pki, mtls_config):
     await runner.cleanup()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_token_hash_cache():
     """Checks that token hashes are cached to save CPU."""
     mock_storage = MagicMock()

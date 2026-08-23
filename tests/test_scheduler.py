@@ -3,13 +3,14 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
-import tempfile
+
+from asyncio import wait_for
 from datetime import datetime
+from tempfile import NamedTemporaryFile
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
-import pytest
+from pytest import fail, fixture, mark
 
 from holarchy.config import Config
 from holarchy.engine import OrchestratorEngine
@@ -18,17 +19,17 @@ from holarchy.scheduler_config_loader import ScheduledJobConfig, load_schedules_
 from holarchy.storage.memory import MemoryStorage
 
 
-@pytest.fixture
+@fixture
 def config():
     return Config()
 
 
-@pytest.fixture
+@fixture
 def storage():
     return MemoryStorage()
 
 
-@pytest.fixture
+@fixture
 def engine(storage, config):
     engine = OrchestratorEngine(storage, config)
     engine.blueprints = {"test_bp": MagicMock(), "interval_bp": MagicMock()}
@@ -39,7 +40,7 @@ def engine(storage, config):
     return engine
 
 
-@pytest.fixture
+@fixture
 def scheduler(engine):
     return Scheduler(engine, metrics=MagicMock())
 
@@ -56,7 +57,7 @@ def test_load_schedules_from_file():
     daily_at = "09:00"
     input_data = { type = "full_daily" }
     """
-    with tempfile.NamedTemporaryFile(suffix=".toml") as f:
+    with NamedTemporaryFile(suffix=".toml") as f:
         f.write(toml_content)
         f.flush()
 
@@ -72,7 +73,7 @@ def test_load_schedules_from_file():
         assert daily.daily_at == "09:00"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_scheduler_interval_job(scheduler, engine):
     job = ScheduledJobConfig(name="interval_job", blueprint="interval_bp", input_data={}, interval_seconds=10)
     scheduler.schedules = [job]
@@ -102,7 +103,7 @@ async def test_scheduler_interval_job(scheduler, engine):
         engine.create_background_job.assert_called_once()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_scheduler_daily_job(scheduler, engine):
     job = ScheduledJobConfig(name="daily_job", blueprint="test_bp", input_data={}, daily_at="09:00")
     scheduler.schedules = [job]
@@ -128,7 +129,7 @@ async def test_scheduler_daily_job(scheduler, engine):
     engine.create_background_job.assert_called_once()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_scheduler_weekly_job(scheduler, engine):
     job = ScheduledJobConfig(
         name="weekly_job", blueprint="test_bp", input_data={}, weekly_days=["mon", "wed"], time="10:00"
@@ -146,7 +147,7 @@ async def test_scheduler_weekly_job(scheduler, engine):
     engine.create_background_job.assert_called_once()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_scheduler_monthly_job(scheduler, engine):
     job = ScheduledJobConfig(
         name="monthly_job", blueprint="test_bp", input_data={}, monthly_dates=[1, 15], time="12:00"
@@ -164,21 +165,21 @@ async def test_scheduler_monthly_job(scheduler, engine):
     engine.create_background_job.assert_called_once()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_scheduler_run_exits_if_no_schedule(scheduler):
     # Ensure config path is empty
     scheduler.config.SCHEDULES_CONFIG_PATH = ""
 
     # Using wait_for to ensure it doesn't hang (it should return instantly)
     try:
-        await asyncio.wait_for(scheduler.run(), timeout=0.1)
+        await wait_for(scheduler.run(), timeout=0.1)
     except TimeoutError:
-        pytest.fail("Scheduler.run() did not exit immediately when no schedules were present.")
+        fail("Scheduler.run() did not exit immediately when no schedules were present.")
 
     assert scheduler._running is False
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_memory_storage_locks():
     storage = MemoryStorage()
 

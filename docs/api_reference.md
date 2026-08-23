@@ -165,6 +165,12 @@ The system uses the following statuses to manage the job lifecycle:
 - **Description:** Returns a list of all jobs. In compact mode, `context_snapshot` for each job is filtered.
 - **Response (`200 OK`):** Array of event objects.
 
+### Get Quarantined Jobs List
+
+- **Endpoint:** `GET /api/v1/jobs/quarantined`
+- **Description:** Returns a list of jobs currently in quarantine for manual review. Requires client authentication.
+- **Response (`200 OK`):** Array of quarantined job state objects.
+
 ### Get Blueprint Graph
 
 - **Endpoint:** `GET /api/v1/blueprints/{blueprint_name}/graph`

@@ -3,11 +3,12 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
+
+from asyncio import sleep
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-import pytest_asyncio
+from pytest import mark
+from pytest_asyncio import fixture
 from src.holarchy.history.postgres import PostgresHistoryStorage
 
 
@@ -20,7 +21,7 @@ class PostgresHistoryStorageImpl(PostgresHistoryStorage):
         pass
 
 
-@pytest_asyncio.fixture
+@fixture
 async def postgres_storage(mocker):
     mock_pool = MagicMock()
     mock_pool.close = AsyncMock()
@@ -39,7 +40,7 @@ async def postgres_storage(mocker):
     await storage.close()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_initialize_success(mocker):
     # This tests the REAL initialize logic, so we need a fresh instance
     # that doesn't use the Impl override, but we must mock create_pool
@@ -57,7 +58,7 @@ async def test_initialize_success(mocker):
     assert mock_conn.execute.call_count >= 3
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_log_job_event(postgres_storage):
     storage, mock_conn, _, _ = postgres_storage
     # No need to call initialize here as we use Impl with pre-set pool
@@ -66,14 +67,14 @@ async def test_log_job_event(postgres_storage):
     await storage.log_job_event({"job_id": "test-job"})
 
     # Wait for async worker
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
 
     mock_conn.execute.assert_called_once()
     args = mock_conn.execute.call_args[0]
     assert "INSERT INTO job_history" in args[0]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_log_worker_event(postgres_storage):
     storage, mock_conn, _, _ = postgres_storage
 
@@ -81,7 +82,7 @@ async def test_log_worker_event(postgres_storage):
     await storage.log_worker_event({"worker_id": "test-worker"})
 
     # Wait for async worker
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
 
     mock_conn.execute.assert_called_once()
     args = mock_conn.execute.call_args[0]

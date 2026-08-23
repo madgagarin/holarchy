@@ -1,18 +1,19 @@
-from unittest.mock import AsyncMock, MagicMock
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import pytest
+
+from unittest.mock import AsyncMock, MagicMock
+
 from aiohttp import web
+from pytest import fixture, mark, raises
 
 from holarchy.api.handlers import get_job_status_handler
 from holarchy.app_keys import ENGINE_KEY
 
 
-@pytest.fixture
+@fixture
 def mock_engine():
     engine = MagicMock()
     engine.storage = AsyncMock()
@@ -20,7 +21,7 @@ def mock_engine():
     return engine
 
 
-@pytest.fixture
+@fixture
 def mock_request(mock_engine):
     req = MagicMock()
     app_mock = MagicMock()
@@ -32,7 +33,7 @@ def mock_request(mock_engine):
     return req
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_access_granted_to_owner(mock_engine, mock_request):
     """Owner should have access to their job."""
     token = "correct-token"
@@ -49,7 +50,7 @@ async def test_access_granted_to_owner(mock_engine, mock_request):
     assert response.status == 200
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_access_denied_to_stranger(mock_engine, mock_request):
     """Access denied for jobs owned by others."""
     my_token = "my-token"
@@ -63,13 +64,13 @@ async def test_access_denied_to_stranger(mock_engine, mock_request):
         "client_config": {"token": stranger_token},
     }
 
-    with pytest.raises(web.HTTPForbidden) as excinfo:
+    with raises(web.HTTPForbidden) as excinfo:
         await get_job_status_handler(mock_request)
 
     assert "Access denied: You do not own this job" in str(excinfo.value.text)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_access_denied_if_job_has_no_owner_info(mock_engine, mock_request):
     """Access denied if job has no owner metadata."""
     mock_request.get.side_effect = lambda k, default=None: {"token": "any"} if k == "client_config" else default
@@ -79,5 +80,5 @@ async def test_access_denied_if_job_has_no_owner_info(mock_engine, mock_request)
         "status": "finished",
     }
 
-    with pytest.raises(web.HTTPForbidden):
+    with raises(web.HTTPForbidden):
         await get_job_status_handler(mock_request)

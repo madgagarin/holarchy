@@ -2,12 +2,12 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-# Copyright (c) 2026 Dmitry Gagarin aka madgagarin
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import time
+from time import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
+from pytest import fixture, mark, raises
 from rxon.constants import JOB_STATUS_WAITING_FOR_WORKER
 
 from holarchy.config import Config
@@ -16,19 +16,19 @@ from holarchy.services.worker_service import WorkerService
 from holarchy.storage.memory import MemoryStorage
 
 
-@pytest.fixture
+@fixture
 def config():
     conf = Config()
     conf.GLOBAL_WORKER_TOKEN = "secure-b8-token"
     return conf
 
 
-@pytest.fixture
+@fixture
 def storage():
     return MemoryStorage()
 
 
-@pytest.fixture
+@fixture
 def engine(storage, config):
     engine_mock = MagicMock()
     engine_mock.storage = storage
@@ -39,7 +39,7 @@ def engine(storage, config):
     return engine_mock
 
 
-@pytest.fixture
+@fixture
 def worker_service(storage, config, engine):
     history_mock = MagicMock()
     history_mock.log_worker_event = AsyncMock()
@@ -47,11 +47,11 @@ def worker_service(storage, config, engine):
     return WorkerService(storage, history_mock, config, engine, metrics=MagicMock())
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_b8_timestamp_replay_protection_fail(worker_service, config):
     """FAIL: Message timestamp is too old (Replay attempt)."""
     worker_id = "w1"
-    old_timestamp = int(time.time() - 300)  # 5 minutes ago
+    old_timestamp = int(time() - 300)  # 5 minutes ago
 
     payload = {
         "worker_id": worker_id,
@@ -60,11 +60,11 @@ async def test_b8_timestamp_replay_protection_fail(worker_service, config):
     }
 
     # This must fail because the timestamp is 300s old, exceeding 60s TTL
-    with pytest.raises(PermissionError, match="Message timestamp expired"):
+    with raises(PermissionError, match="Message timestamp expired"):
         await worker_service._verify_zero_trust(payload, worker_id, secret="some-secret")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_b8_task_result_worker_id_autofill(worker_service, storage):
     """SUCCESS: worker_id is missing in payload, Orchestrator fills it from Auth."""
     worker_id = "auth-w"
@@ -87,7 +87,7 @@ async def test_b8_task_result_worker_id_autofill(worker_service, storage):
         "task_id": "t1",
         "status": "success",
         "data": {"ok": True},
-        "timestamp": int(time.time()),
+        "timestamp": int(time()),
         "security": {"signature": "sig", "signer_id": worker_id},
     }
 
@@ -100,12 +100,12 @@ async def test_b8_task_result_worker_id_autofill(worker_service, storage):
     assert event["worker_id"] == worker_id
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_b8_metadata_propagation(worker_service, storage):
     """SUCCESS: Metadata and timestamp from result are propagated to job state."""
     worker_id = "w1"
     job_id = "job-meta"
-    ts = int(time.time())
+    ts = int(time())
 
     await storage.save_job_state(
         job_id,
@@ -137,7 +137,7 @@ async def test_b8_metadata_propagation(worker_service, storage):
     assert job_state["timestamp"] == ts
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_b8_executor_event_timestamps(engine, storage):
     """SUCCESS: JobExecutor adds timestamps to all generated events."""
     history = MagicMock()

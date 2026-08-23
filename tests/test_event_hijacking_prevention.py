@@ -1,18 +1,19 @@
-# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import mark, raises
 from rxon.models import WorkerEventPayload
 from rxon.utils import to_dict
 
 from holarchy.services.worker_service import WorkerService
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_event_hijacking_prevention_rejects_unassigned_worker():
     storage = AsyncMock()
     history_storage = AsyncMock()
@@ -42,13 +43,13 @@ async def test_job_event_hijacking_prevention_rejects_unassigned_worker():
     raw_event = to_dict(event)
 
     # Attacker worker tries to send event for job assigned to 'legit-worker'
-    with pytest.raises(PermissionError) as exc_info:
+    with raises(PermissionError) as exc_info:
         await service.process_worker_event("attacker-worker", raw_event)
 
     assert "is not assigned to job" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_event_hijacking_prevention_allows_assigned_worker():
     storage = AsyncMock()
     history_storage = AsyncMock()
@@ -83,7 +84,7 @@ async def test_job_event_hijacking_prevention_allows_assigned_worker():
     assert resp["status"] == "event_accepted"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_event_sender_id_mismatch_raises():
     storage = AsyncMock()
     service = WorkerService(storage, AsyncMock(), MagicMock(), MagicMock(), MagicMock())
@@ -100,13 +101,13 @@ async def test_job_event_sender_id_mismatch_raises():
     raw_event = to_dict(event)
 
     # Authenticated header worker-123 != payload worker_id
-    with pytest.raises(PermissionError) as exc_info:
+    with raises(PermissionError) as exc_info:
         await service.process_worker_event("authenticated-header-worker", raw_event)
 
     assert "Immediate sender ID mismatch" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_event_ghost_worker_allowed():
     storage = AsyncMock()
     engine = MagicMock()
@@ -132,7 +133,7 @@ async def test_job_event_ghost_worker_allowed():
     assert resp["status"] == "event_accepted"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_event_branch_worker_allowed():
     storage = AsyncMock()
     engine = MagicMock()

@@ -6,9 +6,9 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-import orjson
-import pytest
 from aiohttp import web
+from orjson import loads as orjson_loads
+from pytest import fixture, mark, raises
 
 from holarchy.api.handlers import (
     cancel_job_handler,
@@ -24,7 +24,7 @@ from holarchy.api.handlers import (
 from holarchy.app_keys import ENGINE_KEY, S3_SERVICE_KEY
 
 
-@pytest.fixture
+@fixture
 def mock_engine():
     engine = MagicMock()
     engine.storage = AsyncMock()
@@ -35,7 +35,7 @@ def mock_engine():
     return engine
 
 
-@pytest.fixture
+@fixture
 def mock_request(mock_engine):
     req = MagicMock(spec=web.Request)
     req.app = mock_engine.app
@@ -45,7 +45,7 @@ def mock_request(mock_engine):
     return req
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_all_handlers_require_ownership(mock_engine, mock_request):
     """Verify that all relevant endpoints enforce job ownership."""
     handlers = [
@@ -93,11 +93,11 @@ async def test_all_handlers_require_ownership(mock_engine, mock_request):
         if handler == human_approval_webhook_handler:
             mock_request.json = AsyncMock(return_value={"decision": "approve"})
 
-        with pytest.raises(web.HTTPForbidden):
+        with raises(web.HTTPForbidden):
             await handler(mock_request)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_file_access_ownership_enforcement(mock_engine, mock_request):
     """Specific check for S3 file access isolation."""
     s3_service = MagicMock()
@@ -108,11 +108,11 @@ async def test_file_access_ownership_enforcement(mock_engine, mock_request):
 
     mock_request.get.side_effect = lambda k, default=None: {"token": "client-b"} if k == "client_config" else default
 
-    with pytest.raises(web.HTTPForbidden):
+    with raises(web.HTTPForbidden):
         await get_job_file_download_handler(mock_request)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_ownership_check_is_early(mock_engine, mock_request):
     """Ownership must be verified even for pending or waiting jobs."""
     mock_request.get.side_effect = lambda k, default=None: {"token": "client-b"} if k == "client_config" else default
@@ -123,11 +123,11 @@ async def test_ownership_check_is_early(mock_engine, mock_request):
         "client_config": {"token": "client-a"},
     }
 
-    with pytest.raises(web.HTTPForbidden):
+    with raises(web.HTTPForbidden):
         await get_job_status_handler(mock_request)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_history_ownership_fallback(mock_engine, mock_request):
     """Verify ownership check falls back to history if job is not in Redis."""
     mock_engine.storage.get_job_state.return_value = None
@@ -138,11 +138,11 @@ async def test_history_ownership_fallback(mock_engine, mock_request):
 
     mock_request.get.side_effect = lambda k, default=None: {"token": "client-a"} if k == "client_config" else default
 
-    with pytest.raises(web.HTTPForbidden):
+    with raises(web.HTTPForbidden):
         await get_job_status_handler(mock_request)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_history_ownership_success(mock_engine, mock_request):
     """Owner should be able to access history of their finished jobs."""
     mock_engine.storage.get_job_state.return_value = None
@@ -160,7 +160,7 @@ async def test_history_ownership_success(mock_engine, mock_request):
     assert res.status == 200
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_list_isolation(mock_engine, mock_request):
     """Clients should only see their own jobs in the list."""
     mock_request.get.side_effect = lambda k, default=None: {"token": "client-a"} if k == "client_config" else default
@@ -176,13 +176,13 @@ async def test_job_list_isolation(mock_engine, mock_request):
     mock_engine.history_storage.get_jobs.side_effect = get_jobs_side_effect
 
     response = await get_jobs_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     assert len(data) == 1
     assert data[0]["job_id"] == "job-a"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dashboard_stats_isolation(mock_engine, mock_request):
     """Dashboard metrics should be isolated per client."""
     mock_request.get.side_effect = lambda k, default=None: {"token": "client-a"} if k == "client_config" else default
@@ -193,7 +193,7 @@ async def test_dashboard_stats_isolation(mock_engine, mock_request):
     mock_engine.history_storage.get_job_summary.return_value = {"finished": 1}
 
     response = await get_dashboard_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     assert data["jobs"]["finished"] == 1
     mock_engine.history_storage.get_job_summary.assert_called_with(client_token="client-a")

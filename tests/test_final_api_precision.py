@@ -6,8 +6,8 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-import orjson
-import pytest
+from orjson import loads as orjson_loads
+from pytest import fixture, mark
 
 from holarchy.api.handlers import (
     get_job_history_handler,
@@ -18,7 +18,7 @@ from holarchy.api.handlers import (
 from holarchy.app_keys import ENGINE_KEY
 
 
-@pytest.fixture
+@fixture
 def mock_engine():
     engine = MagicMock()
     engine.storage = AsyncMock()
@@ -26,7 +26,7 @@ def mock_engine():
     return engine
 
 
-@pytest.fixture
+@fixture
 def mock_request(mock_engine):
     req = MagicMock()
     app_mock = MagicMock()
@@ -42,7 +42,7 @@ def mock_request(mock_engine):
     return req
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_strict_api_field_filtering_blocks_secrets(mock_engine, mock_request):
     """
     Ensures that even if a client explicitly requests secrets via ?fields,
@@ -65,7 +65,7 @@ async def test_strict_api_field_filtering_blocks_secrets(mock_engine, mock_reque
     mock_request.query = {"fields": "status,state_history,client_config"}
 
     response = await get_job_status_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     # Result should ONLY contain id and status (allowed fields from the intersection)
     assert "id" in data
@@ -75,7 +75,7 @@ async def test_strict_api_field_filtering_blocks_secrets(mock_engine, mock_reque
     assert len(data) == 2
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_result_field_consistency_terminal_states(mock_engine, mock_request):
     """
     Verifies that the 'result' field contains the last step data in terminal states.
@@ -93,13 +93,13 @@ async def test_api_result_field_consistency_terminal_states(mock_engine, mock_re
     mock_engine.storage.get_job_state.return_value = job_state
 
     response = await get_job_status_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     assert data["result"] == {"final": "success"}
     assert data["status"] == "finished"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_fields_parameter_with_id_injection(mock_engine, mock_request):
     """Ensures ID is always present even if not requested."""
     token = mock_request.get("client_config")["token"]
@@ -113,13 +113,13 @@ async def test_api_fields_parameter_with_id_injection(mock_engine, mock_request)
     mock_request.query = {"fields": "status"}
 
     response = await get_job_status_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
     assert "id" in data
     assert "status" in data
     assert "other" not in data
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_jobs_list_filtering(mock_engine, mock_request):
     """Verifies that context_snapshot in jobs list is also filtered."""
     mock_engine.config.DETAILED_API_RESPONSES = False
@@ -129,7 +129,7 @@ async def test_api_jobs_list_filtering(mock_engine, mock_request):
     mock_engine.history_storage.get_jobs.return_value = [{"job_id": "1", "context_snapshot": full_snapshot}]
 
     response = await get_jobs_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     snapshot = data[0]["context_snapshot"]
     assert "secret" not in snapshot
@@ -137,7 +137,7 @@ async def test_api_jobs_list_filtering(mock_engine, mock_request):
     assert "status" in snapshot
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_job_history_filtering(mock_engine, mock_request):
     """Verifies that context_snapshot in history events is filtered."""
     token = mock_request.get("client_config")["token"]
@@ -149,14 +149,14 @@ async def test_api_job_history_filtering(mock_engine, mock_request):
     mock_engine.history_storage.get_job_history.return_value = [{"event_id": "e1", "context_snapshot": full_snapshot}]
 
     response = await get_job_history_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     snapshot = data[0]["context_snapshot"]
     assert "secret" not in snapshot
     assert "status" in snapshot
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_quarantined_jobs_filtering(mock_engine, mock_request):
     """Verifies that jobs in quarantine list are filtered."""
     token = mock_request.get("client_config")["token"]
@@ -176,7 +176,7 @@ async def test_api_quarantined_jobs_filtering(mock_engine, mock_request):
     mock_engine.storage.get_job_state = AsyncMock(return_value=full_job)
 
     response = await get_quarantined_jobs_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     assert "secret" not in data[0]
     assert data[0]["status"] == "quarantined"

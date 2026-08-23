@@ -4,10 +4,10 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import time
+from time import time
 from unittest.mock import MagicMock, patch
 
-import pytest
+from pytest import fixture, mark, raises
 from rxon.security import sign_payload
 
 from holarchy.config import Config
@@ -18,12 +18,12 @@ from holarchy.utils.crypto import decrypt_token, encrypt_token
 from holarchy.worker_config_loader import load_worker_configs_to_redis
 
 
-@pytest.fixture
+@fixture
 def storage():
     return MemoryStorage()
 
 
-@pytest.fixture
+@fixture
 def config():
     c = Config()
     c.WORKER_AUTH_MODE = "mixed"
@@ -32,7 +32,7 @@ def config():
     return c
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_encryption_at_rest_in_storage(storage, config):
     """1. Physical check: Verify that tokens are actually encrypted in storage."""
     worker_id = "worker_1"
@@ -58,7 +58,7 @@ async def test_encryption_at_rest_in_storage(storage, config):
     assert decrypted == raw_token
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_auth_with_encryption(storage, config):
     """2. Auth check: verify_worker_auth should transparently decrypt."""
     worker_id = "worker_2"
@@ -76,7 +76,7 @@ async def test_auth_with_encryption(storage, config):
     assert authenticated_id[0] == worker_id
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_hmac_verification_with_encryption(storage, config):
     """3. HMAC check: worker_service should decrypt token to verify signatures."""
     worker_id = "worker_3"
@@ -90,7 +90,7 @@ async def test_hmac_verification_with_encryption(storage, config):
     service = WorkerService(storage, MagicMock(), config, MagicMock(), MagicMock())
 
     # 3. Create a signed payload using the PLAIN token
-    payload = {"event": "test", "timestamp": int(time.time()), "data": {"foo": "bar"}}
+    payload = {"event": "test", "timestamp": int(time()), "data": {"foo": "bar"}}
     signature = sign_payload(payload, raw_token)
     payload["security"] = {"signature": signature, "signer_id": worker_id}
 
@@ -99,7 +99,7 @@ async def test_hmac_verification_with_encryption(storage, config):
     # If no exception raised, it passed
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_wrong_encryption_key_fails(storage, config):
     """4. Security check: changing the master key invalidates existing tokens."""
     worker_id = "worker_4"
@@ -112,11 +112,11 @@ async def test_wrong_encryption_key_fails(storage, config):
     # Try to authenticate with Key B in config
     config.REDIS_ENCRYPTION_KEY = "key-B"
 
-    with pytest.raises(PermissionError, match="Failed to decrypt worker token"):
+    with raises(PermissionError, match="Failed to decrypt worker token"):
         await verify_worker_auth(storage, config, raw_token, None, worker_id, metrics=MagicMock(), token_hash_cache={})
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_mixed_tokens_support(storage, config):
     """5. Migration check: encryption only happens if REDIS_ENCRYPTION_KEY is set."""
     worker_id_enc = "worker_enc"
@@ -139,7 +139,7 @@ async def test_mixed_tokens_support(storage, config):
 
     # Auth plain - FAILS because encryption is ACTIVE globally and it tries to decrypt "pass2" as Fernet
     # This is intended: once encryption is on, all master tokens in Redis MUST be encrypted.
-    with pytest.raises(PermissionError):
+    with raises(PermissionError):
         await verify_worker_auth(
             storage, config, "pass2", None, worker_id_plain, metrics=MagicMock(), token_hash_cache={}
         )

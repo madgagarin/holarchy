@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from asyncio import CancelledError, sleep
 from datetime import datetime
 from logging import getLogger
@@ -15,6 +14,7 @@ from rxon.schema import validate_data
 
 from .metrics import LABEL_BLUEPRINT, Metrics
 from .scheduler_config_loader import ScheduledJobConfig, load_schedules_from_file
+from .telemetry import trace
 
 if TYPE_CHECKING:
     from .engine import OrchestratorEngine
@@ -141,8 +141,6 @@ class Scheduler:
             await self._trigger_job(job)
 
     async def _trigger_job(self, job: ScheduledJobConfig) -> None:
-        from .telemetry import trace  # noqa: PLC0415
-
         tracer = trace.get_tracer(__name__)
 
         with tracer.start_as_current_span(f"Scheduler:Trigger:{job.blueprint}") as span:

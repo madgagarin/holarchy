@@ -4,10 +4,9 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from itertools import permutations
 
-import pytest
+from pytest import fail, mark, raises
 from src.holarchy.context import ActionFactory
 
 
@@ -45,7 +44,7 @@ ACTIONS_TO_TEST = [
 ACTION_PAIRS = list(permutations(ACTIONS_TO_TEST, 2))
 
 
-@pytest.mark.parametrize("action1_data, action2_data", ACTION_PAIRS)
+@mark.parametrize("action1_data, action2_data", ACTION_PAIRS)
 def test_action_factory_multiple_actions_error(action1_data, action2_data):
     """
     Checks that any two activities in the same ActionFactory
@@ -57,11 +56,11 @@ def test_action_factory_multiple_actions_error(action1_data, action2_data):
     try:
         action1_method = getattr(actions, action1_name)
     except AttributeError:
-        pytest.fail(f"Method {action1_name} not found in ActionFactory")
+        fail(f"Method {action1_name} not found in ActionFactory")
     action1_method(*action1_args)
     try:
         action2_method = getattr(actions, action2_name)
     except AttributeError:
-        pytest.fail(f"Method {action2_name} not found in ActionFactory")
-    with pytest.raises(RuntimeError, match="Cannot set multiple actions in the same step"):
+        fail(f"Method {action2_name} not found in ActionFactory")
+    with raises(RuntimeError, match="Cannot set multiple actions in the same step"):
         action2_method(*action2_args)

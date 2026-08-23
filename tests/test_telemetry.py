@@ -4,10 +4,9 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
+from pytest import mark
 
 try:
     from opentelemetry.sdk.trace import TracerProvider
@@ -19,7 +18,7 @@ from src.holarchy.engine import OrchestratorEngine
 from src.holarchy.telemetry import TELEMETRY_ENABLED, setup_telemetry
 
 
-@pytest.mark.skipif(not TELEMETRY_ENABLED, reason="opentelemetry-sdk not installed")
+@mark.skipif(not TELEMETRY_ENABLED, reason="opentelemetry-sdk not installed")
 def test_setup_telemetry_enabled():
     """Tests that telemetry is set up correctly when the SDK is installed."""
 
@@ -35,7 +34,7 @@ def test_setup_telemetry_enabled():
         assert tracer is not None
 
 
-@pytest.mark.skipif(TELEMETRY_ENABLED, reason="opentelemetry-sdk is installed")
+@mark.skipif(TELEMETRY_ENABLED, reason="opentelemetry-sdk is installed")
 def test_setup_telemetry_disabled(caplog):
     """Tests that a warning is logged when the telemetry SDK is not installed."""
     tracer = setup_telemetry()
@@ -43,7 +42,7 @@ def test_setup_telemetry_disabled(caplog):
     assert tracer is not None
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_create_background_job_injects_tracing():
     """Verifies that create_background_job injects tracing context automatically."""
     storage = AsyncMock()

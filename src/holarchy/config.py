@@ -4,8 +4,8 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from os import getenv
+from secrets import token_hex
 from socket import gethostname
 
 
@@ -39,7 +39,6 @@ class Config:
 
         secret_key = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
         if not secret_key:
-            from secrets import token_hex  # noqa: PLC0415
             secret_key = token_hex(32)
         self.ORCHESTRATOR_SECRET_KEY: str = secret_key
         self.ORCHESTRATOR_INTERNAL_KEY: str = secret_key

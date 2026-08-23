@@ -3,13 +3,14 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
+
+from asyncio import Task
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
+from pytest import fixture, mark
 from src.holarchy.blueprint import Blueprint
 
-import holarchy.engine as engine_mod
+from holarchy import engine as engine_mod
 from holarchy.config import Config
 from holarchy.engine import OrchestratorEngine
 from holarchy.history.noop import NoOpHistoryStorage
@@ -17,27 +18,27 @@ from holarchy.history.noop import NoOpHistoryStorage
 
 def create_task_side_effect(coro, *args, **kwargs):
     coro.close()
-    return MagicMock(spec=asyncio.Task)
+    return MagicMock(spec=Task)
 
 
-@pytest.fixture
+@fixture
 def config():
     c = Config()
     c.HISTORY_DATABASE_URI = ""
     return c
 
 
-@pytest.fixture
+@fixture
 def storage():
     return AsyncMock()
 
 
-@pytest.fixture
+@fixture
 def engine(storage, config):
     return OrchestratorEngine(storage, config)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_register_blueprint(engine):
     bp = Blueprint(name="test_bp")
 
@@ -53,7 +54,7 @@ async def test_register_blueprint(engine):
 # The test_setup and test_on_shutdown tests were removed due to the refactoring of service initializations.
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_setup_history_storage_postgres(engine, monkeypatch):
     engine.config.HISTORY_DATABASE_URI = "postgresql://user:pass@host:port/db"
 
@@ -69,14 +70,14 @@ async def test_setup_history_storage_postgres(engine, monkeypatch):
         mock_initialize.assert_awaited_once()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_setup_history_storage_unsupported_scheme(engine):
     engine.config.HISTORY_DATABASE_URI = "mysql://user:pass@host:port/db"
     await engine._setup_history_storage()
     assert isinstance(engine.history_storage, NoOpHistoryStorage)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_setup_history_storage_initialization_failure(engine, monkeypatch):
     engine.config.HISTORY_DATABASE_URI = "sqlite:/:memory:"
 

@@ -4,17 +4,16 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import mark
 from rxon.constants import JOB_STATUS_FAILED, TASK_STATUS_SUCCESS
 
 from holarchy.services.worker_service import WorkerService
 from holarchy.storage.memory import MemoryStorage
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_late_result_handling():
     """Verify that late results are rejected if job is already marked failed."""
     storage = MemoryStorage()

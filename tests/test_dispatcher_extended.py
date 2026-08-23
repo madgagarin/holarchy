@@ -1,21 +1,22 @@
-from unittest.mock import AsyncMock, MagicMock
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import pytest
+
+from unittest.mock import AsyncMock, MagicMock
+
+from pytest import fixture, mark
 from src.holarchy.dispatcher import Dispatcher
 
 
-@pytest.fixture
+@fixture
 def mock_storage():
     storage = AsyncMock()
     return storage
 
 
-@pytest.fixture
+@fixture
 def dispatcher(mock_storage):
     config = MagicMock()
     # Ensure reputation filtering doesn't interfere by default
@@ -23,7 +24,7 @@ def dispatcher(mock_storage):
     return Dispatcher(mock_storage, config, metrics=MagicMock())
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dispatcher_cheapest_strategy(dispatcher, mock_storage):
     """Verifies that the 'cheapest' strategy selects the worker with lowest cost_per_second."""
     workers = [
@@ -60,7 +61,7 @@ async def test_dispatcher_cheapest_strategy(dispatcher, mock_storage):
     assert args[0] == "cheap"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dispatcher_best_value_strategy(dispatcher, mock_storage):
     """Verifies that 'best_value' strategy considers both cost and reputation (cost / reputation)."""
     workers = [
@@ -101,7 +102,7 @@ async def test_dispatcher_best_value_strategy(dispatcher, mock_storage):
     assert args[0] == "cheap_reliable"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dispatcher_max_cost_filtering(dispatcher, mock_storage):
     """Verifies that workers exceeding max_cost are filtered out."""
     workers = [
@@ -130,7 +131,7 @@ async def test_dispatcher_max_cost_filtering(dispatcher, mock_storage):
     assert args[0] == "just_right"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dispatcher_ram_filtering(dispatcher, mock_storage):
     """Tests that the dispatcher correctly filters workers based on RAM requirements."""
     workers = [

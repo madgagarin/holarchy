@@ -15,4 +15,4 @@ This package adheres to the **HLN (Hierarchical Logic Network) Security Model**,
 - **Short-lived Access Tokens** via STS.
 - **No Inbound Ports** for workers (PULL model).
 
-For a detailed explanation of our security principles, please refer to the [HLN Security Specification](../../packages/hln/SECURITY.md).
+For a detailed explanation of our security principles, please refer to the [HLN Security Specification](https://github.com/madgagarin/hln/blob/main/SECURITY.md).

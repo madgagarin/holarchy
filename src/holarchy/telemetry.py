@@ -4,10 +4,59 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
+from importlib.metadata import distribution
 from logging import getLogger
 from os import getenv
 from typing import Any
+
+try:
+    from opentelemetry import metrics as otel_metrics
+    from opentelemetry import propagate as otel_propagate
+    from opentelemetry import trace as otel_trace
+    from opentelemetry.propagate import set_global_textmap
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import (
+        ConsoleMetricExporter,
+        PeriodicExportingMetricReader,
+    )
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import (
+        BatchSpanProcessor,
+        ConsoleSpanExporter,
+    )
+    from opentelemetry.trace.propagation.tracecontext import (
+        TraceContextTextMapPropagator,
+    )
+
+    try:
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+            OTLPMetricExporter,
+        )
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+            OTLPSpanExporter,
+        )
+    except ImportError:
+        OTLPSpanExporter = None
+        OTLPMetricExporter = None
+
+    metrics = otel_metrics
+    trace = otel_trace
+    inject = otel_propagate.inject
+    extract = otel_propagate.extract
+    TELEMETRY_ENABLED = True
+
+    # Set the global propagator to W3C TraceContext
+    set_global_textmap(TraceContextTextMapPropagator())
+
+except ImportError:
+    TELEMETRY_ENABLED = False
+    TracerProvider = object
+    MeterProvider = object
+    BatchSpanProcessor = None
+    ConsoleSpanExporter = None
+    OTLPSpanExporter = None
+    OTLPMetricExporter = None
 
 logger = getLogger(__name__)
 
@@ -124,60 +173,7 @@ class NoOpMetrics:
         pass
 
 
-metrics: Any = None
-trace: Any = None
-inject: Any = None
-extract: Any = None
-
-
-try:
-    from opentelemetry import metrics as otel_metrics
-    from opentelemetry import propagate as otel_propagate
-    from opentelemetry import trace as otel_trace
-    from opentelemetry.propagate import set_global_textmap
-    from opentelemetry.sdk.metrics import MeterProvider
-    from opentelemetry.sdk.metrics.export import (
-        ConsoleMetricExporter,
-        PeriodicExportingMetricReader,
-    )
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import (
-        BatchSpanProcessor,
-        ConsoleSpanExporter,
-    )
-    from opentelemetry.trace.propagation.tracecontext import (
-        TraceContextTextMapPropagator,
-    )
-
-    try:
-        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
-            OTLPMetricExporter,
-        )
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-            OTLPSpanExporter,
-        )
-    except ImportError:
-        OTLPSpanExporter = None
-        OTLPMetricExporter = None
-
-    metrics = otel_metrics
-    trace = otel_trace
-    inject = otel_propagate.inject
-    extract = otel_propagate.extract
-    TELEMETRY_ENABLED = True
-
-    # Set the global propagator to W3C TraceContext
-    set_global_textmap(TraceContextTextMapPropagator())
-
-except ImportError:
-    TELEMETRY_ENABLED = False
-    TracerProvider = object
-    MeterProvider = object
-    BatchSpanProcessor = None
-    ConsoleSpanExporter = None
-    OTLPSpanExporter = None
-    OTLPMetricExporter = None
+if not TELEMETRY_ENABLED:
     inject = NoOpPropagator().inject
     extract = NoOpPropagator().extract
     trace = NoOpTrace()
@@ -200,8 +196,6 @@ def setup_telemetry(service_name: str = "holarchy") -> Any:
         return trace.get_tracer(__name__)
 
     try:
-        from importlib.metadata import distribution  # noqa: PLC0415
-
         project_version = distribution("holarchy").metadata.get("Version") or "0.0.0-dev"  # type: ignore[attr-defined]
     except Exception:
         project_version = "0.0.0-dev"

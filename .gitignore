@@ -42,3 +42,5 @@ htmlcov/
 *.db
 .DS_Store
 Thumbs.db
+new/
+.agignore

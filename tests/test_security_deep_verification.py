@@ -6,9 +6,9 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-import orjson
-import pytest
 from aiohttp import web
+from orjson import loads as orjson_loads
+from pytest import fixture, mark, raises
 
 from holarchy.api.handlers import (
     _filter_job_state,
@@ -32,7 +32,7 @@ def create_mock_request(engine, token=None, job_id=None, query=None):
     return req
 
 
-@pytest.fixture
+@fixture
 def mock_engine():
     engine = MagicMock()
     engine.storage = AsyncMock()
@@ -42,7 +42,7 @@ def mock_engine():
     return engine
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_isolation_at_scale(mock_engine):
     """Verify isolation with many jobs from different clients."""
     token_a = "client-a"
@@ -60,12 +60,12 @@ async def test_isolation_at_scale(mock_engine):
 
     req_a = create_mock_request(mock_engine, token_a, query={"limit": "100"})
     resp_a = await get_jobs_handler(req_a)
-    data_a = orjson.loads(resp_a.body)
+    data_a = orjson_loads(resp_a.body)
     assert len(data_a) == 50
     assert all(j["id"].startswith("a-") for j in data_a)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_quarantine_isolation(mock_engine):
     """Verify that clients only see their own jobs in quarantine."""
     token_a = "client-a"
@@ -85,13 +85,13 @@ async def test_quarantine_isolation(mock_engine):
 
     req = create_mock_request(mock_engine, token_a)
     resp = await get_quarantined_jobs_handler(req)
-    data = orjson.loads(resp.body)
+    data = orjson_loads(resp.body)
 
     assert len(data) == 2
     assert all(j["id"].startswith("job-a") for j in data)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_history_ownership_verification_at_scale(mock_engine):
     """Full cycle: job not in Redis, but present in history. Access granted to owner."""
     token = "owner-token"
@@ -115,7 +115,7 @@ async def test_history_ownership_verification_at_scale(mock_engine):
     assert resp.status == 200
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_forbidden_history_access(mock_engine):
     """Access denied for jobs in history owned by others."""
     req = create_mock_request(mock_engine, "me", job_id="stranger-job")
@@ -125,11 +125,11 @@ async def test_forbidden_history_access(mock_engine):
         {"job_id": "stranger-job", "client_token": "not-me", "state": "finished"}
     ]
 
-    with pytest.raises(web.HTTPForbidden):
+    with raises(web.HTTPForbidden):
         await get_job_status_handler(req)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_filter_robustness(mock_engine):
     """Test filter resilience against malformed data."""
     assert _filter_job_state({}, False) == {}
@@ -142,7 +142,7 @@ async def test_filter_robustness(mock_engine):
     assert _filter_job_state({"id": "1"}, False, set()) == {"id": "1"}
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dashboard_isolation_verified(mock_engine):
     """Verify that dashboard statistics are isolated per client."""
     token_a = "client-a"
@@ -154,7 +154,7 @@ async def test_dashboard_isolation_verified(mock_engine):
     mock_engine.history_storage.get_job_summary.return_value = {"finished": 5, "failed": 1}
 
     resp = await get_dashboard_handler(req)
-    data = orjson.loads(resp.body)
+    data = orjson_loads(resp.body)
 
     mock_engine.history_storage.get_job_summary.assert_called_with(client_token=token_a)
     assert data["jobs"]["finished"] == 5

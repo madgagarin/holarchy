@@ -1,4 +1,4 @@
-**EN** | [ES](https://github.com/madgagarin/holarchy/blob/main/docs/es/configuration.md) | [RU](https://github.com/madgagarin/holarchy/blob/main/docs/ru/configuration.md)
+[EN](https://github.com/madgagarin/holarchy/blob/main/docs/configuration.md) | **ES** | [RU](https://github.com/madgagarin/holarchy/blob/main/docs/ru/configuration.md)
 
 # Referencia de Archivos de Configuración
 
@@ -168,6 +168,8 @@ Esto obliga al Orquestador a volver a leer el archivo y actualizar los hashes de
 | `RATE_LIMIT_HEARTBEAT_LIMIT`            | Límite específico para latidos (heartbeats).                                                                                | `120`                       |
 | `RATE_LIMIT_POLL_LIMIT`                 | Límite específico para sondeo de tareas (polling).                                                                          | `60`                        |
 | `MAX_TRANSITIONS_PER_JOB`               | **Protección de Bucle Infinito:** Límite de transiciones por trabajo.                                                       | `100`                       |
+| `MAX_HOLARCHY_DEPTH`                    | **Protección de Holarquía:** Profundidad máxima de anidamiento de sub-blueprints antes de enviar a cuarentena.              | `10`                        |
+| `MAX_POLICY_SIZE_BYTES`                 | Tamaño máximo permitido para políticas de seguridad en bytes.                                                               | `4096`                      |
 | `DETAILED_API_RESPONSES`                | **Respuestas de API Detalladas:** Si es `false` (por defecto), la API de estado devuelve solo un conjunto básico de campos. | `false`                     |
 
 ### Respuesta 429 (Too Many Requests)
@@ -193,18 +195,20 @@ El sistema admite dos niveles de detalle para el endpoint `GET /api/v1/jobs/{id}
 
 2. **Modo Detallado** (`DETAILED_API_RESPONSES=true`):
    Devuelve el objeto completo del estado del trabajo, incluyendo `state_history`, `initial_data`, `client_config`, etc.
-   | `WORKER_AUTH_MODE` | **Modo de autenticación:** `mixed` (tokens+mTLS), `mtls-only` (mTLS estricto + STS), `token-only`. | `mixed` |
 
 ### Seguridad y TLS (mTLS)
 
-| Variable                  | Descripción                                                                                  | Predeterminado |
-| :------------------------ | :------------------------------------------------------------------------------------------- | :------------- |
-| `TLS_ENABLED`             | Habilitar servidor HTTPS.                                                                    | `false`        |
-| `TLS_CERT_PATH`           | Ruta al certificado SSL del servidor (`.crt`).                                               | `""`           |
-| `TLS_KEY_PATH`            | Ruta a la clave privada del servidor (`.key`).                                               | `""`           |
-| `TLS_CA_PATH`             | Ruta al paquete CA para verificar certificados de cliente.                                   | `""`           |
-| `TLS_REQUIRE_CLIENT_CERT` | Si es `true`, el servidor rechazará conexiones sin certificado válido (mTLS).                | `false`        |
-| `REDIS_ENCRYPTION_KEY`    | **Cifrado de Sobres:** Si se proporciona, los tokens de worker se cifran en Redis (AES-GCM). | `""`           |
+| Variable                   | Descripción                                                                                                  | Predeterminado               |
+| :------------------------- | :----------------------------------------------------------------------------------------------------------- | :--------------------------- |
+| `WORKER_AUTH_MODE`         | **Modo de autenticación:** `mixed` (tokens+mTLS), `mtls-only` (mTLS estricto + STS), `token-only`.            | `mixed`                      |
+| `ORCHESTRATOR_SECRET_KEY`  | Clave secreta para la firma criptográfica HMAC-SHA256 y verificación de estado en Redis.                     | Token aleatorio autogenerado |
+| `AUDIT_SALT`               | Sal para el motor criptográfico de auditoría D-DNA (`holarchy.cli.audit`).                                 | `default_audit_salt`         |
+| `TLS_ENABLED`              | Habilitar servidor HTTPS.                                                                                    | `false`                      |
+| `TLS_CERT_PATH`            | Ruta al certificado SSL del servidor (`.crt`).                                                               | `""`                         |
+| `TLS_KEY_PATH`             | Ruta a la clave privada del servidor (`.key`).                                                               | `""`                         |
+| `TLS_CA_PATH`              | Ruta al paquete CA para verificar certificados de cliente.                                                   | `""`                         |
+| `TLS_REQUIRE_CLIENT_CERT`  | Si es `true`, el servidor rechazará conexiones sin certificado válido (mTLS).                                | `false`                      |
+| `REDIS_ENCRYPTION_KEY`     | **Cifrado de Sobres:** Si se proporciona, los tokens de worker se cifran en Redis (AES-GCM).                 | `""`                         |
 
 ### Rendimiento de la autenticación de workers
 

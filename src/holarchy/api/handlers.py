@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from collections.abc import Callable
 from importlib import resources
 from logging import getLogger
@@ -28,7 +27,6 @@ from ..app_keys import (
     S3_SERVICE_KEY,
 )
 from ..blueprint import Blueprint
-from ..client_config_loader import load_client_configs_to_redis
 from ..metrics import LABEL_BLUEPRINT
 from ..security import AUTH_HEADER_CLIENT
 from ..utils.json import json_response
@@ -486,6 +484,8 @@ async def get_quarantined_jobs_handler(request: web.Request) -> web.Response:
 
     client_config = request.get(CLIENT_CONFIG_KEY) or request.get("client_config", {})
     client_token = client_config.get("token")
+    if not client_token:
+        return json_response({"error": "Authentication required"}, status=401)
 
     job_ids = await engine.storage.get_quarantined_jobs(client_token=client_token)
 
@@ -622,14 +622,6 @@ async def reload_worker_configs_handler(request: web.Request) -> web.Response:
         engine.config.REDIS_ENCRYPTION_KEY,
     )
     return json_response({"status": "worker_configs_reloaded"})
-
-
-async def flush_db_handler(request: web.Request) -> web.Response:
-    engine = request.app[ENGINE_KEY]
-    logger.warning("Received request to flush the database.")
-    await engine.storage.flush_all()
-    await load_client_configs_to_redis(engine.storage)
-    return json_response({"status": "db_flushed"}, status=200)
 
 
 async def docs_handler(request: web.Request) -> web.Response:

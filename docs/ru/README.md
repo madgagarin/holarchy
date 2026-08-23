@@ -425,7 +425,7 @@ async def process_data(task_files, actions):
 
 **Пример запроса:**
 
-```json
+```http
 POST /api/v1/jobs/my_flow
 {
     "initial_data": {
@@ -508,7 +508,7 @@ POST /api/v1/jobs/my_flow
 
 #### Пример использования политик скиллов (`policy`):
 
-```json
+```http
 POST /api/v1/jobs/my_flow
 {
     "initial_data": {"input_val": 42},

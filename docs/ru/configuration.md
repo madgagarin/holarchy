@@ -1,4 +1,4 @@
-**EN** | [ES](https://github.com/madgagarin/holarchy/blob/main/docs/es/configuration.md) | **RU**
+[EN](https://github.com/madgagarin/holarchy/blob/main/docs/configuration.md) | [ES](https://github.com/madgagarin/holarchy/blob/main/docs/es/configuration.md) | **RU**
 
 # Справочник по конфигурационным файлам
 
@@ -183,8 +183,10 @@ input_data = { compression = "max" }
 | `RATE_LIMIT_LIMIT`                      | Общий лимит запросов за период.                                                                                          | `100`                       |
 | `RATE_LIMIT_PERIOD`                     | Период лимитирования в секундах.                                                                                         | `60`                        |
 | `RATE_LIMIT_HEARTBEAT_LIMIT`            | Специфичный лимит для Heartbeats.                                                                                        | `120`                       |
-| `RATE_LIMIT_POLL_LIMIT`                 | Специфичный лимит для Polling задач.                                                                                     | `60`                        |
+| `RATE_LIMIT_POLL_LIMIT`                 | Специфичный лимит для Long-polling запросов воркеров.                                                                     | `60`                        |
 | `MAX_TRANSITIONS_PER_JOB`               | Защита от бесконечных циклов в блупринтах.                                                                               | `100`                       |
+| `MAX_HOLARCHY_DEPTH`                    | **Защита холархии:** Максимальная глубина вложенности суб-блупринтов до отправки в карантин.                            | `10`                        |
+| `MAX_POLICY_SIZE_BYTES`                 | Максимально допустимый размер политик безопасности в байтах.                                                             | `4096`                      |
 | `DETAILED_API_RESPONSES`                | **Детальные ответы API:** Если `false` (по умолчанию), API возвращает только базовый набор полей.                        | `false`                     |
 
 ### Ответ 429 (Too Many Requests)
@@ -210,18 +212,20 @@ input_data = { compression = "max" }
 
 2. **Детальный режим** (`DETAILED_API_RESPONSES=true`):
    Возвращается полный объект состояния задачи, включая `state_history`, `initial_data`, `client_config` и др.
-   | `WORKER_AUTH_MODE` | **Режим аутентификации:** `mixed` (токены+mTLS), `mtls-only` (строгий mTLS + STS), `token-only`. | `mixed` |
 
 ### Безопасность и TLS (mTLS)
 
-| Переменная                | Описание                                                                 | По умолчанию |
-| :------------------------ | :----------------------------------------------------------------------- | :----------- |
-| `TLS_ENABLED`             | Включить HTTPS сервер.                                                   | `false`      |
-| `TLS_CERT_PATH`           | Путь к SSL сертификату сервера (`.crt`).                                 | `""`         |
-| `TLS_KEY_PATH`            | Путь к приватному ключу сервера (`.key`).                                | `""`         |
-| `TLS_CA_PATH`             | Путь к CA бандлу для проверки сертификатов клиентов.                     | `""`         |
-| `TLS_REQUIRE_CLIENT_CERT` | Если `true`, сервер будет требовать валидный сертификат (mTLS).          | `false`      |
-| `REDIS_ENCRYPTION_KEY`    | **Шифрование в Redis:** Если задан, токены воркеров шифруются (AES-GCM). | `""`         |
+| Переменная                  | Описание                                                                                                | По умолчанию                |
+| :-------------------------- | :------------------------------------------------------------------------------------------------------ | :-------------------------- |
+| `WORKER_AUTH_MODE`          | **Режим аутентификации:** `mixed` (токены+mTLS), `mtls-only` (строгий mTLS + STS), `token-only`.         | `mixed`                     |
+| `ORCHESTRATOR_SECRET_KEY`   | Секретный ключ для криптографической подписи HMAC-SHA256 и верификации состояний в Redis.               | Автогенерация random токена |
+| `AUDIT_SALT`                | Соль для криптографического движка аудита D-DNA (`holarchy.cli.audit`).                               | `default_audit_salt`        |
+| `TLS_ENABLED`               | Включить HTTPS сервер.                                                                                  | `false`                     |
+| `TLS_CERT_PATH`             | Путь к SSL сертификату сервера (`.crt`).                                                                | `""`                        |
+| `TLS_KEY_PATH`              | Путь к приватному ключу сервера (`.key`).                                                               | `""`                        |
+| `TLS_CA_PATH`               | Путь к CA бандлу для проверки сертификатов клиентов.                                                    | `""`                        |
+| `TLS_REQUIRE_CLIENT_CERT`   | Если `true`, сервер будет требовать валидный сертификат (mTLS).                                         | `false`                     |
+| `REDIS_ENCRYPTION_KEY`      | **Шифрование в Redis:** Если задан, токены воркеров шифруются (AES-GCM).                                | `""`                        |
 
 ### Производительность аутентификации воркеров
 
@@ -234,6 +238,8 @@ input_data = { compression = "max" }
 | `S3_ENDPOINT_URL`    | URL S3-совместимого хранилища. Обязательно для включения S3.        | `""`                       |
 | `S3_ACCESS_KEY`      | Access Key ID.                                                      | `""`                       |
 | `S3_SECRET_KEY`      | Secret Access Key.                                                  | `""`                       |
+| `S3_REGION`          | Регион S3.                                                          | `us-east-1`                |
+| `S3_DEFAULT_BUCKET`  | Имя бакета по умолчанию.                                            | `holarchy-payloads`      |
 | `S3_MAX_CONCURRENCY` | Лимит одновременных соединений с S3 для всего кластера.             | `100`                      |
 | `S3_AUTO_CLEANUP`    | Если `true`, автоматически удаляет файлы S3 при завершении задания. | `true`                     |
 | `TASK_FILES_DIR`     | Локальная директория для временного хранения файлов.                | `/tmp/holarchy-payloads` |

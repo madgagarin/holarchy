@@ -1,17 +1,18 @@
-from unittest.mock import AsyncMock, MagicMock
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import pytest
+
+from unittest.mock import AsyncMock, MagicMock
+
+from pytest import fixture, mark
 from src.holarchy.config import Config
 from src.holarchy.engine import OrchestratorEngine
 from src.holarchy.reputation import ReputationCalculator
 
 
-@pytest.fixture
+@fixture
 def mock_engine():
     engine = MagicMock(spec=OrchestratorEngine)
     engine.storage = AsyncMock()
@@ -22,7 +23,7 @@ def mock_engine():
     return engine
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_reputation_calculation_logic(mock_engine):
     """Tests the basic logic of reputation calculation."""
     calculator = ReputationCalculator(mock_engine)
@@ -62,7 +63,7 @@ async def test_reputation_calculation_logic(mock_engine):
     )
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_reputation_no_history(mock_engine):
     """Tests the case where a worker has no task history.
     The reputation should not change.
@@ -78,7 +79,7 @@ async def test_reputation_no_history(mock_engine):
     mock_engine.storage.update_worker_data.assert_not_called()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_reputation_division_by_zero(mock_engine):
     """Tests the case where a worker has a history, but no task completion events
     (to avoid division by zero).

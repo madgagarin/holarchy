@@ -3,20 +3,20 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
-import json
-import os
+
+from asyncio import sleep
+from json import dumps as json_dumps
+from json import loads as json_loads
+from os.path import abspath, dirname, join
 from typing import Any
 from unittest.mock import AsyncMock
 
-import pytest
-import zstandard
 from aiohttp import web
+from pytest import mark
 from rxon.constants import AUTH_HEADER_CLIENT, AUTH_HEADER_WORKER
+from zstandard import decompress as zstd_decompress
 
-from holarchy.app_keys import (
-    STORAGE_KEY,
-)
+from holarchy.app_keys import STORAGE_KEY
 from holarchy.blueprint import Blueprint
 from holarchy.client_config_loader import load_client_configs_to_redis
 from holarchy.engine import ENGINE_KEY, OrchestratorEngine
@@ -29,7 +29,7 @@ child_bp = Blueprint(name="child_flow")
 
 @child_bp.handler("start", is_start=True)
 async def child_start(context, actions):
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
     actions.go_to("finished")
 
 
@@ -116,12 +116,12 @@ async def ds_failed(context, actions):
 # --- Tests ---
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "app",
     [{"extra_blueprints": [child_bp, parent_bp]}],
     indirect=True,
 )
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_sub_blueprint_flow(aiohttp_client, app):
     client = await aiohttp_client(app)
     storage = app[STORAGE_KEY]
@@ -135,7 +135,7 @@ async def test_sub_blueprint_flow(aiohttp_client, app):
     final_parent_state = None
     child_job_id = None
     for _ in range(50):
-        await asyncio.sleep(0.1)
+        await sleep(0.1)
         parent_state = await storage.get_job_state(parent_job_id)
         assert parent_state is not None
         if not child_job_id:
@@ -153,8 +153,8 @@ async def test_sub_blueprint_flow(aiohttp_client, app):
     assert final_child_state["parent_job_id"] == parent_job_id
 
 
-@pytest.mark.parametrize("app", [{"extra_blueprints": [data_store_bp]}], indirect=True)
-@pytest.mark.asyncio
+@mark.parametrize("app", [{"extra_blueprints": [data_store_bp]}], indirect=True)
+@mark.asyncio
 async def test_data_store_flow(aiohttp_client, app):
     client = await aiohttp_client(app)
     storage = app[STORAGE_KEY]
@@ -167,7 +167,7 @@ async def test_data_store_flow(aiohttp_client, app):
 
     final_state = None
     for _ in range(10):
-        await asyncio.sleep(0.1)
+        await sleep(0.1)
         state = await storage.get_job_state(job_id)
         assert state is not None
         if state.get("current_state") == "finished":
@@ -180,7 +180,7 @@ async def test_data_store_flow(aiohttp_client, app):
     assert final_value == "value_from_value"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_zstd_compression_middleware(aiohttp_client, app):
     large_payload = {"data": "a" * 1000}
 
@@ -197,19 +197,19 @@ async def test_zstd_compression_middleware(aiohttp_client, app):
         assert resp.headers.get("Content-Encoding") == "zstd"
 
         compressed_data = await resp.read()
-        decompressed_data = zstandard.decompress(compressed_data)
-        payload = json.loads(decompressed_data)
+        decompressed_data = zstd_decompress(compressed_data)
+        payload = json_loads(decompressed_data)
 
         assert payload == large_payload
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_gzip_compression_middleware(aiohttp_client, app):
     large_payload = {"data": "a" * 1000}
 
     async def large_response_handler(request):
         return web.Response(
-            text=json.dumps(large_payload),
+            text=json_dumps(large_payload),
             content_type="application/json",
         )
 
@@ -224,17 +224,17 @@ async def test_gzip_compression_middleware(aiohttp_client, app):
     assert resp.headers.get("Content-Encoding") == "gzip"
 
     decompressed_data = await resp.read()
-    payload = json.loads(decompressed_data)
+    payload = json_loads(decompressed_data)
 
     assert payload == large_payload
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "app",
     [{"extra_blueprints": [parent_bp]}],
     indirect=True,
 )
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_quota_middleware(aiohttp_client, app):
     client = await aiohttp_client(app)
     storage = app[STORAGE_KEY]
@@ -268,12 +268,12 @@ async def context_finished_handler(context, actions):
     pass
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "app",
     [{"extra_blueprints": [context_bp]}],
     indirect=True,
 )
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_client_config_in_context(aiohttp_client, app):
     storage = app[STORAGE_KEY]
 
@@ -289,7 +289,7 @@ async def test_client_config_in_context(aiohttp_client, app):
 
     final_state = None
     for _ in range(10):
-        await asyncio.sleep(0.1)
+        await sleep(0.1)
         state = await storage.get_job_state(job_id)
         if state and state.get("current_state") == "finished":
             final_state = state
@@ -319,7 +319,7 @@ def make_valid_worker_payload(worker_id: str, **kwargs) -> dict[str, Any]:
     return payload
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_registration_with_full_data(aiohttp_client, app):
     client = await aiohttp_client(app)
     storage: RedisStorage = app[STORAGE_KEY]
@@ -364,7 +364,7 @@ async def test_worker_registration_with_full_data(aiohttp_client, app):
     assert len(stored_data["installed_artifacts"]) == 2
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_empty_heartbeat_refreshes_ttl(aiohttp_client, app):
     client = await aiohttp_client(app)
     storage: RedisStorage = app[STORAGE_KEY]
@@ -393,8 +393,8 @@ async def test_empty_heartbeat_refreshes_ttl(aiohttp_client, app):
     assert len(workers_after_hb) == 1
 
 
-@pytest.mark.parametrize("app", [{"extra_blueprints": [unversioned_bp]}], indirect=True)
-@pytest.mark.asyncio
+@mark.parametrize("app", [{"extra_blueprints": [unversioned_bp]}], indirect=True)
+@mark.asyncio
 async def test_unversioned_route(aiohttp_client, app):
     client = await aiohttp_client(app)
     storage = app[STORAGE_KEY]
@@ -412,7 +412,7 @@ async def test_unversioned_route(aiohttp_client, app):
 
     final_state = None
     for _ in range(10):
-        await asyncio.sleep(0.1)
+        await sleep(0.1)
         status_resp = await client.get(f"/api/jobs/{job_id}", headers=headers)
         assert status_resp.status == 200
         state = await status_resp.json()
@@ -445,12 +445,12 @@ async def cancel_cancelled(context, actions):
     pass
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "app",
     [{"extra_blueprints": [cancellation_bp]}],
     indirect=True,
 )
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_cancellation_via_websocket_mocked(aiohttp_client, app):
     engine = app[ENGINE_KEY]
 
@@ -465,8 +465,8 @@ async def test_task_cancellation_via_websocket_mocked(aiohttp_client, app):
     await storage.flush_all()
 
     # After flushing, we need to reload the client configs for auth to work
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    clients_toml_path = os.path.join(current_dir, "clients.toml")
+    current_dir = dirname(abspath(__file__))
+    clients_toml_path = join(current_dir, "clients.toml")
     await load_client_configs_to_redis(storage, config_path=clients_toml_path)
 
     job_id = "job-to-be-cancelled"
@@ -513,17 +513,17 @@ async def test_task_cancellation_via_websocket_mocked(aiohttp_client, app):
     }
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "app",
     [
         {
             "extra_blueprints": [cancellation_bp],
-            "workers_config_path": os.path.join(os.path.dirname(os.path.abspath(__file__)), "workers.toml"),
+            "workers_config_path": join(dirname(abspath(__file__)), "workers.toml"),
         }
     ],
     indirect=True,
 )
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_individual_token_auth(aiohttp_client, app):
     client = await aiohttp_client(app)
     storage: RedisStorage = app[STORAGE_KEY]
@@ -542,7 +542,7 @@ async def test_worker_individual_token_auth(aiohttp_client, app):
     assert (await resp.json())["status"] == "registered"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_individual_token_auth_failure(aiohttp_client, app):
     client = await aiohttp_client(app)
     storage: RedisStorage = app[STORAGE_KEY]
@@ -563,7 +563,7 @@ async def test_worker_individual_token_auth_failure(aiohttp_client, app):
     assert "Invalid individual worker token" in error["error"]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_global_token_fallback(aiohttp_client, app):
     global_token = "this-is-a-global-token"
     app[ENGINE_KEY].config.GLOBAL_WORKER_TOKEN = global_token
@@ -583,7 +583,7 @@ async def test_worker_global_token_fallback(aiohttp_client, app):
     assert (await resp.json())["status"] == "registered"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_no_token_failure(aiohttp_client, app):
     client = await aiohttp_client(app)
     storage: RedisStorage = app[STORAGE_KEY]
@@ -599,7 +599,7 @@ async def test_worker_no_token_failure(aiohttp_client, app):
     assert f"Missing {AUTH_HEADER_WORKER} header" in error["error"]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_progress_update_handling(aiohttp_client, app):
     client = await aiohttp_client(app)
     storage = app[STORAGE_KEY]
@@ -621,7 +621,7 @@ async def test_progress_update_handling(aiohttp_client, app):
         }
         await ws.send_json(progress_payload)
 
-        await asyncio.sleep(0.1)
+        await sleep(0.1)
 
     updated_state = await storage.get_job_state(job_id)
     assert updated_state is not None

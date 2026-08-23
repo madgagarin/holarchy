@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from asyncio import CancelledError, gather, sleep
 from logging import getLogger
 from typing import TYPE_CHECKING

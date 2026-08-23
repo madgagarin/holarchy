@@ -1,15 +1,17 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import asyncio
-import time
+from asyncio import gather
+from time import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import msgpack
-import pytest
-import pytest_asyncio
 from fakeredis import aioredis as redis
+from msgspec.msgpack import encode as packb
+from pytest import fixture, mark
+from pytest_asyncio import fixture as async_fixture
 from rxon.constants import (
     JOB_STATUS_WAITING_FOR_PARALLEL,
 )
@@ -23,7 +25,7 @@ from holarchy.services.worker_service import WorkerService
 from holarchy.storage.redis import RedisStorage
 
 
-@pytest_asyncio.fixture
+@async_fixture
 async def redis_storage():
     client = redis.FakeRedis(decode_responses=False)
     storage = RedisStorage(client)
@@ -31,14 +33,14 @@ async def redis_storage():
     await client.aclose()
 
 
-@pytest.fixture
+@fixture
 def config():
     conf = Config()
     conf.JOB_MAX_RETRIES = 2
     return conf
 
 
-@pytest_asyncio.fixture
+@async_fixture
 async def engine(redis_storage, config):
     engine = OrchestratorEngine(redis_storage, config)
     engine.metrics = MagicMock()
@@ -87,7 +89,7 @@ async def engine(redis_storage, config):
     yield engine
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_parallel_branch_isolation_happy_path(engine, redis_storage):
     """
     Test that parallel branches have isolated state (worker IDs, timestamps).
@@ -126,7 +128,7 @@ async def test_parallel_branch_isolation_happy_path(engine, redis_storage):
                 "worker_id": "worker-a",
                 "status": "success",
                 "data": {"res": "A"},
-                "timestamp": int(time.time()),
+                "timestamp": int(time()),
                 "security": {"signature": "sig-a", "signer_id": "worker-a"},
             },
             authenticated_worker_id="worker-a",
@@ -141,7 +143,7 @@ async def test_parallel_branch_isolation_happy_path(engine, redis_storage):
                 "worker_id": "worker-b",
                 "status": "success",
                 "data": {"res": "B"},
-                "timestamp": int(time.time()),
+                "timestamp": int(time()),
                 "security": {"signature": "sig-b", "signer_id": "worker-b"},
             },
             authenticated_worker_id="worker-b",
@@ -164,7 +166,7 @@ async def test_parallel_branch_isolation_happy_path(engine, redis_storage):
     assert await redis_storage.get_job_queue_length() > 0
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_atomic_aggregation_concurrency(engine, redis_storage):
     """
     Stress test: Simulate simultaneous results for multiple branches to ensure no lost updates.
@@ -203,14 +205,14 @@ async def test_atomic_aggregation_concurrency(engine, redis_storage):
                     "worker_id": f"worker-{i}",
                     "status": "success",
                     "data": {"val": i},
-                    "timestamp": int(time.time()),
+                    "timestamp": int(time()),
                     "security": {"signature": "s", "signer_id": f"worker-{i}"},
                 },
                 authenticated_worker_id=f"worker-{i}",
             )
 
     # Launch all concurrently
-    await asyncio.gather(*[send_result(tid, i) for i, tid in enumerate(branch_ids)])
+    await gather(*[send_result(tid, i) for i, tid in enumerate(branch_ids)])
 
     # Verify all results are present
     final_state = await redis_storage.get_job_state(job_id)
@@ -221,7 +223,7 @@ async def test_atomic_aggregation_concurrency(engine, redis_storage):
         assert results[tid]["data"]["val"] == i
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_independent_branch_timeouts(engine, redis_storage):
     """
     Verify that Watcher can timeout branches independently.
@@ -242,7 +244,7 @@ async def test_independent_branch_timeouts(engine, redis_storage):
     )
 
     # Expire only t1
-    now = int(time.time())
+    now = int(time())
     await redis_storage.add_job_to_watch(f"{job_id}:{tid_1}", now - 10)
     await redis_storage.add_job_to_watch(f"{job_id}:{tid_2}", now + 100)
 
@@ -264,13 +266,13 @@ async def test_independent_branch_timeouts(engine, redis_storage):
             mock_fail.assert_called_with(job_state, tid, "Timeout")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_data_normalization_regression(redis_storage):
     """
     Test RedisStorage._normalize_unpacked with complex nested cmsgpack-like bytes.
     """
     inner_data = {"id": "123", "status": "ok"}
-    packed_inner = msgpack.packb(inner_data)
+    packed_inner = packb(inner_data)
 
     raw_redis_data = {b"job_id": b"job-1", b"payload": packed_inner, b"list": [b"item1", packed_inner]}
 
@@ -283,7 +285,7 @@ async def test_data_normalization_regression(redis_storage):
     assert isinstance(normalized["job_id"], str)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_token_patterns_matching(redis_storage):
     """
     Test find_worker_token with various patterns.
@@ -303,7 +305,7 @@ async def test_token_patterns_matching(redis_storage):
     assert await redis_storage.find_worker_token("unknown") is None
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_per_branch_retry_limit(engine, redis_storage):
     """
     Test that each branch tracks its own retries and fails independently.
@@ -346,7 +348,7 @@ async def test_per_branch_retry_limit(engine, redis_storage):
     assert "Task t1 failed after 3 attempts" in state["error_message"]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_lost_update_prevention_parallel_dispatch(engine, redis_storage):
     """
     Verify that dispatching multiple parallel tasks doesn't lose 'parallel_tasks_info'.

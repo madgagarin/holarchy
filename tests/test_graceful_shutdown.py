@@ -3,10 +3,11 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
+
+from asyncio import CancelledError, Event, create_task, sleep
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import mark
 from src.holarchy.app_keys import (
     EXECUTOR_KEY,
     EXECUTOR_TASK_KEY,
@@ -23,7 +24,7 @@ from src.holarchy.app_keys import (
 from src.holarchy.engine import OrchestratorEngine
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_graceful_shutdown_waits_for_tasks():
     """
     Tests that on_shutdown calls stop() on services and waits for tasks to complete
@@ -46,25 +47,25 @@ async def test_graceful_shutdown_waits_for_tasks():
 
     # Create mock background tasks that simulate work
     # We want Executor to finish its work, not be cancelled.
-    executor_finished = asyncio.Event()
+    executor_finished = Event()
 
     async def mock_executor_run():
         try:
             # Simulate some work
-            await asyncio.sleep(0.1)
-        except asyncio.CancelledError:
+            await sleep(0.1)
+        except CancelledError:
             # Should NOT be cancelled
             raise AssertionError("Executor task was cancelled unexpectedly!") from None
         finally:
             executor_finished.set()
 
     # Watcher CAN be cancelled
-    watcher_cancelled = asyncio.Event()
+    watcher_cancelled = Event()
 
     async def mock_watcher_run():
         try:
-            await asyncio.sleep(10)
-        except asyncio.CancelledError:
+            await sleep(10)
+        except CancelledError:
             watcher_cancelled.set()
             # Re-raise or just return, doesn't matter for the test logic itself,
             # but usually cancellation should propagate if we want .cancelled() to be True.
@@ -73,12 +74,12 @@ async def test_graceful_shutdown_waits_for_tasks():
 
     # Assign mock tasks to app keys
     # We use create_task to make them real asyncio Tasks
-    executor_task = asyncio.create_task(mock_executor_run())
-    watcher_task = asyncio.create_task(mock_watcher_run())
+    executor_task = create_task(mock_executor_run())
+    watcher_task = create_task(mock_watcher_run())
 
     app[EXECUTOR_TASK_KEY] = executor_task
     app[WATCHER_TASK_KEY] = watcher_task
-    done_task = asyncio.create_task(asyncio.sleep(0))
+    done_task = create_task(sleep(0))
     await done_task
     app[REPUTATION_CALCULATOR_TASK_KEY] = done_task
     app[HEALTH_CHECKER_TASK_KEY] = done_task

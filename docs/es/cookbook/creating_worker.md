@@ -20,11 +20,20 @@ pip install "holonode[s3,pydantic]"
 
 Crea un archivo Python (por ejemplo, `mi_worker.py`) e importa la clase `Worker`.
 
-# 2. Definir Manejadores de Tareas
+```python
+import asyncio
+from holonode import Worker
+from pydantic import BaseModel
+
+# 1. Inicializar la instancia de Worker
+worker = Worker(worker_type="inventory-checker")
+```
+
+### 2. Definir Manejadores de Tareas
 
 Puede usar **diccionarios estándar** (sin dependencias) o **modelos Pydantic** (para validación automática).
 
-### Opción A: Diccionario Simple (Sin Pydantic)
+#### Opción A: Diccionario Simple (Sin Pydantic)
 
 ```python
 @worker.skill("check_inventory")
@@ -34,11 +43,9 @@ async def check_inventory_handler(params: dict, **kwargs) -> dict:
     return {"status": "success", "data": {"warehouse_info": "ok"}}
 ```
 
-### Opción B: Modelo Pydantic (Validación automática)
+#### Opción B: Modelo Pydantic (Validación automática)
 
 ```python
-from pydantic import BaseModel
-
 class CheckParams(BaseModel):
     items: list[str]
 
@@ -49,12 +56,13 @@ async def check_inventory_handler(params: CheckParams, **kwargs) -> dict:
     return {"status": "success", "data": {"warehouse_info": "ok"}}
 ```
 
-# Ejemplo de manejador para tarea larga con cancelación cooperativa
+#### Opción C: Tarea Larga con Cancelación Cooperativa
 
+```python
 @worker.skill("long_running_task")
-async def long_task_handler(params: dict, \*\*kwargs) -> dict:
-task_id = kwargs["task_id"]
-print(f"Iniciando tarea larga {task_id}...")
+async def long_task_handler(params: dict, **kwargs) -> dict:
+    task_id = kwargs["task_id"]
+    print(f"Iniciando tarea larga {task_id}...")
 
     for i in range(10):
         # Verificar si el Orquestador solicitó la cancelación
@@ -67,12 +75,10 @@ print(f"Iniciando tarea larga {task_id}...")
 
     return {"status": "success"}
 
-# 4. Ejecutar worker
-
-if **name** == "**main**":
-worker.run()
-
-````
+# 3. Ejecutar worker
+if __name__ == "__main__":
+    worker.run()
+```
 
 ## Paso 3: Configuración de Conexión y Autenticación
 

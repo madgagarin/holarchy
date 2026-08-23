@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from collections.abc import Awaitable, Callable
 from hashlib import sha256
 from logging import getLogger
@@ -17,6 +16,7 @@ from .app_keys import CLIENT_CONFIG_KEY
 from .config import Config
 from .metrics import Metrics
 from .storage.base import StorageBackend
+from .telemetry import trace
 from .utils.crypto import decrypt_token
 
 logger = getLogger(__name__)
@@ -39,8 +39,6 @@ async def verify_worker_auth(
     Returns (authenticated_worker_id, credential_hash).
     Raises ValueError (400), PermissionError (401/403) on failure.
     """
-    from .telemetry import trace  # noqa: PLC0415
-
     span = trace.get_current_span()
     mode = config.WORKER_AUTH_MODE
     span.set_attribute("auth.mode", mode)
@@ -128,6 +126,7 @@ async def verify_worker_auth(
 
 def client_auth_middleware_factory(
     storage: StorageBackend,
+    config: Config | None = None,
 ) -> Any:
     """Middleware factory for client authentication.
     It checks for a client token and attaches the client config to the request.
@@ -144,10 +143,19 @@ def client_auth_middleware_factory(
 
         client_config = await storage.get_client_config(token)
         if not client_config:
-            return web.json_response(
-                {"error": "Unauthorized: Invalid token"},
-                status=401,
-            )
+            if config and config.CLIENT_TOKEN and token == config.CLIENT_TOKEN:
+                client_config = {
+                    "token": token,
+                    "plan": "default",
+                    "allowed_languages": ["*"],
+                }
+                await storage.save_client_config(token, client_config)
+                await storage.initialize_client_quota(token, 1000000)
+            else:
+                return web.json_response(
+                    {"error": "Unauthorized: Invalid token"},
+                    status=401,
+                )
 
         # Attach client config to the request for handlers to use
         request[CLIENT_CONFIG_KEY] = client_config

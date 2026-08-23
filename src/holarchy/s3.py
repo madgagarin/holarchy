@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from asyncio import Semaphore, gather, to_thread
 from datetime import timedelta
 from inspect import iscoroutine
@@ -19,12 +18,6 @@ from orjson import dumps, loads
 from rxon.blob import BlobProvider, calculate_config_hash, parse_uri
 from rxon.exceptions import IntegrityError
 
-from .config import Config
-from .history.base import HistoryStorageBase
-from .metrics import Metrics
-
-logger = getLogger(__name__)
-
 try:
     from aiofiles import open as aiopen
     from obstore import delete_async, get_async, put_async, sign
@@ -36,6 +29,13 @@ except ImportError:
     HAS_S3_LIBS = False
     S3Store = cast(Any, object)
     delete_async = get_async = put_async = sign = obstore_list = aiopen = cast(Any, None)
+
+from .config import Config
+from .history.base import HistoryStorageBase
+from .metrics import Metrics
+from .telemetry import trace
+
+logger = getLogger(__name__)
 
 
 class TaskFiles:
@@ -70,7 +70,10 @@ class TaskFiles:
         """Returns local path for a filename, ensuring the directory exists."""
         self._ensure_local_dir()
         clean_name = filename.rsplit("/", maxsplit=1)[-1] if "://" in filename else filename.lstrip("/")
-        return self.local_dir / clean_name
+        resolved_path = (self.local_dir / clean_name).resolve()
+        if not resolved_path.is_relative_to(self.local_dir.resolve()):
+            raise PermissionError(f"Path traversal attempt detected: '{filename}'")
+        return resolved_path
 
     def generate_presigned_url(
         self,
@@ -331,8 +334,6 @@ class S3Service(BlobProvider):
         if not self._enabled or not self._store or not self._semaphore:
             raise RuntimeError("S3 support is not enabled or initialized.")
 
-        from .telemetry import trace  # noqa: PLC0415
-
         tracer = trace.get_tracer(__name__)
         start_time = time()
 
@@ -365,8 +366,6 @@ class S3Service(BlobProvider):
         """Standard BlobProvider download."""
         if not self._enabled or not self._store or not self._semaphore:
             return False
-
-        from .telemetry import trace  # noqa: PLC0415
 
         tracer = trace.get_tracer(__name__)
         start_time = time()

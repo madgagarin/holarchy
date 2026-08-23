@@ -1,18 +1,19 @@
-from unittest.mock import AsyncMock, MagicMock
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import orjson
-import pytest
+
+from unittest.mock import AsyncMock, MagicMock
+
+from orjson import loads as orjson_loads
+from pytest import fixture, mark
 
 from holarchy.api.handlers import get_job_status_handler
 from holarchy.app_keys import ENGINE_KEY
 
 
-@pytest.fixture
+@fixture
 def mock_engine():
     engine = MagicMock()
     engine.storage = AsyncMock()
@@ -20,7 +21,7 @@ def mock_engine():
     return engine
 
 
-@pytest.fixture
+@fixture
 def mock_request(mock_engine):
     req = MagicMock()
     app_mock = MagicMock()
@@ -36,7 +37,7 @@ def mock_request(mock_engine):
     return req
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_result_hidden_when_running_compact(mock_engine, mock_request):
     """Result should be hidden on non-terminal states in compact mode."""
     token = mock_request.get("client_config")["token"]
@@ -50,13 +51,13 @@ async def test_result_hidden_when_running_compact(mock_engine, mock_request):
     }
 
     response = await get_job_status_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     assert "result" not in data
     assert data["status"] == "running"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_result_hidden_when_running_detailed(mock_engine, mock_request):
     """Result should be hidden on non-terminal states even in detailed mode."""
     token = mock_request.get("client_config")["token"]
@@ -70,13 +71,13 @@ async def test_result_hidden_when_running_detailed(mock_engine, mock_request):
     }
 
     response = await get_job_status_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     assert "result" not in data
     assert data["status"] == "running"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_result_visible_when_finished(mock_engine, mock_request):
     """Result should be visible when job is finished."""
     token = mock_request.get("client_config")["token"]
@@ -90,13 +91,13 @@ async def test_result_visible_when_finished(mock_engine, mock_request):
     }
 
     response = await get_job_status_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     assert data["result"] == {"final": "data"}
     assert data["status"] == "finished"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_result_visible_when_failed(mock_engine, mock_request):
     """Result should be visible when job is failed (as it is a terminal state)."""
     token = mock_request.get("client_config")["token"]
@@ -110,7 +111,7 @@ async def test_result_visible_when_failed(mock_engine, mock_request):
     }
 
     response = await get_job_status_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     assert data["result"] == {"error": "context"}
     assert data["status"] == "failed"

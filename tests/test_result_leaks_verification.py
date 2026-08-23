@@ -6,15 +6,15 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-import orjson
-import pytest
 from aiohttp import web
+from orjson import loads as orjson_loads
+from pytest import fixture, mark
 
 from holarchy.api.handlers import get_job_history_handler, get_jobs_handler
 from holarchy.app_keys import ENGINE_KEY
 
 
-@pytest.fixture
+@fixture
 def mock_engine():
     engine = MagicMock()
     engine.config = MagicMock()
@@ -33,7 +33,7 @@ def create_mock_request(engine, token="test-token", query=None):
     return req
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_no_result_leak_in_job_list(mock_engine):
     """
     LEAK CHECK: Field 'result' must NOT be present in job list objects for non-terminal jobs.
@@ -59,7 +59,7 @@ async def test_no_result_leak_in_job_list(mock_engine):
 
     req = create_mock_request(mock_engine, token)
     resp = await get_jobs_handler(req)
-    data = orjson.loads(resp.body)
+    data = orjson_loads(resp.body)
 
     # 1. Result should be removed from running job
     running_job = next(j for j in data if j["id"] == "job-running")
@@ -70,7 +70,7 @@ async def test_no_result_leak_in_job_list(mock_engine):
     assert finished_job.get("result") == {"visible": "data"}
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_no_result_leak_in_history_snapshots(mock_engine):
     """
     LEAK CHECK: Field 'result' must NOT be present in history context snapshots for non-terminal events.
@@ -89,7 +89,7 @@ async def test_no_result_leak_in_history_snapshots(mock_engine):
 
     req = create_mock_request(mock_engine, token)
     resp = await get_job_history_handler(req)
-    data = orjson.loads(resp.body)
+    data = orjson_loads(resp.body)
 
     snapshot = data[0]["context_snapshot"]
     assert "result" not in snapshot

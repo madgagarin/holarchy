@@ -4,52 +4,47 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
-import importlib.metadata
-import os
-import sys
+from importlib import metadata as importlib_metadata
+from os.path import abspath, dirname, join
+from sys import path as sys_path
+from sys import stdout as sys_stdout
 from unittest.mock import AsyncMock, MagicMock, patch
 
-# Patch importlib.metadata.version to avoid DeprecationWarning in Python 3.13
-# triggered by dependencies like fakeredis.
-_original_version = importlib.metadata.version
+from fakeredis import aioredis as redis
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import (
+    ConsoleSpanExporter,
+    SimpleSpanProcessor,
+)
+from pytest import fixture
+from pytest_asyncio import fixture as async_fixture
+
+from holarchy.app_keys import STORAGE_KEY
+from holarchy.client_config_loader import load_client_configs_to_redis
+from holarchy.config import Config
+from holarchy.engine import ENGINE_KEY, OrchestratorEngine
+from holarchy.storage.memory import MemoryStorage
+from holarchy.storage.redis import RedisStorage
+
+sys_path.insert(0, abspath(join(dirname(__file__), "../src")))
+
+_original_version = importlib_metadata.version
 
 
 def _patched_version(package_name):
     try:
-        return importlib.metadata.distribution(package_name).metadata.get("Version")
+        return importlib_metadata.distribution(package_name).metadata.get("Version")
     except Exception:
         return None
 
 
-importlib.metadata.version = _patched_version
-
-import pytest  # noqa: E402
-import pytest_asyncio  # noqa: E402
-from fakeredis import aioredis as redis  # noqa: E402
-from opentelemetry import trace  # noqa: E402
-from opentelemetry.sdk.trace import TracerProvider  # noqa: E402
-from opentelemetry.sdk.trace.export import (  # noqa: E402
-    ConsoleSpanExporter,
-    SimpleSpanProcessor,
-)
-
-# Ensure src is in python path for correct import resolution
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
-
-from holarchy.app_keys import (  # noqa: E402
-    STORAGE_KEY,
-)
-from holarchy.client_config_loader import load_client_configs_to_redis  # noqa: E402
-from holarchy.config import Config  # noqa: E402
-from holarchy.engine import ENGINE_KEY, OrchestratorEngine  # noqa: E402
-from holarchy.storage.memory import MemoryStorage  # noqa: E402
-from holarchy.storage.redis import RedisStorage  # noqa: E402
+importlib_metadata.version = _patched_version
 
 
-@pytest.fixture(autouse=True)
+@fixture(autouse=True)
 def _mock_verify_zero_trust(request):
-    excluded_files = ["test_worker_security_new.py", "test_rxon_b8_features.py"]
+    excluded_files = ["test_worker_security_new.py", "test_rxon_b8_features.py", "test_audit_fixes.py"]
     if any(ef in request.node.fspath.strpath for ef in excluded_files):
         yield
         return
@@ -62,11 +57,11 @@ def _mock_verify_zero_trust(request):
 # (Removed local STORAGE_KEY definition, imported from app_keys instead)
 
 
-@pytest.fixture(scope="session", autouse=True)
+@fixture(scope="session", autouse=True)
 def tracing_setup():
     provider = TracerProvider()
 
-    processor = SimpleSpanProcessor(ConsoleSpanExporter(out=sys.stdout))
+    processor = SimpleSpanProcessor(ConsoleSpanExporter(out=sys_stdout))
     provider.add_span_processor(processor)
     trace.set_tracer_provider(provider)
 
@@ -75,7 +70,7 @@ def tracing_setup():
     provider.shutdown()
 
 
-@pytest.fixture
+@fixture
 def config():
     """Provides a default Config instance."""
     c = Config()
@@ -84,7 +79,7 @@ def config():
     return c
 
 
-@pytest_asyncio.fixture
+@async_fixture
 async def redis_client():
     """Function-scoped fixture to create and clean up a fakeredis client."""
     client = redis.FakeRedis(decode_responses=False)
@@ -92,24 +87,24 @@ async def redis_client():
     await client.aclose()
 
 
-@pytest.fixture
+@fixture
 def memory_storage():
     """Provides a MemoryStorage instance."""
     return MemoryStorage()
 
 
-@pytest.fixture
+@fixture
 def redis_storage(redis_client, config):
     """Provides a RedisStorage instance, using the managed redis_client."""
     return RedisStorage(redis_client, consumer_name=config.INSTANCE_ID, min_idle_time_ms=100)
 
 
-@pytest.fixture
+@fixture
 def metrics_mock():
     return MagicMock()
 
 
-@pytest.fixture
+@fixture
 def engine(storage, config, metrics_mock):
     """Provides an OrchestratorEngine instance."""
     engine = OrchestratorEngine(storage, config)
@@ -118,7 +113,7 @@ def engine(storage, config, metrics_mock):
     return engine
 
 
-@pytest_asyncio.fixture
+@async_fixture
 async def app(request, config, redis_storage, metrics_mock):
     """
     The main fixture for creating the aiohttp application for tests.
@@ -128,8 +123,8 @@ async def app(request, config, redis_storage, metrics_mock):
     engine.metrics = metrics_mock
 
     # Pre-load client configs for tests
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    clients_toml_path = os.path.join(current_dir, "clients.toml")
+    current_dir = dirname(abspath(__file__))
+    clients_toml_path = join(current_dir, "clients.toml")
     await load_client_configs_to_redis(storage, config_path=clients_toml_path)
 
     # Register blueprints engine.setup()ed from the test if any

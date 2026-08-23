@@ -3,10 +3,11 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
+
+from asyncio import sleep as asyncio_sleep
 from unittest.mock import MagicMock, patch
 
-import pytest
+from pytest import fail, fixture, mark
 
 from holarchy.blueprint import Blueprint
 from holarchy.config import Config
@@ -14,14 +15,14 @@ from holarchy.engine import OrchestratorEngine
 from holarchy.storage.memory import MemoryStorage
 
 
-@pytest.fixture
+@fixture
 def engine():
     storage = MemoryStorage()
     config = Config()
     return OrchestratorEngine(storage, config)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_signature_caching(engine):
     """
     Verifies that inspect.signature is called during validation but NOT during execution.
@@ -41,7 +42,10 @@ async def test_signature_caching(engine):
     real_signature = __import__("inspect").signature
     mock_signature = MagicMock(side_effect=real_signature)
 
-    with patch("inspect.signature", mock_signature):
+    with (
+        patch("inspect.signature", mock_signature),
+        patch("holarchy.blueprint.signature", mock_signature),
+    ):
         # Register blueprint -> calls validate() -> calls _analyze_handlers() -> calls inspect.signature
         engine.register_blueprint(bp)
 
@@ -55,11 +59,8 @@ async def test_signature_caching(engine):
         job_id = await engine.create_background_job("test_bp", {})
 
         # Wait a bit for the job to be picked up by the executor
-
-        # We need to give enough time for the executor to pick up the job and run the handler
-        # Since we use MemoryStorage and local loop, it should be fast.
         for _ in range(5):
-            await asyncio.sleep(0.05)
+            await asyncio_sleep(0.05)
             job_state = await engine.storage.get_job_state(job_id)
             if job_state["current_state"] == "end":
                 break
@@ -82,4 +83,4 @@ async def test_signature_caching(engine):
         for call in calls_after_registration:
             arg = call.args[0]
             if arg in (start_handler, end_handler):
-                pytest.fail(f"inspect.signature called for handler {arg} during execution!")
+                fail(f"inspect.signature called for handler {arg} during execution!")

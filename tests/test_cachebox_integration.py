@@ -4,12 +4,12 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import asyncio
-import hashlib
+from asyncio import gather, sleep
+from hashlib import sha256
 from unittest.mock import AsyncMock, MagicMock
 
-import cachebox
-import pytest
+from cachebox import LRUCache, TTLCache
+from pytest import mark, raises
 
 from holarchy.dispatcher import Dispatcher
 from holarchy.engine import OrchestratorEngine
@@ -26,10 +26,10 @@ def test_engine_cachebox_initialization():
 
     engine = OrchestratorEngine(storage, config)
 
-    assert isinstance(engine.token_hash_cache, cachebox.TTLCache)
-    assert isinstance(engine.instrument_cache, cachebox.LRUCache)
-    assert isinstance(engine.fernet_cache, cachebox.LRUCache)
-    assert isinstance(engine.worker_catalog_cache, cachebox.TTLCache)
+    assert isinstance(engine.token_hash_cache, TTLCache)
+    assert isinstance(engine.instrument_cache, LRUCache)
+    assert isinstance(engine.fernet_cache, LRUCache)
+    assert isinstance(engine.worker_catalog_cache, TTLCache)
 
     assert engine.token_hash_cache.maxsize == 10000
     assert engine.instrument_cache.maxsize == 1000
@@ -37,14 +37,14 @@ def test_engine_cachebox_initialization():
     assert engine.worker_catalog_cache.maxsize == 10
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dispatcher_worker_cache_ttl():
     storage = AsyncMock()
     config = MagicMock()
     metrics = MagicMock()
 
     dispatcher = Dispatcher(storage, config, metrics)
-    assert isinstance(dispatcher._worker_cache, cachebox.TTLCache)
+    assert isinstance(dispatcher._worker_cache, TTLCache)
     assert dispatcher._worker_cache.maxsize == 5000
 
     worker_id = "test-worker-1"
@@ -62,7 +62,7 @@ async def test_dispatcher_worker_cache_ttl():
     assert res2[0]["worker_id"] == worker_id
     storage.get_workers.assert_not_called()
 
-    await asyncio.sleep(2.1)
+    await sleep(2.1)
 
     storage.get_workers.reset_mock()
     res3 = await dispatcher._get_workers_cached([worker_id])
@@ -71,17 +71,17 @@ async def test_dispatcher_worker_cache_ttl():
     storage.get_workers.assert_called_once_with([worker_id])
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_security_token_hash_cache_ttl():
     storage = AsyncMock()
     config = MagicMock()
     config.WORKER_AUTH_MODE = "token-only"
     metrics = MagicMock()
 
-    token_hash_cache = cachebox.TTLCache(maxsize=10, global_ttl=1.0)
+    token_hash_cache = TTLCache(maxsize=10, global_ttl=1.0)
     token = "secret-token"
 
-    hashed_token = hashlib.sha256(token.encode()).hexdigest()
+    hashed_token = sha256(token.encode()).hexdigest()
     storage.verify_worker_access_token.return_value = "worker-123"
 
     wid1, cred_hash1 = await verify_worker_auth(
@@ -111,12 +111,12 @@ async def test_security_token_hash_cache_ttl():
     assert wid2 == "worker-123"
     storage.verify_worker_access_token.assert_called_once()
 
-    await asyncio.sleep(1.1)
+    await sleep(1.1)
     assert token_hash_cache.get(token) is None
 
 
 def test_cachebox_capacity_eviction():
-    cache = cachebox.TTLCache(maxsize=5, global_ttl=10.0)
+    cache = TTLCache(maxsize=5, global_ttl=10.0)
 
     for i in range(5):
         cache[f"key-{i}"] = f"value-{i}"
@@ -131,7 +131,7 @@ def test_cachebox_capacity_eviction():
 
 
 def test_cachebox_invalid_and_none_keys():
-    cache = cachebox.TTLCache(maxsize=10, global_ttl=10.0)
+    cache = TTLCache(maxsize=10, global_ttl=10.0)
 
     cache[None] = "none-val"
     assert cache[None] == "none-val"
@@ -143,41 +143,41 @@ def test_cachebox_invalid_and_none_keys():
     assert cache[True] == "bool-val"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_cachebox_concurrency():
-    cache = cachebox.TTLCache(maxsize=100, global_ttl=5.0)
+    cache = TTLCache(maxsize=100, global_ttl=5.0)
 
     async def writer(task_id):
         for i in range(20):
             cache[f"task-{task_id}-key-{i}"] = f"val-{i}"
-            await asyncio.sleep(0.001)
+            await sleep(0.001)
 
     async def reader(task_id):
         for i in range(20):
             _ = cache.get(f"task-{task_id}-key-{i}")
-            await asyncio.sleep(0.001)
+            await sleep(0.001)
 
     tasks = []
     for t in range(5):
         tasks.append(writer(t))
         tasks.append(reader(t))
 
-    await asyncio.gather(*tasks)
+    await gather(*tasks)
 
     for t in range(5):
         assert cache[f"task-{t}-key-19"] == "val-19"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_security_token_hash_cache_missing_token():
     storage = AsyncMock()
     config = MagicMock()
     config.WORKER_AUTH_MODE = "token-only"
     metrics = MagicMock()
 
-    token_hash_cache = cachebox.TTLCache(maxsize=10, global_ttl=10.0)
+    token_hash_cache = TTLCache(maxsize=10, global_ttl=10.0)
 
-    with pytest.raises(PermissionError, match="Unauthorized: Missing"):
+    with raises(PermissionError, match="Unauthorized: Missing"):
         await verify_worker_auth(
             storage=storage,
             config=config,
@@ -189,7 +189,7 @@ async def test_security_token_hash_cache_missing_token():
         )
     assert len(token_hash_cache) == 0
 
-    with pytest.raises(PermissionError, match="Unauthorized: Missing"):
+    with raises(PermissionError, match="Unauthorized: Missing"):
         await verify_worker_auth(
             storage=storage,
             config=config,

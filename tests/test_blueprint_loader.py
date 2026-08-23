@@ -4,12 +4,11 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
+from os.path import join
+from shutil import rmtree
+from tempfile import mkdtemp
 
-import os
-import shutil
-import tempfile
-
-import pytest
+from pytest import mark
 
 from holarchy.config import Config
 from holarchy.engine import OrchestratorEngine
@@ -30,12 +29,12 @@ async def end_handler():
 """
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dynamic_blueprint_loading():
     # Create a temporary directory for blueprints
-    tmp_dir = tempfile.mkdtemp()
+    tmp_dir = mkdtemp()
     try:
-        bp_file_path = os.path.join(tmp_dir, "test_bp.py")
+        bp_file_path = join(tmp_dir, "test_bp.py")
         with open(bp_file_path, "w") as f:
             f.write(BLUEPRINT_CONTENT)
 
@@ -55,15 +54,15 @@ async def test_dynamic_blueprint_loading():
         assert "end" in bp.end_states
 
     finally:
-        shutil.rmtree(tmp_dir)
+        rmtree(tmp_dir)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_blueprint_loader_ignores_non_blueprints():
-    tmp_dir = tempfile.mkdtemp()
+    tmp_dir = mkdtemp()
     try:
         # Create a file with NO blueprints
-        bp_file_path = os.path.join(tmp_dir, "not_a_bp.py")
+        bp_file_path = join(tmp_dir, "not_a_bp.py")
         with open(bp_file_path, "w") as f:
             f.write("x = 10\ndef foo(): pass")
 
@@ -78,4 +77,4 @@ async def test_blueprint_loader_ignores_non_blueprints():
         assert len(engine.blueprints) == 0
 
     finally:
-        shutil.rmtree(tmp_dir)
+        rmtree(tmp_dir)

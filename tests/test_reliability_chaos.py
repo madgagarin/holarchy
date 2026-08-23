@@ -3,12 +3,13 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
+
+from asyncio import create_task, sleep
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from fakeredis.aioredis import FakeRedis
+from pytest import mark
 from rxon.constants import AUTH_HEADER_WORKER
 
 from holarchy.app_keys import (
@@ -42,7 +43,7 @@ def make_valid_worker_payload(worker_id: str, **kwargs) -> dict[str, Any]:
     return payload
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_corrupted_redis_data_handling(redis_client: FakeRedis, redis_storage: RedisStorage):
     """
     Chaos: Inject corrupted (non-msgpack) data into Redis.
@@ -59,7 +60,7 @@ async def test_corrupted_redis_data_handling(redis_client: FakeRedis, redis_stor
     assert state is None
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_malformed_registration_null_skills(aiohttp_client, app):
     """
     Reliability: Register a worker with null supported_skills.
@@ -80,7 +81,7 @@ async def test_worker_malformed_registration_null_skills(aiohttp_client, app):
     assert worker_info["supported_skills"] == []
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_heartbeat_null_current_tasks(aiohttp_client, app):
     """
     Reliability: Send a heartbeat with null current_tasks.
@@ -106,7 +107,7 @@ async def test_worker_heartbeat_null_current_tasks(aiohttp_client, app):
     assert data["status"] == "ok"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_executor_resilience_to_storage_exceptions(config, redis_storage):
     """
     Chaos: Simulate storage exceptions during job dequeuing.
@@ -129,10 +130,10 @@ async def test_executor_resilience_to_storage_exceptions(config, redis_storage):
     )
 
     # Run executor in background for a short time
-    executor_task = asyncio.create_task(executor.run())
+    executor_task = create_task(executor.run())
 
     # Wait long enough for the first retry attempt (initial backoff is 1.0s)
-    await asyncio.sleep(1.5)
+    await sleep(1.5)
 
     assert redis_storage.dequeue_job.call_count >= 2
 
@@ -143,7 +144,7 @@ async def test_executor_resilience_to_storage_exceptions(config, redis_storage):
     redis_storage.dequeue_job = original_dequeue
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_ws_manager_parallel_closing_resilience():
     """
     Reliability: WSManager.close_all should handle failing websocket closures gracefully.
@@ -167,7 +168,7 @@ async def test_ws_manager_parallel_closing_resilience():
     assert len(manager._connections) == 0
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dispatcher_null_safety_complex_payloads(redis_storage, config):
     """
     Reliability: Dispatcher should handle missing or null resource_requirements and params.

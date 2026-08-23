@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from src.holarchy.blueprint import Blueprint
 
 error_flow_bp = Blueprint(name="error_flow", api_endpoint="/jobs/error_flow", api_version="v1")

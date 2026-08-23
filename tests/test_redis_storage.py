@@ -3,11 +3,12 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
+
+from asyncio import sleep
 from time import time
 from unittest.mock import patch
 
-import pytest
+from pytest import fixture, mark
 
 try:
     from .storage_test_suite import StorageTestSuite
@@ -17,15 +18,15 @@ except ImportError:
     redis_installed = False
 
 pytestmark = [
-    pytest.mark.asyncio,
-    pytest.mark.skipif(
+    mark.asyncio,
+    mark.skipif(
         not redis_installed,
         reason="redis package not installed, skipping redis-specific tests",
     ),
 ]
 
 
-@pytest.fixture
+@fixture
 def storage(redis_storage):
     """Binds the `redis_storage` fixture from conftest to the `storage` name."""
     return redis_storage
@@ -58,7 +59,7 @@ class TestRedisStorage(StorageTestSuite):
 
         # Update status - should update score in 'busy' logic (removing from idle index)
 
-        await asyncio.sleep(1.1)
+        await sleep(1.1)
         now_update = int(time())
         new_ttl = 200
         # Change status to 'busy' to force indexing logic (Slow path)
@@ -92,7 +93,7 @@ class TestRedisStorage(StorageTestSuite):
         # Re-enqueue to have something to clean up
         await storage.enqueue_task_for_worker(worker_id, task_payload, priority=10)
 
-        await asyncio.sleep(1.1)
+        await sleep(1.1)
 
         # At this point, the main key (info) should be gone from Redis due to TTL,
         # but the index and queue (which have no TTL) remain.

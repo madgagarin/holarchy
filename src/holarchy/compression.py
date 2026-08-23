@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from collections.abc import Awaitable, Callable
 from gzip import GzipFile
 from io import BytesIO

@@ -476,7 +476,7 @@ All external API endpoints are strictly versioned and prefixed with `/api/v1/`.
 
 **Example Request:**
 
-```json
+```http
 POST /api/v1/jobs/my_flow
 {
     "initial_data": {
@@ -566,7 +566,7 @@ Multiple Orchestrator instances can run behind a load balancer.
 
 #### Skill Policy Example (`policy`):
 
-```json
+```http
 POST /api/v1/jobs/my_flow
 {
     "initial_data": {"input_val": 42},

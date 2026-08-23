@@ -3,14 +3,16 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import os
+
+from os import remove
+from os.path import exists
 from unittest.mock import AsyncMock
 
-import pytest
+from pytest import mark, raises
 from src.holarchy.worker_config_loader import load_worker_configs_to_redis
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_load_worker_configs_to_redis():
     """Tests that worker configs are correctly loaded into Redis."""
     storage = AsyncMock()
@@ -30,10 +32,10 @@ token = "token-2"
     assert storage.set_worker_token.call_count == 2
     storage.set_worker_token.assert_any_call("worker-1", "token-1")
     storage.set_worker_token.assert_any_call("worker-2", "token-2")
-    os.remove(config_path)
+    remove(config_path)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_load_worker_configs_file_not_found(caplog):
     """Tests that a warning is logged when the config file is not found."""
     storage = AsyncMock()
@@ -41,7 +43,7 @@ async def test_load_worker_configs_file_not_found(caplog):
     assert "Worker config file not found" in caplog.text
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_load_worker_configs_parse_error(caplog):
     """Tests that an error is logged and ValueError is raised when the config file is invalid."""
     storage = AsyncMock()
@@ -51,10 +53,10 @@ async def test_load_worker_configs_parse_error(caplog):
         f.write("invalid toml")
 
     try:
-        with pytest.raises(ValueError, match="Invalid worker configuration file"):
+        with raises(ValueError, match="Invalid worker configuration file"):
             await load_worker_configs_to_redis(storage, config_path)
     finally:
-        if os.path.exists(config_path):
-            os.remove(config_path)
+        if exists(config_path):
+            remove(config_path)
 
     assert "Failed to load or parse worker config file" in caplog.text

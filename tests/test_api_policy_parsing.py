@@ -1,19 +1,20 @@
-# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from aiohttp import web
+from pytest import mark
 
 from holarchy.api.handlers import _filter_job_state, create_job_handler_factory
 from holarchy.app_keys import ENGINE_KEY
 from holarchy.blueprint import Blueprint
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_policy_parsing_happy_path(aiohttp_client):
     engine = MagicMock()
     engine.config.MAX_POLICY_SIZE_BYTES = 4096
@@ -24,6 +25,7 @@ async def test_api_policy_parsing_happy_path(aiohttp_client):
     engine.history_storage.log_job_event = AsyncMock()
 
     bp = Blueprint("test_bp")
+
     @bp.handler("start", is_start=True, is_end=True)
     async def start():
         pass
@@ -53,7 +55,7 @@ async def test_api_policy_parsing_happy_path(aiohttp_client):
     assert saved_state["max_transitions"] == 50
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_policy_parsing_invalid_policy_type(aiohttp_client):
     engine = MagicMock()
     engine.blueprint_contracts = {}
@@ -65,9 +67,11 @@ async def test_api_policy_parsing_invalid_policy_type(aiohttp_client):
     engine.metrics = MagicMock()
 
     bp = Blueprint("test_bp")
+
     @bp.handler("start", is_start=True, is_end=True)
     async def start():
         pass
+
     bp.validate()
 
     handler = create_job_handler_factory(bp)
@@ -84,7 +88,7 @@ async def test_api_policy_parsing_invalid_policy_type(aiohttp_client):
     assert "'policy' must be a dictionary" in body["error"]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_policy_parsing_invalid_allowed_skills(aiohttp_client):
     engine = MagicMock()
     engine.blueprint_contracts = {}
@@ -96,9 +100,11 @@ async def test_api_policy_parsing_invalid_allowed_skills(aiohttp_client):
     engine.metrics = MagicMock()
 
     bp = Blueprint("test_bp")
+
     @bp.handler("start", is_start=True, is_end=True)
     async def start():
         pass
+
     bp.validate()
 
     handler = create_job_handler_factory(bp)
@@ -118,7 +124,7 @@ async def test_api_policy_parsing_invalid_allowed_skills(aiohttp_client):
     assert resp2.status == 400
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_policy_parsing_oversized_policy(aiohttp_client):
     engine = MagicMock()
     engine.blueprint_contracts = {}
@@ -130,9 +136,11 @@ async def test_api_policy_parsing_oversized_policy(aiohttp_client):
     engine.metrics = MagicMock()
 
     bp = Blueprint("test_bp")
+
     @bp.handler("start", is_start=True, is_end=True)
     async def start():
         pass
+
     bp.validate()
 
     handler = create_job_handler_factory(bp)
@@ -149,7 +157,7 @@ async def test_api_policy_parsing_oversized_policy(aiohttp_client):
     assert "Policy size exceeds MAX_POLICY_SIZE_BYTES limit" in body["error"]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_policy_parsing_invalid_max_transitions(aiohttp_client):
     engine = MagicMock()
     engine.blueprint_contracts = {}
@@ -161,9 +169,11 @@ async def test_api_policy_parsing_invalid_max_transitions(aiohttp_client):
     engine.metrics = MagicMock()
 
     bp = Blueprint("test_bp")
+
     @bp.handler("start", is_start=True, is_end=True)
     async def start():
         pass
+
     bp.validate()
 
     handler = create_job_handler_factory(bp)

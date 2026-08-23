@@ -7,10 +7,12 @@
 from copy import deepcopy
 from unittest.mock import MagicMock
 
-import pytest
+from pytest import fixture, raises
 
-import holarchy
 from holarchy import F, FastF
+from holarchy import F as avt_F
+from holarchy import FastF as avt_FastF
+from holarchy import __all__ as avt_all
 from holarchy.blueprint import Blueprint, ConditionalHandler
 
 
@@ -26,17 +28,17 @@ def make_handler(condition: FastF, state: str = "s") -> ConditionalHandler:
 
 class TestPublicApi:
     def test_F_is_importable_from_holarchy(self):
-        assert holarchy.F is F
+        assert avt_F is F
 
     def test_FastF_is_importable_from_holarchy(self):
-        assert holarchy.FastF is FastF
+        assert avt_FastF is FastF
 
     def test_F_is_FastF_instance(self):
         assert isinstance(F, FastF)
 
     def test_FastF_in_all(self):
-        assert "F" in holarchy.__all__
-        assert "FastF" in holarchy.__all__
+        assert "F" in avt_all
+        assert "FastF" in avt_all
 
     def test_custom_filter_is_fastf(self):
         f = F.some.attr == "value"
@@ -288,7 +290,7 @@ class TestConditionalHandlerBoundary:
 
 
 class TestBlueprintConditionIntegration:
-    @pytest.fixture
+    @fixture
     def bp(self):
         return Blueprint("test_bp")
 
@@ -338,7 +340,7 @@ class TestBlueprintConditionIntegration:
         def h(actions):
             pass
 
-        with pytest.raises(ValueError, match="All conditions failed"):
+        with raises(ValueError, match="All conditions failed"):
             bp.find_handler("step", Ctx(v=99))
 
     def test_condition_missing_attr_falls_to_default(self, bp):
@@ -360,7 +362,7 @@ class TestBlueprintConditionIntegration:
 
         assert bp.find_handler("step", Ctx(score=85, passed=True)) is h
 
-        with pytest.raises(ValueError):
+        with raises(ValueError):
             bp.find_handler("step", Ctx(score=85, passed=False))
 
     def test_condition_invert_condition(self, bp):
@@ -370,7 +372,7 @@ class TestBlueprintConditionIntegration:
 
         assert bp.find_handler("step", Ctx(error="minor")) is h
 
-        with pytest.raises(ValueError):
+        with raises(ValueError):
             bp.find_handler("step", Ctx(error="fatal"))
 
     def test_condition_same_condition_multiple_states(self, bp):

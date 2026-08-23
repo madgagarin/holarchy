@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from dataclasses import dataclass
 from tomllib import load
 from typing import Any

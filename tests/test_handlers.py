@@ -3,11 +3,12 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import orjson
-import pytest
 from aiohttp import web
+from orjson import loads as orjson_loads
+from pytest import fixture, mark
 
 from holarchy.api.handlers import (
     cancel_job_handler,
@@ -24,17 +25,17 @@ from holarchy.engine import OrchestratorEngine
 from holarchy.storage.memory import MemoryStorage
 
 
-@pytest.fixture
+@fixture
 def config():
     return Config()
 
 
-@pytest.fixture
+@fixture
 def storage():
     return MemoryStorage()
 
 
-@pytest.fixture
+@fixture
 def engine(storage, config):
     engine = OrchestratorEngine(storage, config)
     # Mock components that are usually set up in on_startup
@@ -51,7 +52,7 @@ def engine(storage, config):
     return engine
 
 
-@pytest.fixture
+@fixture
 def request_mock(engine):
     req = MagicMock(spec=web.Request)
     req.json = AsyncMock(return_value={})
@@ -77,14 +78,14 @@ def request_mock(engine):
     return req
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_cancel_job_not_found(engine, request_mock):
     request_mock.match_info = {"job_id": "non-existent-job"}
     response = await cancel_job_handler(request_mock)
     assert response.status == 404
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_cancel_job_wrong_state(engine, request_mock):
     job_id = "job-in-wrong-state"
     token = request_mock.get("client_config")["token"]
@@ -94,7 +95,7 @@ async def test_cancel_job_wrong_state(engine, request_mock):
     assert response.status == 200
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_cancel_job_no_worker_id(engine, request_mock):
     job_id = "job-no-worker-id"
     token = request_mock.get("client_config")["token"]
@@ -106,7 +107,7 @@ async def test_cancel_job_no_worker_id(engine, request_mock):
     assert response.status == 200
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_cancel_job_no_task_id(engine, request_mock):
     job_id = "job-no-task-id"
     token = request_mock.get("client_config")["token"]
@@ -119,7 +120,7 @@ async def test_cancel_job_no_task_id(engine, request_mock):
     assert response.status == 200
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_cancel_job_ws_fails(engine, request_mock, caplog):
     job_id = "job-ws-fails"
     worker_id = "worker-1"
@@ -145,14 +146,14 @@ async def test_cancel_job_ws_fails(engine, request_mock, caplog):
     assert "Failed to send cancellation command via WebSocket" in caplog.text
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_blueprint_graph_not_found(engine, request_mock):
     request_mock.match_info = {"blueprint_name": "non-existent-blueprint"}
     response = await get_blueprint_graph_handler(request_mock)
     assert response.status == 404
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_blueprint_graph_file_not_found(engine, request_mock):
     bp = MagicMock()
     bp.name = "test_bp"
@@ -163,7 +164,7 @@ async def test_get_blueprint_graph_file_not_found(engine, request_mock):
     assert response.status == 501
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_human_approval_job_not_found(engine, request_mock):
     request_mock.match_info = {"job_id": "non-existent-job"}
     request_mock.json.return_value = {"decision": "approve"}
@@ -171,7 +172,7 @@ async def test_human_approval_job_not_found(engine, request_mock):
     assert response.status == 404
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_human_approval_invalid_body(engine, request_mock):
     job_id = "j1"
     request_mock.match_info = {"job_id": job_id}
@@ -180,8 +181,8 @@ async def test_human_approval_invalid_body(engine, request_mock):
     assert response.status == 400
 
 
-@pytest.mark.asyncio
-@pytest.mark.asyncio
+@mark.asyncio
+@mark.asyncio
 async def test_human_approval_wrong_state(engine, request_mock):
     job_id = "job-in-wrong-state"
     token = request_mock.get("client_config")["token"]
@@ -199,7 +200,7 @@ async def test_human_approval_wrong_state(engine, request_mock):
     assert response.status == 409
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_human_approval_invalid_decision(engine, request_mock):
     job_id = "job-invalid-decision"
     token = request_mock.get("client_config")["token"]
@@ -214,7 +215,7 @@ async def test_human_approval_invalid_decision(engine, request_mock):
     assert response.status == 400
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_worker_catalog_cached(engine, request_mock):
     """Checks that the worker catalog is cached."""
     engine.worker_catalog_cache["data"] = [{"skill": "cached"}]
@@ -222,11 +223,11 @@ async def test_get_worker_catalog_cached(engine, request_mock):
 
     response = await get_worker_catalog_handler(request_mock)
     assert response.status == 200
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
     assert data == [{"skill": "cached"}]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_jobs_handler(engine, request_mock):
     """Checks the jobs listing handler."""
     engine.history_storage = AsyncMock()
@@ -237,7 +238,7 @@ async def test_get_jobs_handler(engine, request_mock):
     assert response.status == 200
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_jobs_handler_invalid_params(engine, request_mock):
     """Checks the jobs listing handler with invalid query params."""
     request_mock.query = {"limit": "abc"}
@@ -245,7 +246,7 @@ async def test_get_jobs_handler_invalid_params(engine, request_mock):
     assert response.status == 400
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_field_filtering(engine, request_mock):
     """Checks that GET /api/v1/jobs/{id}?fields=... filters the response."""
 
@@ -261,7 +262,7 @@ async def test_api_field_filtering(engine, request_mock):
 
     response = await get_job_status_handler(request_mock)
     assert response.status == 200
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
 
     assert "id" in data
     assert "status" in data
@@ -269,7 +270,7 @@ async def test_api_field_filtering(engine, request_mock):
     assert "secret" not in data
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_docs_handler_file_not_found(engine, request_mock):
     """Checks that docs_handler returns 500 when docs file is missing."""
     with patch("importlib.resources.read_text", side_effect=FileNotFoundError):

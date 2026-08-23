@@ -3,12 +3,13 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
-import logging
+
+from asyncio import gather, sleep
+from logging import INFO, basicConfig, getLogger
 from unittest.mock import MagicMock
 
-import pytest
 from fakeredis import aioredis as fake_redis
+from pytest import mark
 
 from holarchy.app_keys import SCHEDULER_KEY
 from holarchy.blueprint import Blueprint
@@ -19,11 +20,11 @@ from holarchy.scheduler_config_loader import ScheduledJobConfig
 from holarchy.storage.redis import RedisStorage
 
 # Configure logging to verify locks
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+basicConfig(level=INFO)
+logger = getLogger(__name__)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_horizontal_scaling_scheduler_locks():
     """
     Verifies that multiple Orchestrator instances connected to the same Redis
@@ -98,7 +99,7 @@ async def test_horizontal_scaling_scheduler_locks():
         await eng.storage.ping()  # Ensure connection
 
     # Fire all triggers concurrently
-    results = await asyncio.gather(*[try_trigger(eng) for eng in engines])
+    results = await gather(*[try_trigger(eng) for eng in engines])
 
     successful_triggers = sum(results)
 
@@ -115,7 +116,7 @@ async def test_horizontal_scaling_scheduler_locks():
     await shared_redis.aclose()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_horizontal_scaling_watcher_locks():
     """
     Verifies that multiple Watcher instances do not race to process the same timed-out jobs.
@@ -149,12 +150,12 @@ async def test_horizontal_scaling_watcher_locks():
                 jobs = await storage.get_timed_out_jobs(limit=100)
                 processed = jobs
                 # Simulate processing time
-                await asyncio.sleep(0.01)
+                await sleep(0.01)
             finally:
                 await storage.release_lock(lock_key, node_name)
         return processed
 
-    results = await asyncio.gather(watcher_tick(node1_storage, "node-1"), watcher_tick(node2_storage, "node-2"))
+    results = await gather(watcher_tick(node1_storage, "node-1"), watcher_tick(node2_storage, "node-2"))
 
     node1_processed = results[0]
     node2_processed = results[1]

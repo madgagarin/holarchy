@@ -1235,10 +1235,11 @@ Cuando el historial está habilitado, un nuevo punto final se vuelve disponible.
   ```
 
 - **Ejemplo de Respuesta:**
-  `json
+
+  ```json
   [
       {
-          "event_id": "a1b2c3d4-...".
+          "event_id": "a1b2c3d4-...",
           "job_id": "job_123",
           "timestamp": "2024-08-27T10:00:00.123Z",
           "state": "start",
@@ -1247,7 +1248,7 @@ Cuando el historial está habilitado, un nuevo punto final se vuelve disponible.
           "context_snapshot": { "... (estado completo del trabajo al inicio) ..." }
       },
       {
-          "event_id": "e5f6g7h8-...".
+          "event_id": "e5f6g7h8-...",
           "job_id": "job_123",
           "timestamp": "2024-08-27T10:00:01.456Z",
           "state": "start",
@@ -1257,12 +1258,40 @@ Cuando el historial está habilitado, un nuevo punto final se vuelve disponible.
           "context_snapshot": { "... (estado del trabajo después de ejecución del manejador) ..." }
       }
   ]
-  `
+  ```
+
   Este punto final proporciona una línea de tiempo paso a paso completa de cualquier tarea para un análisis y depuración detallados.
 
 ---
 
-### **Receta 24: Autenticación con Token Individual**
+### **Receta 24: Creación de Redes Fractales (Matryoshka / Shell-Stacking)**
+
+**Tarea:** Encapsular todo un clúster de Orquestador como un único "Worker" virtual para una red principal.
+
+```python
+from holarchy import OrchestratorEngine, Blueprint, Config
+from matryoshka.bridge import MatryoshkaBridge
+
+# 1. Configurar Ghost interno (lógica)
+engine = OrchestratorEngine(storage, config)
+# Registrar blueprints que se convertirán en "habilidades" para la red principal
+engine.register_blueprint(my_internal_bp)
+
+# 2. Envolverlo en una Shell (interfaz de Worker)
+# Bridge propaga automáticamente habilidades, maneja cancelación y preserva trazas
+holon_bridge = MatryoshkaBridge(engine)
+
+# 3. Lanzar holón
+# Se conectará al orquestador principal como un worker estándar
+if __name__ == "__main__":
+    holon_bridge.run()
+```
+
+_Nota: Todos los eventos e informes de progreso del orquestador interno "burbujearán" automáticamente a la red principal conservando la cadena de identidad criptográfica._
+
+---
+
+### **Receta 25: Autenticación con Token Individual**
 
 **Tarea:** Mejorar la seguridad configurando un token de autenticación único para cada worker en lugar de usar un solo secreto compartido.
 
@@ -1301,7 +1330,3 @@ export WORKER_INDIVIDUAL_TOKEN="super-secret-token-for-worker-1"
 #### **Paso 3: Lanzamiento**
 
 Ejecuta el Orquestador y el Worker. El Worker se autentica usando `WORKER_ID` y `WORKER_INDIVIDUAL_TOKEN`. Las solicitudes de workers con token inválido o no listados en `workers.toml` (si no se establece `WORKER_TOKEN` compartido) serán rechazadas con `401 Unauthorized`.
-
-```
-
-```

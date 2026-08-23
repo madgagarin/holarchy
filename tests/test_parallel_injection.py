@@ -1,17 +1,18 @@
-# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import mark
 from rxon.constants import IGNORED_REASON_MISMATCH, JOB_STATUS_WAITING_FOR_PARALLEL
 
 from holarchy.services.worker_service import WorkerService
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_parallel_task_injection_rejected():
     storage = AsyncMock()
     history_storage = AsyncMock()

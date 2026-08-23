@@ -4,18 +4,17 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
-import gzip
+from gzip import decompress as gzip_decompress
 from unittest.mock import Mock
 
-import pytest
-import src.holarchy.compression
-import zstandard
 from aiohttp import web
+from pytest import mark
+from src.holarchy import compression as compression_module
 from src.holarchy.compression import _compress_gzip, compression_middleware
+from zstandard import ZstdDecompressor
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_no_compression_for_small_body():
     """Ensures responses with a body smaller than 500 bytes are not compressed."""
     request = Mock()
@@ -29,7 +28,7 @@ async def test_no_compression_for_small_body():
     assert "Content-Encoding" not in response.headers
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_no_compression_if_already_encoded():
     """Ensures responses that already have a Content-Encoding are not compressed again."""
     request = Mock()
@@ -44,7 +43,7 @@ async def test_no_compression_if_already_encoded():
     assert response.headers["Content-Encoding"] == "br"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_websocket_response_is_ignored():
     """Ensures WebSocket responses are not compressed."""
     request = Mock()
@@ -61,7 +60,7 @@ async def test_websocket_response_is_ignored():
     assert "Content-Encoding" not in response.headers
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_zstd_compression_occurs():
     """Tests that zstd compression is applied correctly."""
     request = Mock()
@@ -74,12 +73,12 @@ async def test_zstd_compression_occurs():
     response = await compression_middleware(request, handler)
     assert response.headers["Content-Encoding"] == "zstd"
 
-    decompressor = zstandard.ZstdDecompressor()
+    decompressor = ZstdDecompressor()
     decompressed_body = decompressor.decompress(response.body)
     assert decompressed_body == large_body
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_gzip_compression_occurs():
     """Tests that gzip compression is applied correctly."""
     request = Mock()
@@ -92,11 +91,11 @@ async def test_gzip_compression_occurs():
     response = await compression_middleware(request, handler)
     assert response.headers["Content-Encoding"] == "gzip"
 
-    decompressed_body = gzip.decompress(response.body)
+    decompressed_body = gzip_decompress(response.body)
     assert decompressed_body == large_body
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_compression_failure_returns_original_response():
     """Tests that if the compression function fails, the original response is returned."""
     request = Mock()
@@ -111,7 +110,7 @@ async def test_compression_failure_returns_original_response():
             raise ValueError("Compression failed!")
 
         # Monkeypatch the function
-        src.holarchy.compression._compress_gzip = failing_compress_gzip
+        compression_module._compress_gzip = failing_compress_gzip
 
         async def handler(req):
             return web.Response(body=large_body)
@@ -121,10 +120,10 @@ async def test_compression_failure_returns_original_response():
         assert response.body == large_body
     finally:
         # Restore the original function
-        src.holarchy.compression._compress_gzip = original_compress
+        compression_module._compress_gzip = original_compress
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_compression_no_body_attribute():
     """
     Ensures that compression_middleware does not crash when a response

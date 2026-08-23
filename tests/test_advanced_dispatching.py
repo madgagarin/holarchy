@@ -1,16 +1,19 @@
-from unittest.mock import MagicMock
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
-import pytest
+#
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
+
+from unittest.mock import MagicMock
+
+from pytest import fixture, mark
 
 from holarchy.config import Config
 from holarchy.dispatcher import Dispatcher
 from holarchy.storage.memory import MemoryStorage
 
 
-@pytest.fixture
+@fixture
 def setup_env():
     storage = MemoryStorage()
     config = Config()
@@ -19,7 +22,7 @@ def setup_env():
     return storage, config, dispatcher
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_overflow_strategy(setup_env):
     storage, config, dispatcher = setup_env
 
@@ -57,7 +60,7 @@ async def test_overflow_strategy(setup_env):
     assert job_state["task_worker_id"] == "expensive_w"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_work_stealing_memory(setup_env):
     storage, config, dispatcher = setup_env
 
@@ -79,7 +82,7 @@ async def test_work_stealing_memory(setup_env):
     assert w1_task is None
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_null_safety_hot_skills(setup_env):
     storage, config, dispatcher = setup_env
 

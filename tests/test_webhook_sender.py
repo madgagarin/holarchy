@@ -3,16 +3,17 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
-import time
+
+from asyncio import sleep
+from time import time
 from unittest.mock import AsyncMock
 
-import pytest
 from aiohttp import ClientSession
+from pytest import mark
 from src.holarchy.utils.webhook_sender import WebhookPayload, WebhookSender
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_webhook_sender_queues_message():
     mock_session = AsyncMock(spec=ClientSession)
     sender = WebhookSender(mock_session)
@@ -30,7 +31,7 @@ async def test_webhook_sender_queues_message():
     assert item == ("http://example.com/webhook", payload)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_webhook_sender_send_logic_success():
     """Test the internal sending logic (_send_single)."""
     mock_session = AsyncMock(spec=ClientSession)
@@ -54,7 +55,7 @@ async def test_webhook_sender_send_logic_success():
     assert kwargs["json"]["event"] == "job_finished"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_webhook_sender_retry_failure(mocker):
     """Test retry logic in _send_single."""
     mock_session = AsyncMock(spec=ClientSession)
@@ -81,7 +82,7 @@ async def test_webhook_sender_retry_failure(mocker):
     assert mock_sleep.call_count == 1  # Called once between retry 1 and 2
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_webhook_sender_concurrency():
     """Checks that WebhookSender can process multiple webhooks concurrently."""
     mock_session = AsyncMock(spec=ClientSession)
@@ -92,7 +93,7 @@ async def test_webhook_sender_concurrency():
     # Properly mock async context manager for post with delay
     class MockPostContext:
         async def __aenter__(self):
-            await asyncio.sleep(0.2)
+            await sleep(0.2)
             return mock_response
 
         async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -103,7 +104,7 @@ async def test_webhook_sender_concurrency():
     sender = WebhookSender(mock_session, worker_count=5)
     sender.start()
 
-    start_time = time.time()
+    start_time = time()
     payload = WebhookPayload(event="test", job_id="j1", status="ok")
 
     # Send 5 webhooks
@@ -112,7 +113,7 @@ async def test_webhook_sender_concurrency():
 
     # Wait for them to be processed
     await sender._queue.join()
-    duration = time.time() - start_time
+    duration = time() - start_time
 
     # If they were sequential, it would take 5 * 0.2 = 1.0s
     # With 5 workers, it should take ~0.2s (+ overhead)

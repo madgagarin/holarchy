@@ -4,11 +4,10 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
+from pytest import fixture, mark
 
 from holarchy.app_keys import S3_SERVICE_KEY
 from holarchy.blueprint import Blueprint
@@ -18,7 +17,7 @@ from holarchy.executor import JobExecutor
 from holarchy.s3 import S3Service, TaskFiles
 
 
-@pytest.fixture
+@fixture
 def config(tmp_path):
     c = Config()
     c.S3_ENDPOINT_URL = "http://localhost:9000"
@@ -30,7 +29,7 @@ def config(tmp_path):
     return c
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_s3_service_initialization(config):
     with patch("holarchy.s3.S3Store") as MockS3Store:
         service = S3Service(config)
@@ -40,7 +39,7 @@ async def test_s3_service_initialization(config):
         MockS3Store.assert_called_once()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_s3_service_disabled_without_config():
     c = Config()
     c.S3_ENDPOINT_URL = ""
@@ -49,7 +48,7 @@ async def test_s3_service_disabled_without_config():
     assert service.get_task_files("job1") is None
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_local_isolation(config):
     mock_provider = MagicMock()
     job_id = "job-123"
@@ -63,7 +62,7 @@ async def test_task_files_local_isolation(config):
     assert expected_path.exists()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_sync_operations(config):
     mock_provider = MagicMock()
     mock_provider.download = AsyncMock(return_value=True)
@@ -92,7 +91,7 @@ async def test_task_files_sync_operations(config):
             mock_provider.upload.assert_called_once()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_full_cleanup(config, tmp_path):
     mock_provider = MagicMock()
     mock_provider.list_objects = AsyncMock(return_value=[{"path": "jobs/job-cleanup/s3.txt"}])
@@ -112,7 +111,7 @@ async def test_full_cleanup(config, tmp_path):
     assert not tf.local_dir.exists()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_task_files_helper_methods(config):
     mock_provider = MagicMock()
     mock_provider.download = AsyncMock(return_value=True)
@@ -150,7 +149,7 @@ async def test_task_files_helper_methods(config):
         mock_provider.upload.assert_called_once()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_recursive_download(config):
     mock_provider = MagicMock()
     mock_provider.list_objects = AsyncMock(
@@ -165,7 +164,7 @@ async def test_recursive_download(config):
     assert mock_provider.download.call_count == 2
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_recursive_upload(config):
     mock_provider = MagicMock()
     mock_provider.upload = AsyncMock(return_value="s3://uri")
@@ -184,7 +183,7 @@ async def test_recursive_upload(config):
         assert mock_provider.upload.call_count == 2
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_executor_s3_injection(config):
     mock_storage = AsyncMock()
     mock_history = AsyncMock()
@@ -230,7 +229,7 @@ async def test_job_executor_s3_injection(config):
     assert handler_called is True
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_executor_s3_auto_cleanup(config):
     mock_storage = AsyncMock()
     mock_history = AsyncMock()
@@ -299,7 +298,7 @@ async def test_job_executor_s3_auto_cleanup(config):
     mock_task_files2.cleanup.assert_not_called()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_s3_service_metrics():
     """Verifies that S3Service records metrics for operations."""
     config = MagicMock()

@@ -385,7 +385,7 @@ Todos los endpoints externos están prefijados con `/api/v1/`.
 
 **Ejemplo de Solicitud:**
 
-```json
+```http
 POST /api/v1/jobs/my_flow
 {
     "initial_data": { "video_url": "..." },
@@ -430,7 +430,7 @@ Para más detalles, consulta la [**Guía de Configuración**](https://github.com
 
 #### Ejemplo de Políticas de Habilidades (`policy`):
 
-```json
+```http
 POST /api/v1/jobs/my_flow
 {
     "initial_data": {"input_val": 42},

@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from asyncio import CancelledError, Semaphore, Task, create_task, gather, sleep
 from contextlib import suppress
 from logging import getLogger
@@ -12,6 +11,13 @@ from time import monotonic, time
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
+
+try:
+    from opentelemetry.trace.propagation.tracecontext import (
+        TraceContextTextMapPropagator,
+    )
+except ImportError:
+    TraceContextTextMapPropagator = None
 
 from rxon.constants import (
     JOB_STATUS_ERROR,
@@ -39,11 +45,9 @@ logger = getLogger(__name__)
 
 tracer = telemetry.trace.get_tracer(__name__)
 
-try:
-    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-
+if TraceContextTextMapPropagator is not None:
     propagator = TraceContextTextMapPropagator()
-except ImportError:
+else:
 
     class NoOpTraceContextTextMapPropagator:
         @staticmethod
@@ -239,9 +243,8 @@ class JobExecutor:
                         elif param_name in context.initial_data:
                             params_to_inject[param_name] = context.initial_data[param_name]
 
-                    if (
-                        hasattr(self.engine, "middleware_chain")
-                        and not hasattr(self.engine.middleware_chain, "_mock_name")
+                    if hasattr(self.engine, "middleware_chain") and not hasattr(
+                        self.engine.middleware_chain, "_mock_name"
                     ):
                         params_to_inject = await self.engine.middleware_chain.run_process_handler_request(
                             context, params_to_inject
@@ -249,13 +252,10 @@ class JobExecutor:
 
                     result = await handler(**params_to_inject)
 
-                    if (
-                        hasattr(self.engine, "middleware_chain")
-                        and not hasattr(self.engine.middleware_chain, "_mock_name")
+                    if hasattr(self.engine, "middleware_chain") and not hasattr(
+                        self.engine.middleware_chain, "_mock_name"
                     ):
-                        result = await self.engine.middleware_chain.run_process_handler_response(
-                            context, result
-                        )
+                        result = await self.engine.middleware_chain.run_process_handler_response(context, result)
 
                     # Sync context state back to job_state for persistence
                     if action_factory.context_updates:
@@ -809,6 +809,3 @@ class JobExecutor:
 
     def stop(self) -> None:
         self._running = False
-
-
-ng = False

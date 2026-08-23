@@ -1,17 +1,18 @@
-from unittest.mock import AsyncMock, MagicMock
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import pytest
+
+from unittest.mock import AsyncMock, MagicMock
+
+from pytest import mark, raises
 
 from holarchy.config import Config
 from holarchy.services.worker_service import WorkerService
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_register_worker_invalid_id():
     """Test that registering a worker with an invalid ID raises ValueError."""
     storage = AsyncMock()
@@ -25,14 +26,14 @@ async def test_register_worker_invalid_id():
 
     invalid_payload = {"worker_id": "bad/worker/id", "worker_type": "cpu", "supported_skills": []}
 
-    with pytest.raises(ValueError, match="Invalid worker_id"):
+    with raises(ValueError, match="Invalid worker_id"):
         await service.register_worker(invalid_payload, "bad/worker/id")
 
     # Ensure storage was not called
     storage.register_worker.assert_not_called()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_register_worker_valid_id():
     """Test that registering a worker with a valid ID succeeds."""
     storage = AsyncMock()

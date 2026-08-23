@@ -1,16 +1,17 @@
-from unittest.mock import AsyncMock, MagicMock
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import pytest
+
+from unittest.mock import AsyncMock, MagicMock
+
 from aiohttp import web
+from pytest import mark
 from src.holarchy.ratelimit import rate_limit_middleware_factory
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_ratelimit_client_only_logic(aiohttp_client):
     """
     Comprehensive test for the rate limit middleware.

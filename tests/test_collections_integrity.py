@@ -4,10 +4,9 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import mark
 
 from holarchy.history.noop import NoOpHistoryStorage
 from holarchy.history.sqlite import SQLiteHistoryStorage
@@ -15,7 +14,7 @@ from holarchy.services.worker_service import WorkerService
 from holarchy.storage.memory import MemoryStorage
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_memory_storage_collections_integrity():
     storage = MemoryStorage()
 
@@ -39,7 +38,7 @@ async def test_memory_storage_collections_integrity():
     }
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_noop_history_collections_integrity():
     storage = NoOpHistoryStorage()
 
@@ -49,7 +48,7 @@ async def test_noop_history_collections_integrity():
     assert await storage.get_job_summary() == {}
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_sqlite_history_collections_integrity(tmp_path):
     db_path = str(tmp_path / "test_history.db")
     storage = SQLiteHistoryStorage(db_path)
@@ -63,7 +62,7 @@ async def test_sqlite_history_collections_integrity(tmp_path):
     await storage.close()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_redis_storage_collections_integrity(redis_storage):
     # Use the real redis_storage fixture if available
     storage = redis_storage
@@ -85,7 +84,7 @@ async def test_redis_storage_collections_integrity(redis_storage):
     assert stats["highest_bids"] == []
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_service_collections_integrity():
     mock_storage = MagicMock()
     mock_storage.refresh_worker_ttl = AsyncMock(return_value=False)

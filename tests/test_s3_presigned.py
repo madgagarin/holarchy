@@ -1,11 +1,12 @@
-from unittest.mock import AsyncMock, MagicMock, patch
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import pytest
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from pytest import fixture, mark
 
 from holarchy.app_keys import (
     ENGINE_KEY,
@@ -16,7 +17,7 @@ from holarchy.config import Config
 from holarchy.s3 import S3Service
 
 
-@pytest.fixture
+@fixture
 def s3_config():
     config = Config()
     config.S3_ENDPOINT_URL = "http://localhost:9000"
@@ -52,8 +53,8 @@ def create_dummy_bp():
     return bp
 
 
-@pytest.mark.parametrize("app", [{"extra_blueprints": [create_dummy_bp()]}], indirect=True)
-@pytest.mark.asyncio
+@mark.parametrize("app", [{"extra_blueprints": [create_dummy_bp()]}], indirect=True)
+@mark.asyncio
 async def test_presign_handler(aiohttp_client, app, s3_config):
     # Enable S3 in the app's engine config
     app_engine = app[ENGINE_KEY]
@@ -84,8 +85,8 @@ async def test_presign_handler(aiohttp_client, app, s3_config):
     assert f"/test-bucket/jobs/{job_id}/data.csv" in data["url"]
 
 
-@pytest.mark.parametrize("app", [{"extra_blueprints": [create_dummy_bp()]}], indirect=True)
-@pytest.mark.asyncio
+@mark.parametrize("app", [{"extra_blueprints": [create_dummy_bp()]}], indirect=True)
+@mark.asyncio
 async def test_download_redirect_handler(aiohttp_client, app, s3_config):
     app_engine = app[ENGINE_KEY]
     app_engine.config.S3_ENDPOINT_URL = s3_config.S3_ENDPOINT_URL
@@ -114,8 +115,8 @@ async def test_download_redirect_handler(aiohttp_client, app, s3_config):
     assert "X-Amz-Signature=" in location
 
 
-@pytest.mark.parametrize("app", [{"extra_blueprints": [create_dummy_bp()]}], indirect=True)
-@pytest.mark.asyncio
+@mark.parametrize("app", [{"extra_blueprints": [create_dummy_bp()]}], indirect=True)
+@mark.asyncio
 async def test_streaming_upload_handler(aiohttp_client, app, s3_config):
     app_engine = app[ENGINE_KEY]
     app_engine.config.S3_ENDPOINT_URL = s3_config.S3_ENDPOINT_URL

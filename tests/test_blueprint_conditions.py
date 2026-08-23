@@ -3,10 +3,11 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
+
 from unittest.mock import MagicMock
 
-import pytest
 from fast_filter import F
+from pytest import fixture, raises
 from src.holarchy.blueprint import Blueprint, ConditionalHandler
 
 # ---------------------------------------------------------------------------
@@ -14,12 +15,12 @@ from src.holarchy.blueprint import Blueprint, ConditionalHandler
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
+@fixture
 def mock_blueprint():
     return MagicMock()
 
 
-@pytest.fixture
+@fixture
 def conditional_handler(mock_blueprint):
     """Handler that passes when initial_data.status == 'completed'."""
     condition = F.initial_data["status"] == "completed"
@@ -69,7 +70,7 @@ def test_conditional_handler_evaluate_complex_condition(mock_blueprint):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
+@fixture
 def blueprint():
     return Blueprint("test_bp")
 
@@ -121,7 +122,7 @@ def test_handler_decorator_duplicate_handler(blueprint):
     def handler1(context, actions):
         pass
 
-    with pytest.raises(ValueError, match="Default handler for state 'start' is already registered."):
+    with raises(ValueError, match="Default handler for state 'start' is already registered."):
 
         @blueprint.handler("start")
         def handler2(context, actions):
@@ -133,7 +134,7 @@ def test_handler_decorator_duplicate_start_state(blueprint):
     def handler1(context, actions):
         pass
 
-    with pytest.raises(ValueError, match="Blueprint 'test_bp' already has a start state: 'start'."):
+    with raises(ValueError, match="Blueprint 'test_bp' already has a start state: 'start'."):
 
         @blueprint.handler("another_start", is_start=True)
         def handler2(context, actions):
@@ -142,7 +143,7 @@ def test_handler_decorator_duplicate_start_state(blueprint):
 
 def test_add_data_store_duplicate(blueprint):
     blueprint.add_data_store("my_store", {})
-    with pytest.raises(ValueError, match="Data store with name 'my_store' already exists."):
+    with raises(ValueError, match="Data store with name 'my_store' already exists."):
         blueprint.add_data_store("my_store", {})
 
 
@@ -151,7 +152,7 @@ def test_aggregator_duplicate(blueprint):
     def aggregator1(context, actions):
         pass
 
-    with pytest.raises(ValueError, match="Aggregator for state 'start' is already registered."):
+    with raises(ValueError, match="Aggregator for state 'start' is already registered."):
 
         @blueprint.aggregator("start")
         def aggregator2(context, actions):
@@ -159,12 +160,12 @@ def test_aggregator_duplicate(blueprint):
 
 
 def test_validate_no_start_state(blueprint):
-    with pytest.raises(ValueError, match="Blueprint 'test_bp' must have exactly one start state."):
+    with raises(ValueError, match="Blueprint 'test_bp' must have exactly one start state."):
         blueprint.validate()
 
 
 def test_find_handler_no_handler(blueprint):
-    with pytest.raises(
+    with raises(
         ValueError, match="No suitable handler found for state 'start' in blueprint 'test_bp' for the given context."
     ):
         blueprint.find_handler("start", MagicMock())

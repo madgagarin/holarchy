@@ -183,8 +183,10 @@ In addition to configuration files, the Orchestrator is configured via environme
 | `RATE_LIMIT_LIMIT`                      | Default maximum number of requests allowed per period for general API endpoints.                                                                                    | `100`                       |
 | `RATE_LIMIT_PERIOD`                     | Rate limiting period in seconds.                                                                                                                                    | `60`                        |
 | `RATE_LIMIT_HEARTBEAT_LIMIT`            | Specific limit for worker heartbeat requests per period.                                                                                                            | `120`                       |
-| `RATE_LIMIT_POLL_LIMIT`                 | Specific limit for worker task poll requests per period.                                                                                                            | `60`                        |
+| `RATE_LIMIT_POLL_LIMIT`                 | Specific limit for worker long-polling requests per period.                                                                                                         | `60`                        |
 | `MAX_TRANSITIONS_PER_JOB`               | **Infinite Loop Protection:** Maximum number of state transitions allowed for a single job before it is terminated.                                                 | `100`                       |
+| `MAX_HOLARCHY_DEPTH`                    | **Holarchy Guard:** Maximum nesting depth for sub-blueprints before quarantining.                                                                                   | `10`                        |
+| `MAX_POLICY_SIZE_BYTES`                 | Maximum allowed size of security policies in bytes.                                                                                                                  | `4096`                      |
 | `DETAILED_API_RESPONSES`                | **Detailed API Responses:** If `false` (default), the job status API returns only a minimal set of fields.                                                          | `false`                     |
 
 ### 429 Response (Too Many Requests)
@@ -210,20 +212,22 @@ The system supports two levels of detail for the `GET /api/v1/jobs/{id}` endpoin
 
 2. **Detailed Mode** (`DETAILED_API_RESPONSES=true`):
    Returns the full job state object, including `state_history`, `initial_data`, `client_config`, etc. In this mode, the `?fields` parameter can be used to request any field.
-   | `WORKER_AUTH_MODE` | **Authentication mode:** `mixed` (tokens+mTLS), `mtls-only` (strict mTLS + STS tokens), or `token-only`. | `mixed` |
 
 ### Security & TLS (mTLS)
 
-Configure these variables to enable HTTPS and Mutual TLS (Zero Trust).
+Configure these variables to enable HTTPS, Zero Trust authentication, and encryption.
 
-| Variable                  | Description                                                                                         | Default |
-| :------------------------ | :-------------------------------------------------------------------------------------------------- | :------ |
-| `TLS_ENABLED`             | Enable HTTPS server.                                                                                | `false` |
-| `TLS_CERT_PATH`           | Path to the server's SSL certificate (`.crt`). Required if TLS enabled.                             | `""`    |
-| `TLS_KEY_PATH`            | Path to the server's private key (`.key`). Required if TLS enabled.                                 | `""`    |
-| `TLS_CA_PATH`             | Path to the CA certificate bundle to verify client certificates.                                    | `""`    |
-| `TLS_REQUIRE_CLIENT_CERT` | If `true`, the server will reject connections without a valid client certificate (mTLS).            | `false` |
-| `REDIS_ENCRYPTION_KEY`    | **Envelope Encryption:** If provided, static worker tokens are stored encrypted in Redis (AES-GCM). | `""`    |
+| Variable                   | Description                                                                                                   | Default                     |
+| :------------------------- | :------------------------------------------------------------------------------------------------------------ | :-------------------------- |
+| `WORKER_AUTH_MODE`         | **Authentication mode:** `mixed` (tokens+mTLS), `mtls-only` (strict mTLS + STS tokens), or `token-only`.       | `mixed`                     |
+| `ORCHESTRATOR_SECRET_KEY`  | Secret key used for cryptographic HMAC-SHA256 signing and state verification in Redis.                        | Auto-generated random token |
+| `AUDIT_SALT`               | Salt used by the D-DNA cryptographic audit engine (`holarchy.cli.audit`).                                   | `default_audit_salt`        |
+| `TLS_ENABLED`              | Enable HTTPS server.                                                                                          | `false`                     |
+| `TLS_CERT_PATH`            | Path to the server's SSL certificate (`.crt`). Required if TLS enabled.                                       | `""`                        |
+| `TLS_KEY_PATH`             | Path to the server's private key (`.key`). Required if TLS enabled.                                           | `""`                        |
+| `TLS_CA_PATH`              | Path to the CA certificate bundle to verify client certificates.                                              | `""`                        |
+| `TLS_REQUIRE_CLIENT_CERT`  | If `true`, the server will reject connections without a valid client certificate (mTLS).                      | `false`                     |
+| `REDIS_ENCRYPTION_KEY`     | **Envelope Encryption:** If provided, static worker tokens are stored encrypted in Redis (AES-GCM).           | `""`                        |
 
 ### Worker Authentication Performance
 

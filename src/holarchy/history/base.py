@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from abc import ABC, abstractmethod
 from asyncio import CancelledError, Queue, QueueFull, Task, create_task
 from contextlib import suppress

@@ -4,14 +4,13 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
+from asyncio import sleep
 
-import asyncio
-
-import pytest
+from pytest import mark
 from src.holarchy.storage.base import StorageBackend
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 class StorageTestSuite:
     """
     Base class for testing implementations of StorageBackend.
@@ -103,7 +102,7 @@ class StorageTestSuite:
         # It should receive the SAME message (from PEL) because it wasn't ACKed.
         # Wait a bit for min_idle_time if using Redis
         if storage.__class__.__name__ == "RedisStorage":
-            await asyncio.sleep(0.2)
+            await sleep(0.2)
         result2 = await storage.dequeue_job()
         assert result2 is not None
         id2, msg_id2 = result2

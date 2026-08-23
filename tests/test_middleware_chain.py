@@ -1,11 +1,12 @@
-# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import asyncio
+from asyncio import sleep
 
-import pytest
+from pytest import mark, raises
 
 from holarchy.middleware.base import BaseMiddleware, MiddlewareChain, MiddlewareError
 
@@ -47,7 +48,7 @@ class ChainedMiddlewareB(BaseMiddleware):
 
 class HangingMiddleware(BaseMiddleware):
     async def process_handler_request(self, context, params):
-        await asyncio.sleep(10.0)
+        await sleep(10.0)
         return params
 
 
@@ -56,7 +57,7 @@ class FailingMiddleware(BaseMiddleware):
         raise MiddlewareError("Security rule violation")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_middleware_chain_all_methods():
     chain = MiddlewareChain()
     mw = CustomHeaderMiddleware()
@@ -83,7 +84,7 @@ async def test_middleware_chain_all_methods():
     assert in_ev["mw_in_ev"] is True
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_middleware_chain_fifo_order_and_add_remove():
     chain = MiddlewareChain()
     mw_a = ChainedMiddlewareA()
@@ -104,23 +105,23 @@ async def test_middleware_chain_fifo_order_and_add_remove():
     assert res2["order"] == "B"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_middleware_chain_error_propagation():
     chain = MiddlewareChain()
     chain.add(FailingMiddleware())
 
-    with pytest.raises(MiddlewareError) as exc_info:
+    with raises(MiddlewareError) as exc_info:
         await chain.run_process_handler_request({}, {"param": 1})
 
     assert "Security rule violation" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_middleware_chain_timeout_handling():
     chain = MiddlewareChain()
     chain.add(HangingMiddleware())
 
-    with pytest.raises(MiddlewareError) as exc_info:
+    with raises(MiddlewareError) as exc_info:
         await chain.run_process_handler_request({}, {}, timeout=0.1)
 
     assert "Middleware execution failed" in str(exc_info.value)

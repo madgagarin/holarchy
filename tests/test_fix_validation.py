@@ -2,17 +2,18 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-# Copyright (c) 2026 Dmitry Gagarin aka madgagarin
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import asyncio
-import contextlib
+from asyncio import open_connection, sleep
+from contextlib import suppress
 from time import time
 from unittest.mock import AsyncMock, MagicMock
 
-import docker
-import pytest
-import pytest_asyncio
-import redis.asyncio as redis
+from docker import from_env as docker_from_env
+from docker.errors import NotFound as DockerNotFound
+from pytest import mark, skip
+from pytest_asyncio import fixture
+from redis import asyncio as redis
 
 from holarchy.config import Config
 from holarchy.services.worker_service import WorkerService
@@ -22,16 +23,16 @@ from holarchy.storage.redis import RedisStorage
 async def is_redis_accessible(host="localhost", port=6379):
     """Check if Redis is accessible at the given host and port."""
     try:
-        conn = await asyncio.open_connection(host, port)
+        conn = await open_connection(host, port)
         conn[1].close()
-        with contextlib.suppress(Exception):
+        with suppress(Exception):
             await conn[1].wait_closed()
         return True
     except Exception:
         return False
 
 
-@pytest_asyncio.fixture(scope="module")
+@fixture(scope="module")
 async def redis_container():
     """Optional fixture to start a Redis container if docker is available."""
     container = None
@@ -41,7 +42,7 @@ async def redis_container():
             yield None
             return
 
-        client = docker.from_env()
+        client = docker_from_env()
 
         # 2. Check if there's any container already running the redis image and mapping to 6379
         for c in client.containers.list():
@@ -56,7 +57,7 @@ async def redis_container():
             if c.status != "running":
                 c.start()
             container = c
-        except docker.errors.NotFound:
+        except DockerNotFound:
             # 4. If not found, create and run a new one
             container = client.containers.run(
                 "redis:alpine", detach=True, ports={"6379/tcp": 6379}, name="holarchy-test-redis", auto_remove=True
@@ -66,18 +67,18 @@ async def redis_container():
         for _ in range(10):
             if await is_redis_accessible():
                 break
-            await asyncio.sleep(0.5)
+            await sleep(0.5)
     except Exception:
         pass
 
     yield container
 
     if container:
-        with contextlib.suppress(Exception):
+        with suppress(Exception):
             container.stop()
 
 
-@pytest_asyncio.fixture
+@fixture
 async def real_redis_storage(redis_container):
     """Fixture that connects to the actual Redis in Docker for Lua testing.
     Uses DB 10 to avoid interference with the main orchestrator DB.
@@ -86,7 +87,7 @@ async def real_redis_storage(redis_container):
     port = 6379
 
     if not await is_redis_accessible(host, port):
-        pytest.skip("Real Redis is not available (Docker might be missing or port 6379 blocked)")
+        skip("Real Redis is not available (Docker might be missing or port 6379 blocked)")
 
     client = redis.Redis(host=host, port=port, db=10, decode_responses=False)
     try:
@@ -99,7 +100,7 @@ async def real_redis_storage(redis_container):
         await client.aclose()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_redis_load_counter_resilience(real_redis_storage):
     """
     Test that _internal_load increments, decrements, and never goes below zero.
@@ -130,7 +131,7 @@ async def test_redis_load_counter_resilience(real_redis_storage):
     assert info["_internal_load"] == 0  # Should stay at 0, not -1
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_redis_index_expiry_robustness(real_redis_storage):
     """
     Test that aggregate='max' in ZINTERSTORE allows finding workers
@@ -151,7 +152,7 @@ async def test_redis_index_expiry_robustness(real_redis_storage):
     assert worker_id in found_workers
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_service_decrements_load_on_result(real_redis_storage):
     """
     Test that WorkerService calls decrement_worker_load when a result is processed.
@@ -183,7 +184,7 @@ async def test_worker_service_decrements_load_on_result(real_redis_storage):
     # Mock signature verification
     worker_service._verify_zero_trust = AsyncMock(return_value=None)
 
-    with contextlib.suppress(Exception):
+    with suppress(Exception):
         await worker_service.process_task_result(result_payload, authenticated_worker_id=worker_id)
 
     info = await storage.get_worker_info(worker_id)

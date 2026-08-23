@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from asyncio import CancelledError, get_running_loop
 from collections.abc import Callable
 from fnmatch import fnmatch
@@ -15,10 +14,12 @@ from socket import gethostname
 from time import time
 from typing import Any, cast
 
-from msgpack import Unpacker, packb, unpackb
+from msgspec.msgpack import decode as msgpack_decode
+from msgspec.msgpack import encode as msgpack_encode
 from orjson import dumps, loads
 from redis import Redis, WatchError
 from redis.exceptions import NoScriptError, ResponseError
+from rxon.security import sign_payload, verify_signature
 
 from .base import StorageBackend
 
@@ -231,14 +232,14 @@ class RedisStorage(StorageBackend):
 
     @staticmethod
     def _pack(data: Any) -> bytes:
-        return cast(bytes, packb(data, use_bin_type=True))
+        return cast(bytes, msgpack_encode(data))
 
     @staticmethod
     def _unpack(data: bytes) -> Any:
         if not data:
             return None
         try:
-            res = unpackb(data, raw=False)
+            res = msgpack_decode(data)
             return RedisStorage._normalize_unpacked(res)
         except Exception as e:
             logger.error(f"Failed to unpack msgpack data: {e}")
@@ -260,13 +261,8 @@ class RedisStorage(StorageBackend):
         elif isinstance(data, bytes):
             try:
                 if len(data) > 0 and (data[0] & 0xF0 in (0x80, 0x90, 0xD0, 0xDE, 0xDF)):
-                    unpacker = Unpacker(strict_map_key=False, raw=False)
-                    unpacker.feed(data)
-                    unpacked = unpacker.unpack()
-                    try:
-                        next(unpacker)
-                    except StopIteration:
-                        return RedisStorage._normalize_unpacked(unpacked)
+                    unpacked = msgpack_decode(data)
+                    return RedisStorage._normalize_unpacked(unpacked)
             except Exception:
                 pass
 
@@ -314,11 +310,13 @@ class RedisStorage(StorageBackend):
             if isinstance(state, dict):
                 signature = state.get("_signature")
                 secret = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
-                if signature and secret:
-                    from rxon.security import verify_signature  # noqa: PLC0415
-                    if not verify_signature(state, signature, secret, ignore_fields=["_signature"]):
-                        logger.critical(f"JOB STATE HMAC MISMATCH: Job state integrity corrupted for {job_id}")
-                        raise PermissionError("Job state HMAC signature verification failed")
+                if (
+                    signature
+                    and secret
+                    and not verify_signature(state, signature, secret, ignore_fields=["_signature"])
+                ):
+                    logger.critical(f"JOB STATE HMAC MISMATCH: Job state integrity corrupted for {job_id}")
+                    raise PermissionError("Job state HMAC signature verification failed")
             return state
         return None
 
@@ -358,7 +356,6 @@ class RedisStorage(StorageBackend):
         key = self._get_key(job_id)
         secret = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
         if secret and isinstance(state, dict):
-            from rxon.security import sign_payload  # noqa: PLC0415
             normalized = RedisStorage._normalize_unpacked(state)
             state["_signature"] = sign_payload(normalized, secret, ignore_fields=["_signature"])
 
@@ -404,7 +401,6 @@ class RedisStorage(StorageBackend):
 
                     secret = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
                     if secret and isinstance(updated_state, dict):
-                        from rxon.security import sign_payload  # noqa: PLC0415
                         normalized = RedisStorage._normalize_unpacked(updated_state)
                         updated_state["_signature"] = sign_payload(normalized, secret, ignore_fields=["_signature"])
 

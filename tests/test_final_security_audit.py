@@ -6,9 +6,9 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-import orjson
-import pytest
 from aiohttp import web
+from orjson import loads as orjson_loads
+from pytest import fixture, mark, raises
 
 from holarchy.api.handlers import (
     get_dashboard_handler,
@@ -29,7 +29,7 @@ def create_mock_request(engine, token=None, job_id=None):
     return req
 
 
-@pytest.fixture
+@fixture
 def mock_engine():
     engine = MagicMock()
     engine.storage = AsyncMock()
@@ -39,7 +39,7 @@ def mock_engine():
     return engine
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_list_isolation(mock_engine):
     """Verify that job lists only show client's own jobs."""
     token_a = "client-a"
@@ -47,13 +47,13 @@ async def test_list_isolation(mock_engine):
 
     req = create_mock_request(mock_engine, token_a)
     resp = await get_jobs_handler(req)
-    data = orjson.loads(resp.body)
+    data = orjson_loads(resp.body)
 
     mock_engine.history_storage.get_jobs.assert_called_with(limit=100, offset=0, client_token=token_a)
     assert len(data) == 1
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_quarantine_list_isolation(mock_engine):
     """Verify that quarantined job list is isolated."""
     token_a = "client-a"
@@ -70,17 +70,27 @@ async def test_quarantine_list_isolation(mock_engine):
     mock_engine.storage.get_quarantined_jobs.assert_called_with(client_token=token_a)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
+async def test_quarantine_list_requires_auth(mock_engine):
+    """Verify that quarantined job list returns 401 when no token is provided."""
+    req = create_mock_request(mock_engine, None)
+    resp = await get_quarantined_jobs_handler(req)
+    assert resp.status == 401
+    data = orjson_loads(resp.body)
+    assert data["error"] == "Authentication required"
+
+
+@mark.asyncio
 async def test_direct_access_forbidden(mock_engine):
     """Verify that direct job access is denied to non-owners."""
     mock_engine.storage.get_job_state.return_value = {"id": "job-1", "client_config": {"token": "owner"}}
 
     req = create_mock_request(mock_engine, "stranger", job_id="job-1")
-    with pytest.raises(web.HTTPForbidden):
+    with raises(web.HTTPForbidden):
         await get_job_status_handler(req)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_result_hidden_while_running(mock_engine):
     """Verify that results are hidden during execution."""
     mock_engine.storage.get_job_state.return_value = {
@@ -92,12 +102,12 @@ async def test_result_hidden_while_running(mock_engine):
 
     req = create_mock_request(mock_engine, "owner", job_id="1")
     resp = await get_job_status_handler(req)
-    data = orjson.loads(resp.body)
+    data = orjson_loads(resp.body)
 
     assert "result" not in data
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_result_visible_at_finish(mock_engine):
     """Verify that results are visible upon completion."""
     mock_engine.storage.get_job_state.return_value = {
@@ -109,12 +119,12 @@ async def test_result_visible_at_finish(mock_engine):
 
     req = create_mock_request(mock_engine, "owner", job_id="1")
     resp = await get_job_status_handler(req)
-    data = orjson.loads(resp.body)
+    data = orjson_loads(resp.body)
 
     assert data["result"] == "data"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dashboard_isolation(mock_engine):
     """Verify dashboard metrics isolation."""
     token_a = "client-a"
@@ -124,23 +134,23 @@ async def test_dashboard_isolation(mock_engine):
 
     req = create_mock_request(mock_engine, token_a)
     resp = await get_dashboard_handler(req)
-    data = orjson.loads(resp.body)
+    data = orjson_loads(resp.body)
 
     mock_engine.history_storage.get_job_summary.assert_called_with(client_token=token_a)
     assert data["jobs"]["finished"] == 1
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_access_denied_without_owner_info(mock_engine):
     """Verify access denial if ownership info is missing."""
     mock_engine.storage.get_job_state.return_value = {"id": "1", "client_config": {}}
 
     req = create_mock_request(mock_engine, "any", job_id="1")
-    with pytest.raises(web.HTTPForbidden):
+    with raises(web.HTTPForbidden):
         await get_job_status_handler(req)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_history_event_filtering(mock_engine):
     """Verify that results in history are filtered appropriately."""
     token = "owner"
@@ -152,7 +162,7 @@ async def test_history_event_filtering(mock_engine):
 
     req = create_mock_request(mock_engine, token, job_id="1")
     resp = await get_job_history_handler(req)
-    data = orjson.loads(resp.body)
+    data = orjson_loads(resp.body)
 
     assert "result" not in data[0]["context_snapshot"]
     assert data[1]["context_snapshot"]["result"] == "visible"

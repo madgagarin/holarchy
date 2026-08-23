@@ -3,16 +3,17 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
+
 from hashlib import sha256
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from aiohttp import web
+from pytest import mark, raises
 
 from holarchy.engine import OrchestratorEngine
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_engine_rate_limit_anti_spoofing():
     """
     Verifies that a worker cannot bypass limits by changing worker_id
@@ -63,7 +64,7 @@ async def test_engine_rate_limit_anti_spoofing():
         assert args1 != args2
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_engine_rate_limit_per_worker_individual_new():
     """
     Verifies that rate limiting in engine is applied per worker_id,
@@ -100,5 +101,5 @@ async def test_engine_rate_limit_per_worker_individual_new():
         storage.increment_key_with_ttl.return_value = 2
         storage.get_ttl.return_value = 30
 
-        with pytest.raises(web.HTTPTooManyRequests):
+        with raises(web.HTTPTooManyRequests):
             await engine.handle_rxon_message("poll", "worker_A", {"token": "token_A"})

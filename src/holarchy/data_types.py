@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from rxon.models import InstalledArtifact, Resources

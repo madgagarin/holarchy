@@ -3,18 +3,19 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
+
 from hashlib import sha256
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from aiohttp import web
+from pytest import fixture, mark, raises
 
 from holarchy.engine import OrchestratorEngine
 from holarchy.ratelimit import rate_limit_middleware_factory
 from holarchy.services.worker_service import WorkerService
 
 
-@pytest.fixture
+@fixture
 def mock_config():
     config = MagicMock()
     config.RATE_LIMITING_ENABLED = True
@@ -32,7 +33,7 @@ def mock_config():
     return config
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_protection_against_worker_id_spoofing(mock_config):
     """
     Exhaustive test: A worker with a valid global token tries to bypass limits
@@ -67,7 +68,7 @@ async def test_protection_against_worker_id_spoofing(mock_config):
             assert "ratelimit:worker" in last_key
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_limit_isolation_behind_nat(mock_config):
     """
     Verifies that workers with DIFFERENT tokens have strictly
@@ -98,7 +99,7 @@ async def test_worker_limit_isolation_behind_nat(mock_config):
         assert keys[0] != keys[1]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_rate_limit_fail_open_on_storage_error(mock_config):
     """
     CRITICAL: If Redis is down, we must NOT block all workers.
@@ -120,7 +121,7 @@ async def test_rate_limit_fail_open_on_storage_error(mock_config):
         assert engine.worker_service.get_next_task.called
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_retry_after_only_for_workers(mock_config):
     """
     Ensures Retry-After is present in engine (worker) exceptions
@@ -136,7 +137,7 @@ async def test_retry_after_only_for_workers(mock_config):
     with patch("holarchy.engine.verify_worker_auth", return_value=("w1", "h1")):
         engine = OrchestratorEngine(storage, mock_config)
         engine.setup()
-        with pytest.raises(web.HTTPTooManyRequests) as exc:
+        with raises(web.HTTPTooManyRequests) as exc:
             await engine.handle_rxon_message("poll", "w1", {"token": "t"})
         assert exc.value.headers["Retry-After"] == "55"
 
@@ -152,7 +153,7 @@ async def test_retry_after_only_for_workers(mock_config):
     assert "Retry-After" not in response.headers
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_engine_rate_limit_retry_after_edge_cases(mock_config):
     """Tests various TTL edge cases for Retry-After header in engine."""
     storage = AsyncMock()
@@ -167,24 +168,24 @@ async def test_engine_rate_limit_retry_after_edge_cases(mock_config):
 
         # Case 1: TTL is -2
         storage.get_ttl.return_value = -2
-        with pytest.raises(web.HTTPTooManyRequests) as exc:
+        with raises(web.HTTPTooManyRequests) as exc:
             await engine.handle_rxon_message("poll", "w1", {"token": "t"})
         assert exc.value.headers["Retry-After"] == "1"
 
         # Case 2: TTL is -1
         storage.get_ttl.return_value = -1
-        with pytest.raises(web.HTTPTooManyRequests) as exc:
+        with raises(web.HTTPTooManyRequests) as exc:
             await engine.handle_rxon_message("poll", "w1", {"token": "t"})
         assert exc.value.headers["Retry-After"] == "1"
 
         # Case 3: TTL is 0
         storage.get_ttl.return_value = 0
-        with pytest.raises(web.HTTPTooManyRequests) as exc:
+        with raises(web.HTTPTooManyRequests) as exc:
             await engine.handle_rxon_message("poll", "w1", {"token": "t"})
         assert exc.value.headers["Retry-After"] == "1"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_webhook_payload_filtering(mock_config):
     """Verifies that webhooks also respect DETAILED_API_RESPONSES policy."""
     mock_config.DETAILED_API_RESPONSES = False  # Compact
@@ -210,7 +211,7 @@ async def test_webhook_payload_filtering(mock_config):
     assert payload.security is None  # Blocked in compact mode
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_service_event_webhook_filtering(mock_config):
     """
     Verifies that worker-initiated event webhooks also respect privacy policy.
@@ -257,7 +258,7 @@ async def test_worker_service_event_webhook_filtering(mock_config):
     assert sent_payload.security is None
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_service_no_webhook_if_no_target_job(mock_config):
     """Verifies that no webhook is sent if event is not targeted to a specific job."""
     storage = AsyncMock()

@@ -1,12 +1,13 @@
-from unittest.mock import AsyncMock, MagicMock
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-# Copyright (c) 2026 Dmitry Gagarin aka madgagarin
-import msgpack
-import pytest
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
+
+from unittest.mock import AsyncMock, MagicMock
+
+from msgspec.msgpack import encode as packb
+from pytest import fixture, mark, raises
 
 from holarchy.context import ActionFactory
 from holarchy.executor import JobExecutor
@@ -14,7 +15,7 @@ from holarchy.storage.memory import MemoryStorage
 from holarchy.storage.redis import RedisStorage
 
 
-@pytest.fixture
+@fixture
 def config():
     mock_conf = MagicMock()
     mock_conf.JOB_MAX_RETRIES = 3
@@ -22,7 +23,7 @@ def config():
     return mock_conf
 
 
-@pytest.fixture
+@fixture
 def engine(config):
     engine_mock = MagicMock()
     engine_mock.config = config
@@ -47,7 +48,7 @@ def test_redis_normalize_byte_keys():
 def test_redis_normalize_recursive_msgpack():
     """HAPPY PATH: Deeply nested msgpack strings should be automatically unpacked."""
     inner = {"result": "ok", "value": 42}
-    packed_inner = msgpack.packb(inner)
+    packed_inner = packb(inner)
 
     # Simulating data structure where one field is a msgpack blob
     raw_data = {"id": "job-1", "payload": packed_inner}
@@ -72,7 +73,7 @@ def test_redis_normalize_ambiguous_binary_data():
 def test_redis_bzpopmax_logic_fix():
     """HAPPY PATH: Verify the logic of Beta 20 fix (result[1] instead of result[1][0])."""
     task_data = {"task_id": "t1", "type": "test"}
-    packed_task = msgpack.packb(task_data)
+    packed_task = packb(task_data)
 
     # Redis 5.0+ bzpopmax returns [key, value, score]
     result_from_redis = [b"queue_key", packed_task, 10.5]
@@ -107,11 +108,11 @@ def test_action_factory_update_context_problematic_input():
     """PROBLEM PATH: update_context should raise ValueError/TypeError if input is not a dict."""
     factory = ActionFactory("job-123")
 
-    with pytest.raises((ValueError, TypeError)):
+    with raises((ValueError, TypeError)):
         factory.update_context("not-a-dict")  # type: ignore
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_executor_applies_context_updates(engine):
     """HAPPY PATH: JobExecutor should apply updates to job_state['initial_data']."""
     storage = MemoryStorage()
@@ -152,7 +153,7 @@ async def test_executor_applies_context_updates(engine):
     assert updated_state["initial_data"]["existing"] == "overwritten"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_executor_context_update_persistence(engine):
     """HAPPY PATH: ensure context updates are persisted even if transition fails later."""
     storage = MemoryStorage()

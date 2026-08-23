@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "holarchy"
-version = "1.0b28"
+version = "1.0b29"
 description = "A state-machine based orchestrator for long-running AI and other jobs."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,7 +27,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "rxon==1.0b15",
+    "rxon==1.0b16",
     "fast-magic-filter~=1.0.0",
     "aiohttp~=3.14.3",
     "python-json-logger~=4.1.0",
@@ -79,6 +79,8 @@ where = ["src"]
 "*" = ["tests*", "advanced_architecture_proposals.md"]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["new", ".venv", "build", "dist", "*.egg-info"]
 markers = [
     "e2e: marks tests as end-to-end tests",
 ]

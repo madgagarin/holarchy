@@ -3,15 +3,17 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import os
+
+from os import remove
+from os.path import exists
 from unittest.mock import AsyncMock
 
-import pytest
+from pytest import mark, raises
 from src.holarchy.client_config_loader import load_client_configs_to_redis
 from src.holarchy.worker_config_loader import load_worker_configs_to_redis
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_client_config_loader_invalid_toml():
     """Verifies that client config loader raises ValueError on invalid TOML."""
     storage = AsyncMock()
@@ -20,14 +22,14 @@ async def test_client_config_loader_invalid_toml():
         f.write("this is [not] valid toml = = =")
 
     try:
-        with pytest.raises(ValueError, match="Invalid client configuration file"):
+        with raises(ValueError, match="Invalid client configuration file"):
             await load_client_configs_to_redis(storage, path)
     finally:
-        if os.path.exists(path):
-            os.remove(path)
+        if exists(path):
+            remove(path)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_client_config_loader_invalid_quota_type():
     """Verifies that client config loader validates monthly_attempts type."""
     storage = AsyncMock()
@@ -40,14 +42,14 @@ monthly_attempts = "not-an-int"
 """)
 
     try:
-        with pytest.raises(ValueError, match="Invalid quota type for client 'client'"):
+        with raises(ValueError, match="Invalid quota type for client 'client'"):
             await load_client_configs_to_redis(storage, path)
     finally:
-        if os.path.exists(path):
-            os.remove(path)
+        if exists(path):
+            remove(path)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_config_loader_invalid_structure():
     """Verifies that worker config loader validates that config is a table."""
     storage = AsyncMock()
@@ -58,8 +60,8 @@ worker_id = "not-a-table"
 """)
 
     try:
-        with pytest.raises(ValueError, match="Invalid configuration for worker 'worker_id'"):
+        with raises(ValueError, match="Invalid configuration for worker 'worker_id'"):
             await load_worker_configs_to_redis(storage, path)
     finally:
-        if os.path.exists(path):
-            os.remove(path)
+        if exists(path):
+            remove(path)

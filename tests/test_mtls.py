@@ -4,13 +4,11 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
+from ssl import Purpose, create_default_context
+from subprocess import DEVNULL, check_call
 
-import ssl
-import subprocess
-
-import aiohttp
-import pytest
-from aiohttp import web
+from aiohttp import ClientSession, web
+from pytest import fixture, mark
 from rxon.security import create_server_ssl_context
 
 from holarchy.config import Config
@@ -20,10 +18,10 @@ from holarchy.storage.memory import MemoryStorage
 
 # Helper to run shell commands
 def run_cmd(cmd):
-    subprocess.check_call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    check_call(cmd, shell=True, stdout=DEVNULL, stderr=DEVNULL)
 
 
-@pytest.fixture(scope="module")
+@fixture(scope="module")
 def pki(tmp_path_factory):
     """Generates a temporary PKI infrastructure for mTLS testing."""
     pki_dir = tmp_path_factory.mktemp("pki")
@@ -90,7 +88,7 @@ authorityKeyIdentifier = keyid:always,issuer
     }
 
 
-@pytest.fixture
+@fixture
 def mtls_config(pki):
     conf = Config()
     conf.TLS_ENABLED = True
@@ -104,7 +102,7 @@ def mtls_config(pki):
     return conf
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_mtls_worker_authentication(pki, mtls_config):
     """
     Verifies that a worker connecting with a valid certificate is authenticated
@@ -137,7 +135,7 @@ async def test_mtls_worker_authentication(pki, mtls_config):
     base_url = f"https://localhost:{port}"
 
     # --- Client Side Setup ---
-    client_ssl_ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=pki["ca_crt"])
+    client_ssl_ctx = create_default_context(Purpose.SERVER_AUTH, cafile=pki["ca_crt"])
     client_ssl_ctx.load_cert_chain(certfile=pki["client_crt"], keyfile=pki["client_key"])
 
     # The CN in client cert is "worker-mtls-test"
@@ -166,7 +164,7 @@ async def test_mtls_worker_authentication(pki, mtls_config):
 
     target_worker_id = "worker-mtls-test"
 
-    async with aiohttp.ClientSession() as session:
+    async with ClientSession() as session:
         # Note: We do NOT send X-Worker-Token header.
         reg_data = {
             "worker_id": target_worker_id,

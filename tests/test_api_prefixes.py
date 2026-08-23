@@ -4,7 +4,7 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import pytest
+from pytest import fixture, mark
 
 from holarchy.blueprint import Blueprint
 from holarchy.config import Config
@@ -12,7 +12,7 @@ from holarchy.engine import OrchestratorEngine
 from holarchy.storage.memory import MemoryStorage
 
 
-@pytest.fixture
+@fixture
 def storage():
     # MemoryStorage now requires implementing STS methods,
     # but for prefix tests we just need it to not crash.
@@ -41,7 +41,7 @@ async def create_test_engine(storage, **config_overrides):
     return engine
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_default_prefixes(aiohttp_client, storage):
     """Positive: Verify default paths (/api/... and /_public/...) work."""
     engine = await create_test_engine(storage)
@@ -56,7 +56,7 @@ async def test_default_prefixes(aiohttp_client, storage):
     assert resp.status == 401
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_custom_client_prefix_public_stays_fixed(aiohttp_client, storage):
     """Positive: Verify custom client prefix works while public API stays at /_public/."""
     engine = await create_test_engine(storage, CLIENT_API_PREFIX="v1/client")
@@ -75,7 +75,7 @@ async def test_custom_client_prefix_public_stays_fixed(aiohttp_client, storage):
     assert resp.status == 404
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_empty_client_prefix(aiohttp_client, storage):
     """Positive: Verify API works at root if CLIENT_API_PREFIX is empty."""
     engine = await create_test_engine(storage, CLIENT_API_PREFIX="")
@@ -90,7 +90,7 @@ async def test_empty_client_prefix(aiohttp_client, storage):
     assert resp.status == 200
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_api_stays_at_root(aiohttp_client, storage):
     """Positive: Verify Worker API remains at /_worker/ regardless of other prefixes."""
     engine = await create_test_engine(storage, CLIENT_API_PREFIX="hidden")
@@ -101,7 +101,7 @@ async def test_worker_api_stays_at_root(aiohttp_client, storage):
     assert resp.status in [405, 401]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_prefix_with_slashes_handling(aiohttp_client, storage):
     """Boundary: Verify that slashes in config are handled correctly."""
     engine = await create_test_engine(storage, CLIENT_API_PREFIX="//api//")
@@ -112,7 +112,7 @@ async def test_prefix_with_slashes_handling(aiohttp_client, storage):
     assert resp.status == 401
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_access_denied_on_wrong_prefix(aiohttp_client, storage):
     """Negative: Accessing with slightly wrong prefix."""
     engine = await create_test_engine(storage, CLIENT_API_PREFIX="api")
@@ -127,7 +127,7 @@ async def test_access_denied_on_wrong_prefix(aiohttp_client, storage):
     assert resp.status == 401
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_nested_blueprint_path(aiohttp_client, storage):
     """Positive: Verify nested blueprint endpoints work with custom prefixes."""
     config = Config()

@@ -3,16 +3,17 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
+
+from asyncio import create_task, sleep
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import mark
 from src.holarchy.config import Config
 from src.holarchy.engine import OrchestratorEngine
 from src.holarchy.watcher import Watcher
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_watcher_run():
     """Tests that the watcher correctly identifies and handles timed out jobs."""
     engine = MagicMock(spec=OrchestratorEngine)
@@ -36,9 +37,9 @@ async def test_watcher_run():
     watcher.watch_interval_seconds = 0.05
 
     # Start watcher
-    task = asyncio.create_task(watcher.run())
+    task = create_task(watcher.run())
     # Give it enough time to run at least once
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
     watcher.stop()
     await task
 

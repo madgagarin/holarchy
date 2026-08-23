@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from abc import ABC
 from asyncio import sleep
 from contextlib import suppress

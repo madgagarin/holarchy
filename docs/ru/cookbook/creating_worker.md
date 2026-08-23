@@ -20,32 +20,32 @@ pip install "holonode[s3,pydantic]"
 
 Создайте Python-файл (например, `my_worker.py`) и импортируйте класс `Worker`.
 
-````python
+```python
 import asyncio
 from holonode import Worker
 from pydantic import BaseModel
 
 # 1. Инициализируйте класс Worker
 worker = Worker(worker_type="inventory-checker")
+```
 
-# 2. Определите обработчик задач
+### 2. Определите обработчик задач
 
 Вы можете использовать **обычные словари** (без зависимостей) или **Pydantic модели** (для автоматической валидации).
 
-### Вариант А: Простой словарь (без Pydantic)
+#### Вариант А: Простой словарь (без Pydantic)
+
 ```python
 @worker.skill("check_inventory")
 async def check_inventory_handler(params: dict, **kwargs) -> dict:
     items = params.get("items", [])
     print(f"Проверка товаров: {items}")
     return {"status": "success", "data": {"warehouse_info": "ok"}}
-````
+```
 
-### Вариант Б: Pydantic модель (с авто-валидацией)
+#### Вариант Б: Pydantic модель (с авто-валидацией)
 
 ```python
-from pydantic import BaseModel
-
 class CheckParams(BaseModel):
     items: list[str]
 
@@ -56,12 +56,13 @@ async def check_inventory_handler(params: CheckParams, **kwargs) -> dict:
     return {"status": "success", "data": {"warehouse_info": "ok"}}
 ```
 
-# Пример обработчика для долгой задачи с кооперативной отменой
+#### Вариант В: Долгая задача с кооперативной отменой
 
+```python
 @worker.skill("long_running_task")
-async def long_task_handler(params: dict, \*\*kwargs) -> dict:
-task_id = kwargs["task_id"]
-print(f"Запуск долгой задачи {task_id}...")
+async def long_task_handler(params: dict, **kwargs) -> dict:
+    task_id = kwargs["task_id"]
+    print(f"Запуск долгой задачи {task_id}...")
 
     for i in range(10):
         # Проверяем, не запросил ли Оркестратор отмену
@@ -74,12 +75,10 @@ print(f"Запуск долгой задачи {task_id}...")
 
     return {"status": "success"}
 
-# 4. Запустите воркер
-
-if **name** == "**main**":
-worker.run()
-
-````
+# 3. Запустите воркер
+if __name__ == "__main__":
+    worker.run()
+```
 
 ## Шаг 3: Настройка подключения и аутентификации
 

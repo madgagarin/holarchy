@@ -4,8 +4,7 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
-import pytest
+from pytest import raises
 
 from holarchy.blueprint import Blueprint
 
@@ -38,7 +37,7 @@ def test_dangling_transition():
     async def start(actions):
         actions.go_to("non_existent_state")
 
-    with pytest.raises(ValueError) as excinfo:
+    with raises(ValueError) as excinfo:
         bp.validate()
 
     assert "has a dangling transition" in str(excinfo.value)
@@ -61,7 +60,7 @@ def test_unreachable_state():
     async def dead_code():
         pass
 
-    with pytest.raises(ValueError) as excinfo:
+    with raises(ValueError) as excinfo:
         bp.validate()
 
     assert "has unreachable states: dead_code" in str(excinfo.value)

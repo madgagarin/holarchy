@@ -4,14 +4,13 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
-import pytest
+from pytest import fixture
 from src.holarchy.storage.memory import MemoryStorage
 
 from .storage_test_suite import StorageTestSuite
 
 
-@pytest.fixture
+@fixture
 def storage():
     """
     Provides a MemoryStorage instance for the test suite.

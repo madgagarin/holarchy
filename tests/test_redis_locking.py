@@ -4,21 +4,20 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
+from asyncio import sleep
 
-import asyncio
-
-import fakeredis.aioredis
-import pytest
+from fakeredis.aioredis import FakeRedis
+from pytest import mark
 
 from holarchy.storage.redis import RedisStorage
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_redis_storage_locking():
     """Tests distributed locking logic in RedisStorage using fakeredis."""
     # fakeredis usually supports basic Lua and SET NX
 
-    redis_client = fakeredis.aioredis.FakeRedis()
+    redis_client = FakeRedis()
     storage = RedisStorage(redis_client)
 
     key = "global_lock"
@@ -35,7 +34,7 @@ async def test_redis_storage_locking():
     assert await storage.acquire_lock(key, holder_1, ttl=1) is True
 
     # Wait for expiration in Redis
-    await asyncio.sleep(1.1)
+    await sleep(1.1)
 
     # Now it should be free
     assert await storage.acquire_lock(key, holder_2, ttl=10) is True

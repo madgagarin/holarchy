@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
@@ -24,7 +23,6 @@ from .handlers import (
     cancel_job_handler,
     create_job_handler_factory,
     docs_handler,
-    flush_db_handler,
     get_blueprint_graph_handler,
     get_dashboard_handler,
     get_job_file_download_handler,
@@ -67,14 +65,12 @@ def setup_routes(app: web.Application, engine: "OrchestratorEngine") -> None:
 
     public_app.router.add_get("/status", status_handler)
     public_app.router.add_post("/webhooks/approval/{job_id}", human_approval_webhook_handler)
-    public_app.router.add_post("/debug/flush_db", flush_db_handler)
     public_app.router.add_get("/docs", docs_handler)
-    public_app.router.add_get("/jobs/quarantined", get_quarantined_jobs_handler)
 
     app.add_subapp("/_public/", public_app)
 
     if engine.config.ENABLE_CLIENT_API:
-        auth_middleware = client_auth_middleware_factory(engine.storage)
+        auth_middleware = client_auth_middleware_factory(engine.storage, engine.config)
         quota_middleware = quota_middleware_factory(engine.storage)
         api_middlewares = [auth_middleware, quota_middleware]
 
@@ -166,5 +162,6 @@ def _register_common_routes(
     add("GET", "/workers", get_workers_handler)
     add("GET", "/workers/catalog", get_dashboard_handler)  # Placeholder
     add("GET", "/jobs", get_jobs_handler)
+    add("GET", "/jobs/quarantined", get_quarantined_jobs_handler)
     add("GET", "/dashboard", get_dashboard_handler)
     add("POST", "/admin/reload-workers", reload_worker_configs_handler)

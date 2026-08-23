@@ -4,7 +4,7 @@
 
 > **Примечание:** Этот документ описывает **Python-реализацию** стандарта HLN. Для ознакомления с общей архитектурной спецификацией, пожалуйста, обратитесь к пакету `hln`.
 
-**RU** | [EN](../../architecture.md) | [ES](../es/architecture.md)
+[EN](https://github.com/madgagarin/holarchy/blob/main/docs/architecture.md) | [ES](https://github.com/madgagarin/holarchy/blob/main/docs/es/architecture.md) | **RU**
 
 ## Общая схема
 
@@ -12,7 +12,42 @@
 
 ### Диаграмма компонентов
 
-(См. английскую версию для Mermaid-диаграммы)
+```mermaid
+graph TD
+    subgraph "Внешний мир"
+        Client[API Клиент]
+    end
+
+    subgraph "Инфраструктура"
+        NGINX(NGINX Reverse Proxy)
+    end
+
+    subgraph "Система Оркестрации"
+        O_API(Orchestrator API v1)
+        O_Engine{Engine}
+        O_Storage[(Хранилище: Redis)]
+        W1(Воркер 1)
+        W2(Воркер 2)
+    end
+
+    Client --"1. Создать задачу (HTTPS/2)"--> NGINX
+    NGINX --"2. Проксирование запроса"--> O_API
+    O_API --> O_Engine
+    O_Engine --> O_Storage
+
+    W1 --"3. Long-Polling задач (HTTP)"--> NGINX
+    NGINX --> O_API
+    O_API --"4. Назначить задачу"--> NGINX
+    NGINX --> W1
+
+    W1 --"5. Отправить результат"--> NGINX
+
+    W1 <-."6. Команда 'cancel' (WebSocket)".-> NGINX
+    NGINX <-." ".-> O_API
+
+    W1 --"Heartbeat"--> NGINX
+    W2 --"Heartbeat"--> NGINX
+```
 
 ## Принципы высокой производительности
 

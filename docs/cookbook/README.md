@@ -1235,10 +1235,11 @@ When history is enabled, new endpoint becomes available.
   ```
 
 - **Response Example:**
-  `json
+
+  ```json
   [
       {
-          "event_id": "a1b2c3d4-...".
+          "event_id": "a1b2c3d4-...",
           "job_id": "job_123",
           "timestamp": "2024-08-27T10:00:00.123Z",
           "state": "start",
@@ -1247,7 +1248,7 @@ When history is enabled, new endpoint becomes available.
           "context_snapshot": { "... (full job state at start) ..." }
       },
       {
-          "event_id": "e5f6g7h8-...".
+          "event_id": "e5f6g7h8-...",
           "job_id": "job_123",
           "timestamp": "2024-08-27T10:00:01.456Z",
           "state": "start",
@@ -1257,12 +1258,40 @@ When history is enabled, new endpoint becomes available.
           "context_snapshot": { "... (job state after handler execution) ..." }
       }
   ]
-  `
+  ```
+
   This endpoint provides full step-by-step timeline of any task for detailed analysis and debugging.
 
 ---
 
-### **Recipe 24: Authentication with Individual Token**
+### **Recipe 24: Creating Fractal Networks (Matryoshka / Shell-Stacking)**
+
+**Task:** Encapsulate an entire Orchestrator cluster as a single virtual "Worker" for a parent network.
+
+```python
+from holarchy import OrchestratorEngine, Blueprint, Config
+from matryoshka.bridge import MatryoshkaBridge
+
+# 1. Setup internal Ghost (logic)
+engine = OrchestratorEngine(storage, config)
+# Register blueprints that will become "skills" for the parent network
+engine.register_blueprint(my_internal_bp)
+
+# 2. Wrap it into a Shell (Worker interface)
+# Bridge automatically propagates skills, handles cancellation, and preserves traces
+holon_bridge = MatryoshkaBridge(engine)
+
+# 3. Launch holon
+# It will connect to the parent orchestrator as a standard worker
+if __name__ == "__main__":
+    holon_bridge.run()
+```
+
+_Note: All events and progress reports from the internal orchestrator will automatically bubble up to the parent network while preserving the cryptographic identity chain._
+
+---
+
+### **Recipe 25: Authentication with Individual Token**
 
 **Task:** Enhance security by configuring unique authentication token for each worker instead of using single shared secret.
 
@@ -1301,7 +1330,3 @@ export WORKER_INDIVIDUAL_TOKEN="super-secret-token-for-worker-1"
 #### **Step 3: Launch**
 
 Run Orchestrator and Worker. Worker authenticates using `WORKER_ID` and `WORKER_INDIVIDUAL_TOKEN`. Requests from workers with invalid token or not listed in `workers.toml` (if shared `WORKER_TOKEN` not set) will be rejected with `401 Unauthorized`.
-
-```
-
-```

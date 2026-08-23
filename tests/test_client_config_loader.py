@@ -3,14 +3,16 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import os
+
+from os import remove
+from os.path import exists
 from unittest.mock import AsyncMock
 
-import pytest
+from pytest import mark, raises
 from src.holarchy.client_config_loader import load_client_configs_to_redis
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_load_client_configs_to_redis():
     """Tests that client configs are correctly loaded into Redis."""
     storage = AsyncMock()
@@ -35,10 +37,10 @@ plan = "free"
     storage.save_client_config.assert_any_call("token-2", {"token": "token-2", "plan": "free"})
     storage.initialize_client_quota.assert_called_once_with("token-1", 1000)
 
-    os.remove(config_path)
+    remove(config_path)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_load_client_configs_file_not_found(caplog):
     """Tests that a warning is logged when the config file is not found."""
     storage = AsyncMock()
@@ -46,7 +48,7 @@ async def test_load_client_configs_file_not_found(caplog):
     assert "Client config file not found" in caplog.text
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_load_client_configs_missing_token(caplog):
     """Tests that a ValueError is raised when a client config is missing a token."""
     storage = AsyncMock()
@@ -59,8 +61,8 @@ plan = "premium"
 """)
 
     try:
-        with pytest.raises(ValueError, match="Missing token for client 'client-1'"):
+        with raises(ValueError, match="Missing token for client 'client-1'"):
             await load_client_configs_to_redis(storage, config_path)
     finally:
-        if os.path.exists(config_path):
-            os.remove(config_path)
+        if exists(config_path):
+            remove(config_path)

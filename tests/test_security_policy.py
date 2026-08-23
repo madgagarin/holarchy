@@ -1,11 +1,12 @@
-# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import mark, raises
 
 from holarchy.blueprint import Blueprint
 from holarchy.context import ActionFactory
@@ -37,7 +38,7 @@ def test_action_factory_disallowed_skill_policy_raises():
     actions = ActionFactory(job_id="job-1", policy=policy)
 
     # Disallowed skill must raise PermissionError
-    with pytest.raises(PermissionError) as exc_info:
+    with raises(PermissionError) as exc_info:
         actions.dispatch_task("forbidden_skill", {}, {"success": "end"})
 
     assert "not permitted by job policy" in str(exc_info.value)
@@ -56,7 +57,7 @@ def test_action_factory_dispatch_parallel_policy():
 
     # One forbidden skill in parallel list -> raises PermissionError
     actions2 = ActionFactory(job_id="job-2", policy=policy)
-    with pytest.raises(PermissionError) as exc_info:
+    with raises(PermissionError) as exc_info:
         actions2.dispatch_parallel(
             tasks=[{"type": "skill_a", "params": {}}, {"type": "skill_c_forbidden", "params": {}}],
             aggregate_into="agg",
@@ -64,7 +65,7 @@ def test_action_factory_dispatch_parallel_policy():
     assert "skill_c_forbidden" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_executor_enforces_policy_end_to_end():
     engine = MagicMock()
     engine.send_job_webhook = AsyncMock()
@@ -107,7 +108,7 @@ async def test_job_executor_enforces_policy_end_to_end():
     assert "not permitted by job policy" in failed_event["context_snapshot"]["error_message"]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_sub_blueprint_inherits_parent_policy():
     engine = MagicMock()
     engine.blueprint_contracts = {}

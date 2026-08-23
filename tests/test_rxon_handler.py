@@ -4,10 +4,9 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from unittest.mock import AsyncMock
 
-import pytest
+from pytest import fixture, mark, raises
 from rxon.models import TaskPayload
 
 from holarchy.config import Config
@@ -15,7 +14,7 @@ from holarchy.engine import OrchestratorEngine
 from holarchy.storage.memory import MemoryStorage
 
 
-@pytest.fixture
+@fixture
 def engine():
     storage = MemoryStorage()
     config = Config()
@@ -24,7 +23,7 @@ def engine():
     return engine
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_handle_rxon_register(engine):
     payload = {"worker_id": "w1", "worker_type": "t1"}
     context = {"token": engine.config.GLOBAL_WORKER_TOKEN}
@@ -33,7 +32,7 @@ async def test_handle_rxon_register(engine):
     engine.worker_service.register_worker.assert_called_once_with(payload, "w1")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_handle_rxon_poll(engine):
     worker_id = "w1"
     context = {"token": engine.config.GLOBAL_WORKER_TOKEN}
@@ -46,7 +45,7 @@ async def test_handle_rxon_poll(engine):
     engine.worker_service.get_next_task.assert_called_once_with(worker_id)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_handle_rxon_result(engine):
     payload = {"job_id": "j1", "task_id": "t1", "worker_id": "w1", "status": "success"}
     context = {"token": engine.config.GLOBAL_WORKER_TOKEN}
@@ -55,10 +54,10 @@ async def test_handle_rxon_result(engine):
     engine.worker_service.process_task_result.assert_called_once_with(payload, "w1")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_handle_rxon_auth_failure(engine):
     payload = {"worker_id": "w1"}
     context = {"token": "wrong-token"}
 
-    with pytest.raises(PermissionError):
+    with raises(PermissionError):
         await engine.handle_rxon_message("register", payload, context)

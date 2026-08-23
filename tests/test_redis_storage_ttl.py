@@ -4,12 +4,11 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
+from pytest import importorskip, mark
 
-import pytest
 
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(not pytest.importorskip("redis"), reason="redis not installed")
+@mark.asyncio
+@mark.skipif(not importorskip("redis"), reason="redis not installed")
 async def test_redis_storage_get_ttl(redis_storage):
     """Directly tests the get_ttl method in RedisStorage."""
     storage = redis_storage

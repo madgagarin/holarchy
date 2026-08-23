@@ -1,18 +1,19 @@
-from unittest.mock import AsyncMock, MagicMock
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import orjson
-import pytest
+
+from unittest.mock import AsyncMock, MagicMock
+
+from orjson import loads as orjson_loads
+from pytest import fixture, mark
 
 from holarchy.api.handlers import get_job_status_handler
 from holarchy.app_keys import ENGINE_KEY
 
 
-@pytest.fixture
+@fixture
 def mock_engine():
     engine = MagicMock()
     engine.storage = AsyncMock()
@@ -20,7 +21,7 @@ def mock_engine():
     return engine
 
 
-@pytest.fixture
+@fixture
 def mock_request(mock_engine):
     req = MagicMock()
     app_mock = MagicMock()
@@ -36,7 +37,7 @@ def mock_request(mock_engine):
     return req
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_compact_mode_strict_default(mock_engine, mock_request):
     """Verifies that DETAILED_API_RESPONSES=False (default) returns only 4 fields and blocks others."""
     token = mock_request.get("client_config")["token"]
@@ -54,20 +55,20 @@ async def test_api_compact_mode_strict_default(mock_engine, mock_request):
 
     # 1. Default request
     response = await get_job_status_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
     assert set(data.keys()) == {"id", "status", "result", "blueprint_name"}
     assert "current_state" not in data
 
     # 2. Explicit request for blocked field
     mock_request.query = {"fields": "status,internal_debug_info"}
     response = await get_job_status_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
     # internal_debug_info should be ignored because DETAILED_API_RESPONSES is False
     assert set(data.keys()) == {"id", "status"}
     assert "internal_debug_info" not in data
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_api_detailed_mode_allowed(mock_engine, mock_request):
     """Verifies that DETAILED_API_RESPONSES=True allows all fields and filtering."""
     token = mock_request.get("client_config")["token"]
@@ -83,12 +84,12 @@ async def test_api_detailed_mode_allowed(mock_engine, mock_request):
 
     # 1. Detailed mode without filter returns everything
     response = await get_job_status_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
     assert "internal_debug_info" in data
     assert "current_state" in data
 
     # 2. Detailed mode with filter allows requested fields
     mock_request.query = {"fields": "status,internal_debug_info"}
     response = await get_job_status_handler(mock_request)
-    data = orjson.loads(response.body)
+    data = orjson_loads(response.body)
     assert set(data.keys()) == {"id", "status", "internal_debug_info"}

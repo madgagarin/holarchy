@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from importlib.util import module_from_spec, spec_from_file_location
 from logging import getLogger
 from pathlib import Path

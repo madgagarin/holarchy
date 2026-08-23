@@ -4,10 +4,9 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import MonkeyPatch, fixture, mark, raises
 from rxon.models import TokenResponse
 from rxon.utils import to_dict
 
@@ -16,31 +15,31 @@ from holarchy.engine import OrchestratorEngine
 from holarchy.storage.memory import MemoryStorage
 
 
-@pytest.fixture
+@fixture
 def config():
     return Config()
 
 
-@pytest.fixture
+@fixture
 def storage():
     return MemoryStorage()
 
 
-@pytest.fixture
+@fixture
 def engine(storage, config):
     engine = OrchestratorEngine(storage, config)
     engine.worker_service = AsyncMock()
     return engine
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_issue_token_no_mtls(engine):
     """Test that STS endpoint via RxonListener rejects requests without mTLS."""
     context = {"raw_request": MagicMock(), "token": "some-token", "worker_id_hint": "worker-1"}
 
     # verify_worker_auth now raises PermissionError directly, which is unhandled in engine.py
     # until it reaches HttpListener (which is not used in this manual direct call test)
-    with pytest.raises(PermissionError):
+    with raises(PermissionError):
         await engine.handle_rxon_message("sts_token", payload=None, context=context)
 
     # The message comes from PermissionError raised in verify_worker_auth (no mtls cert -> token check)
@@ -62,14 +61,14 @@ async def test_issue_token_no_mtls(engine):
     pass
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_issue_token_with_mtls(engine):
     """Test that STS endpoint via RxonListener accepts requests with mTLS."""
 
     # To test this, we need verify_worker_auth to succeed via mTLS.
     # We can mock holarchy.security.verify_worker_auth directly.
 
-    with pytest.MonkeyPatch.context() as m:
+    with MonkeyPatch.context() as m:
 
         async def mock_verify(*args, **kwargs):
             return "worker-1"

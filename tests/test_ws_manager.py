@@ -3,30 +3,31 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
+
 from logging import getLogger
 from unittest.mock import AsyncMock
 
-import pytest
 from aiohttp import web
+from pytest import fixture, mark
 
 from holarchy.ws_manager import WebSocketManager
 
 logger = getLogger(__name__)
 
 
-@pytest.fixture
+@fixture
 def storage():
     storage_mock = AsyncMock()
     storage_mock.update_job_state = AsyncMock()
     return storage_mock
 
 
-@pytest.fixture
+@fixture
 def manager(storage):
     return WebSocketManager(storage)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_ws_manager_register_and_unregister(manager):
     """Tests that the WebSocketManager can register and unregister connections."""
     ws = AsyncMock(spec=web.WebSocketResponse)
@@ -38,7 +39,7 @@ async def test_ws_manager_register_and_unregister(manager):
     assert "worker-1" not in manager._connections
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_ws_manager_send_command(manager):
     """Tests that the WebSocketManager can send commands to workers."""
     ws = AsyncMock(spec=web.WebSocketResponse)
@@ -53,7 +54,7 @@ async def test_ws_manager_send_command(manager):
     ws.send_json.assert_called_with(command)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_ws_manager_send_command_fails(manager):
     """Tests that send_command returns False when the connection is closed."""
     ws = AsyncMock(spec=web.WebSocketResponse)
@@ -68,7 +69,7 @@ async def test_ws_manager_send_command_fails(manager):
     ws.send_json.assert_not_called()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_ws_manager_close_all(manager):
     """Tests that the WebSocketManager can close all connections."""
     ws1 = AsyncMock(spec=web.WebSocketResponse)

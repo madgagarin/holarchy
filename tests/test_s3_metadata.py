@@ -1,16 +1,17 @@
-from unittest.mock import AsyncMock, MagicMock
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import pytest
+
+from unittest.mock import AsyncMock, MagicMock
+
+from pytest import fixture, mark
 
 from holarchy.s3 import TaskFiles
 
 
-@pytest.fixture
+@fixture
 def mock_provider():
     provider = MagicMock()
     provider.upload = AsyncMock(return_value="s3://test-bucket/jobs/test-job/test.txt")
@@ -20,14 +21,14 @@ def mock_provider():
     return provider
 
 
-@pytest.fixture
+@fixture
 def mock_history():
     history = MagicMock()
     history.log_job_event = AsyncMock()
     return history
 
 
-@pytest.fixture
+@fixture
 def task_files(mock_provider, mock_history, tmp_path):
     return TaskFiles(
         provider=mock_provider,
@@ -38,7 +39,7 @@ def task_files(mock_provider, mock_history, tmp_path):
     )
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_upload_single_file_metadata(task_files, tmp_path):
     local_file = task_files.local_dir / "test.txt"
     task_files._ensure_local_dir()
@@ -58,7 +59,7 @@ async def test_upload_single_file_metadata(task_files, tmp_path):
     assert snapshot["size"] == 100
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_download_single_file_metadata(task_files):
     # Mock download success and specific metadata
     task_files._provider.get_metadata.return_value = {"size": 123, "etag": "remote_etag"}
@@ -73,7 +74,7 @@ async def test_download_single_file_metadata(task_files):
     assert snapshot["etag"] == "remote_etag"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_download_size_mismatch(task_files):
     # In the refactored version, size mismatch check is either inside provider
     # or removed if we rely on provider's integrity.
@@ -82,7 +83,7 @@ async def test_download_size_mismatch(task_files):
     pass
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_download_directory_metadata(task_files):
     # Mock list to return 2 files
     mock_entries = [{"path": "jobs/test-job/dir/file1.txt"}, {"path": "jobs/test-job/dir/file2.txt"}]

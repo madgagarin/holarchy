@@ -4,21 +4,19 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
+from asyncio import create_task, sleep
+from os import getenv
+from uuid import uuid4
 
-import asyncio
-import os
-import uuid
-
-import aiohttp
-from aiohttp import web
+from aiohttp import ClientSession, web
 from rxon.constants import AUTH_HEADER_WORKER
 
 routes = web.RouteTableDef()
 
-WORKER_ID = f"test-worker-{uuid.uuid4()}"
-HOLARCHY_URL = os.getenv("HOLARCHY_URL", "http://localhost:8080")
-WORKER_TOKEN = os.getenv("WORKER_TOKEN", "secure-worker-token")
-WORKER_PORT = int(os.getenv("WORKER_PORT", 9999))
+WORKER_ID = f"test-worker-{uuid4()}"
+HOLARCHY_URL = getenv("HOLARCHY_URL", "http://localhost:8080")
+WORKER_TOKEN = getenv("WORKER_TOKEN", "secure-worker-token")
+WORKER_PORT = int(getenv("WORKER_PORT", 9999))
 
 
 async def register_with_holarchy(app):
@@ -45,7 +43,7 @@ async def register_with_holarchy(app):
         except Exception as e:
             print(f"Could not connect to holarchy to register: {e}")
 
-        await asyncio.sleep(10)  # Re-register every 10 seconds
+        await sleep(10)  # Re-register every 10 seconds
 
 
 async def poll_for_tasks(app):
@@ -61,14 +59,14 @@ async def poll_for_tasks(app):
                 if resp.status == 200:
                     task = await resp.json()
                     print(f"Received task: {task['task_id']}")
-                    asyncio.create_task(handle_task(app, task))
+                    create_task(handle_task(app, task))
                 elif resp.status != 204:
                     print(f"Error polling for tasks. Status: {resp.status}")
         except TimeoutError:
             continue  # Normal for long polling
         except Exception as e:
             print(f"Exception while polling for tasks: {e}")
-            await asyncio.sleep(5)
+            await sleep(5)
 
 
 async def handle_task(app, task):
@@ -137,9 +135,9 @@ async def status(request):
 
 
 async def on_startup(app):
-    app["client_session"] = aiohttp.ClientSession()
-    app["poller"] = asyncio.create_task(poll_for_tasks(app))
-    app["register"] = asyncio.create_task(register_with_holarchy(app))
+    app["client_session"] = ClientSession()
+    app["poller"] = create_task(poll_for_tasks(app))
+    app["register"] = create_task(register_with_holarchy(app))
 
 
 async def on_shutdown(app):

@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from datetime import datetime
 from logging import DEBUG, Formatter, StreamHandler, getLogger
 from logging.handlers import QueueHandler, QueueListener

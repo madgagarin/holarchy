@@ -4,17 +4,17 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import hashlib
-import json
+from hashlib import sha256
+from json import dumps
 from typing import Any
 
 
 def calculate_d_dna_hash(event_data: dict[str, Any], salt: str, prev_hash: str = "") -> str:
     """Calculates D-DNA cryptographic hash for a history event chained to prev_hash."""
     clean = {k: v for k, v in event_data.items() if k not in ("d_dna_hash", "prev_d_dna_hash")}
-    canonical = json.dumps(clean, sort_keys=True, default=str)
+    canonical = dumps(clean, sort_keys=True, default=str)
     raw = f"{canonical}:{salt}:{prev_hash}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return sha256(raw.encode("utf-8")).hexdigest()
 
 
 def verify_d_dna_integrity(events: list[dict[str, Any]], audit_salt: str) -> tuple[bool, str | None]:

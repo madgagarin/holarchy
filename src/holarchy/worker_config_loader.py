@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from logging import getLogger
 from os.path import exists
 from tomllib import load

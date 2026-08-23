@@ -4,17 +4,16 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import fixture, mark, raises
 
 from holarchy.config import Config
 from holarchy.security import verify_worker_auth
 from holarchy.utils.crypto import encrypt_token
 
 
-@pytest.fixture
+@fixture
 def mock_storage():
     storage = MagicMock()
     storage.get_worker_token = AsyncMock(return_value=None)
@@ -25,12 +24,12 @@ def mock_storage():
     return storage
 
 
-@pytest.fixture
+@fixture
 def config():
     return Config()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_mixed_mode_auth(mock_storage, config):
     """Mixed mode: both mTLS and tokens work."""
     config.WORKER_AUTH_MODE = "mixed"
@@ -56,7 +55,7 @@ async def test_mixed_mode_auth(mock_storage, config):
     assert res[0] == "worker1"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_mtls_only_mode_auth(mock_storage, config):
     """mtls-only: static tokens are rejected, mTLS and STS are accepted."""
     config.WORKER_AUTH_MODE = "mtls-only"
@@ -77,25 +76,25 @@ async def test_mtls_only_mode_auth(mock_storage, config):
     # 3. Static Token - REJECTED
     mock_storage.verify_worker_access_token.return_value = None  # Ensure it fails STS check
     mock_storage.find_worker_token.return_value = "token1"
-    with pytest.raises(PermissionError, match="Invalid authentication method"):
+    with raises(PermissionError, match="Invalid authentication method"):
         await verify_worker_auth(
             mock_storage, config, "token1", None, "worker1", metrics=MagicMock(), token_hash_cache={}
         )
 
     # 4. Global Token - REJECTED
-    with pytest.raises(PermissionError, match="Invalid authentication method"):
+    with raises(PermissionError, match="Invalid authentication method"):
         await verify_worker_auth(
             mock_storage, config, "global-secret", None, "any-worker", metrics=MagicMock(), token_hash_cache={}
         )
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_token_only_mode_auth(mock_storage, config):
     """token-only: mTLS certs are ignored/rejected, tokens are required."""
     config.WORKER_AUTH_MODE = "token-only"
 
     # 1. mTLS alone - REJECTED (Missing header)
-    with pytest.raises(PermissionError, match="Missing X-Worker-Token header"):
+    with raises(PermissionError, match="Missing X-Worker-Token header"):
         await verify_worker_auth(
             mock_storage, config, None, "worker1", "worker1", metrics=MagicMock(), token_hash_cache={}
         )
@@ -108,7 +107,7 @@ async def test_token_only_mode_auth(mock_storage, config):
     assert res[0] == "worker1"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_token_encryption(mock_storage, config):
     """Verify that worker tokens are encrypted in Redis and decrypted during auth."""
     config.REDIS_ENCRYPTION_KEY = "test-encryption-key"

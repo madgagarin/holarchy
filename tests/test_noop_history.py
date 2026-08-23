@@ -4,12 +4,11 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
-import pytest
+from pytest import mark
 from src.holarchy.history.noop import NoOpHistoryStorage
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_noop_history_storage():
     """Tests that the NoOpHistoryStorage methods do nothing and return empty values."""
     storage = NoOpHistoryStorage()

@@ -4,14 +4,13 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
+from asyncio import sleep
 
-import asyncio
-
-import pytest
+from pytest import mark
 from src.holarchy.storage.memory import MemoryStorage
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_memory_storage_locking():
     storage = MemoryStorage()
     key = "test_lock"
@@ -35,7 +34,7 @@ async def test_memory_storage_locking():
     assert await storage.acquire_lock(key, "holder_4", 10) is False
 
     # Wait for expiration
-    await asyncio.sleep(0.2)
+    await sleep(0.2)
 
     # Now it should be acquirable (MemoryStorage checks expiry on acquire)
     # Note: Our MemoryStorage implementation of acquire_lock checks:

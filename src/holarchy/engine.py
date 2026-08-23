@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from asyncio import CancelledError, create_task, gather, get_running_loop, sleep, wait_for
 from collections.abc import Awaitable, Callable
 from importlib import import_module
@@ -15,16 +14,20 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
-import cachebox
 from aiohttp import ClientSession, WSMsgType, web
+from cachebox import LRUCache, TTLCache
 from orjson import loads
 
 try:
     from opentelemetry.instrumentation.aiohttp_client import (
         AioHttpClientInstrumentor,
     )
+    from opentelemetry.trace.propagation.tracecontext import (
+        TraceContextTextMapPropagator,
+    )
 except ImportError:
     AioHttpClientInstrumentor = None
+    TraceContextTextMapPropagator = None
 
 from rxon import HttpListener
 from rxon.constants import (
@@ -51,12 +54,14 @@ from .app_keys import (
     EXECUTOR_TASK_KEY,
     HEALTH_CHECKER_KEY,
     HEALTH_CHECKER_TASK_KEY,
+    HISTORY_KEY,
     HTTP_SESSION_KEY,
     REPUTATION_CALCULATOR_KEY,
     REPUTATION_CALCULATOR_TASK_KEY,
     S3_SERVICE_KEY,
     SCHEDULER_KEY,
     SCHEDULER_TASK_KEY,
+    STORAGE_KEY,
     WATCHER_KEY,
     WATCHER_TASK_KEY,
     WORKER_SERVICE_KEY,
@@ -102,10 +107,10 @@ class OrchestratorEngine:
         self.history_storage: HistoryStorageBase = NoOpHistoryStorage()
         self.ws_manager = WebSocketManager(self.storage)
         self.middleware_chain = MiddlewareChain()
-        self.token_hash_cache = cachebox.TTLCache(maxsize=10000, global_ttl=60.0)
-        self.instrument_cache = cachebox.LRUCache(maxsize=1000)
-        self.fernet_cache = cachebox.LRUCache(maxsize=1000)
-        self.worker_catalog_cache = cachebox.TTLCache(maxsize=10, global_ttl=10.0)
+        self.token_hash_cache = TTLCache(maxsize=10000, global_ttl=60.0)
+        self.instrument_cache = LRUCache(maxsize=1000)
+        self.fernet_cache = LRUCache(maxsize=1000)
+        self.worker_catalog_cache = TTLCache(maxsize=10, global_ttl=10.0)
         self.metrics = create_metrics(self.instrument_cache)
         self._running = False
         self.on_worker_event: list[Callable[[str, Any], Awaitable[None]]] = []
@@ -146,14 +151,6 @@ class OrchestratorEngine:
 
         self.app = web.Application(middlewares=middlewares)
 
-        from .dispatcher import Dispatcher  # noqa: PLC0415
-        from .executor import JobExecutor  # noqa: PLC0415
-        from .health_checker import HealthChecker  # noqa: PLC0415
-        from .scheduler import Scheduler  # noqa: PLC0415
-        from .services.worker_service import WorkerService  # noqa: PLC0415
-        from .utils.webhook_sender import WebhookSender  # noqa: PLC0415
-        from .watcher import Watcher  # noqa: PLC0415
-
         self.dispatcher = Dispatcher(self.storage, self.config, self.metrics)
         self.executor = JobExecutor(self, self.history_storage, self.metrics)
         self.worker_service = WorkerService(self.storage, self.history_storage, self.config, self, self.metrics)
@@ -161,14 +158,6 @@ class OrchestratorEngine:
         self.watcher = Watcher(self)
         self.scheduler = Scheduler(self, metrics=self.metrics)
         self.webhook_sender = WebhookSender(5)
-
-        from .app_keys import (  # noqa: PLC0415
-            DISPATCHER_KEY,
-            EXECUTOR_KEY,
-            HISTORY_KEY,
-            STORAGE_KEY,
-            WORKER_SERVICE_KEY,
-        )
 
         self.app[ENGINE_KEY] = self
         self.app[STORAGE_KEY] = self.storage
@@ -496,12 +485,9 @@ class OrchestratorEngine:
         if hasattr(telemetry, "propagator"):
             return telemetry.propagator.extract(carrier=request.headers)
 
-        try:
-            from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator  # noqa: PLC0415
-
+        if TraceContextTextMapPropagator:
             return TraceContextTextMapPropagator().extract(carrier=request.headers)
-        except ImportError:
-            return None
+        return None
 
     async def _monitor_loop_lag(self) -> None:
         """Monitors event loop lag and updates the metric."""
@@ -811,6 +797,7 @@ class OrchestratorEngine:
 
         worker_id = job_state.get("task_worker_id")
         if worker_id:
+            await self.storage.decrement_worker_load(worker_id)
             await self.history_storage.log_job_event(
                 {
                     "job_id": job_id,

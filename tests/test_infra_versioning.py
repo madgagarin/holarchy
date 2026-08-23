@@ -2,9 +2,9 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-# Copyright (c) 2026 Dmitry Gagarin aka madgagarin
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import importlib.metadata
+from importlib import metadata as importlib_metadata
 from unittest.mock import MagicMock, patch
 
 from opentelemetry.sdk.trace import TracerProvider
@@ -33,7 +33,10 @@ def test_telemetry_resource_version():
             captured_resource = resource
             super().__init__(resource=resource, **kwargs)
 
-    with patch("importlib.metadata.distribution") as mock_dist:
+    with (
+        patch("importlib.metadata.distribution") as mock_dist,
+        patch("holarchy.telemetry.distribution", mock_dist),
+    ):
         mock_dist.return_value.metadata.get.return_value = "1.2.3-test"
 
         # We need to bypass the "provider already set" check to see the resource creation
@@ -57,5 +60,5 @@ def test_metadata_patch_works():
     """Verify that the patch in conftest.py correctly handles missing versions."""
     # This test relies on the fact that conftest.py already patched importlib.metadata.version
     # We check if it returns None or a string instead of raising or warning for non-existent packages
-    ver = importlib.metadata.version("non-existent-package-xyz-123")
+    ver = importlib_metadata.version("non-existent-package-xyz-123")
     assert ver is None

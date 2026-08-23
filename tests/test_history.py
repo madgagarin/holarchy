@@ -3,14 +3,15 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import asyncio
-import uuid
-from unittest.mock import AsyncMock, MagicMock
 
-import aiosqlite
-import pytest
-import pytest_asyncio
+from asyncio import sleep
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+from aiosqlite import Error as aiosqlite_Error
 from fakeredis.aioredis import FakeRedis
+from pytest import mark, raises
+from pytest_asyncio import fixture
 from src.holarchy.blueprint import Blueprint
 from src.holarchy.config import Config
 from src.holarchy.executor import JobExecutor
@@ -18,10 +19,10 @@ from src.holarchy.history.sqlite import SQLiteHistoryStorage
 from src.holarchy.storage.redis import RedisStorage
 
 # Mark all tests in this file as asyncio
-pytestmark = pytest.mark.asyncio
+pytestmark = mark.asyncio
 
 
-@pytest_asyncio.fixture
+@fixture
 async def sqlite_storage():
     """Fixture to create an in-memory SQLite history storage for testing."""
     storage = SQLiteHistoryStorage(":memory:")
@@ -43,7 +44,7 @@ async def test_sqlite_log_and_get_job_event(sqlite_storage: SQLiteHistoryStorage
 
     # Log an event
     await sqlite_storage.log_job_event(event_data)
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
 
     # Retrieve history
     history = await sqlite_storage.get_job_history(job_id)
@@ -69,7 +70,7 @@ async def test_sqlite_log_and_get_worker_event(sqlite_storage: SQLiteHistoryStor
 
     # This should execute without raising an exception
     await sqlite_storage.log_worker_event(event_data)
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
 
 
 async def test_get_job_history_empty(sqlite_storage: SQLiteHistoryStorage):
@@ -78,45 +79,45 @@ async def test_get_job_history_empty(sqlite_storage: SQLiteHistoryStorage):
     assert history == []
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_initialize_fails(mocker):
     async def mock_connect(*args, **kwargs):
-        raise aiosqlite.Error("mock error")
+        raise aiosqlite_Error("mock error")
 
     mocker.patch("src.holarchy.history.sqlite.connect", mock_connect)
     storage = SQLiteHistoryStorage(":memory:")
-    with pytest.raises(aiosqlite.Error):
+    with raises(aiosqlite_Error):
         await storage.initialize()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_log_job_event_fails(sqlite_storage: SQLiteHistoryStorage, mocker, caplog):
     # This method is directly awaited, so a simple side_effect works.
     async def mock_execute(*args, **kwargs):
-        raise aiosqlite.Error("Mock DB Error")
+        raise aiosqlite_Error("Mock DB Error")
 
     mocker.patch.object(sqlite_storage, "_persist_job_event", side_effect=mock_execute)
     await sqlite_storage.log_job_event({"job_id": "test-job"})
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
     assert "Error persisting history event" in caplog.text
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_log_worker_event_fails(sqlite_storage: SQLiteHistoryStorage, mocker, caplog):
     # This method is directly awaited.
     async def mock_execute(*args, **kwargs):
-        raise aiosqlite.Error("Mock DB Error")
+        raise aiosqlite_Error("Mock DB Error")
 
     mocker.patch.object(sqlite_storage, "_persist_worker_event", side_effect=mock_execute)
     await sqlite_storage.log_worker_event({"worker_id": "test-worker"})
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_job_history_fails(sqlite_storage: SQLiteHistoryStorage, mocker, caplog):
     # This method uses 'async with', so we need to mock the async context manager.
     mock_cursor = AsyncMock()
-    mock_cursor.__aenter__.side_effect = aiosqlite.Error("Mock DB Error")
+    mock_cursor.__aenter__.side_effect = aiosqlite_Error("Mock DB Error")
     mocker.patch.object(sqlite_storage._conn, "execute", return_value=mock_cursor)
 
     history = await sqlite_storage.get_job_history("test-job")
@@ -124,11 +125,11 @@ async def test_get_job_history_fails(sqlite_storage: SQLiteHistoryStorage, mocke
     assert "Failed to get job history" in caplog.text
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_jobs_fails(sqlite_storage: SQLiteHistoryStorage, mocker, caplog):
     # This method uses 'async with'.
     mock_cursor = AsyncMock()
-    mock_cursor.__aenter__.side_effect = aiosqlite.Error("Mock DB Error")
+    mock_cursor.__aenter__.side_effect = aiosqlite_Error("Mock DB Error")
     mocker.patch.object(sqlite_storage._conn, "execute", return_value=mock_cursor)
 
     jobs = await sqlite_storage.get_jobs()
@@ -136,11 +137,11 @@ async def test_get_jobs_fails(sqlite_storage: SQLiteHistoryStorage, mocker, capl
     assert "Failed to get jobs" in caplog.text
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_job_summary_fails(sqlite_storage: SQLiteHistoryStorage, mocker, caplog):
     # This method uses 'async with'.
     mock_cursor = AsyncMock()
-    mock_cursor.__aenter__.side_effect = aiosqlite.Error("Mock DB Error")
+    mock_cursor.__aenter__.side_effect = aiosqlite_Error("Mock DB Error")
     mocker.patch.object(sqlite_storage._conn, "execute", return_value=mock_cursor)
 
     summary = await sqlite_storage.get_job_summary()
@@ -148,11 +149,11 @@ async def test_get_job_summary_fails(sqlite_storage: SQLiteHistoryStorage, mocke
     assert "Failed to get job summary" in caplog.text
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_worker_history_fails(sqlite_storage: SQLiteHistoryStorage, mocker, caplog):
     # This method uses 'async with'.
     mock_cursor = AsyncMock()
-    mock_cursor.__aenter__.side_effect = aiosqlite.Error("Mock DB Error")
+    mock_cursor.__aenter__.side_effect = aiosqlite_Error("Mock DB Error")
     mocker.patch.object(sqlite_storage._conn, "execute", return_value=mock_cursor)
 
     history = await sqlite_storage.get_worker_history("test-worker", 1)
@@ -160,25 +161,25 @@ async def test_get_worker_history_fails(sqlite_storage: SQLiteHistoryStorage, mo
     assert "Failed to get worker history" in caplog.text
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_worker_history_empty(sqlite_storage: SQLiteHistoryStorage):
     history = await sqlite_storage.get_worker_history("non-existent-worker", 1)
     assert history == []
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_jobs_empty(sqlite_storage: SQLiteHistoryStorage):
     jobs = await sqlite_storage.get_jobs()
     assert jobs == []
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_job_summary_empty(sqlite_storage: SQLiteHistoryStorage):
     summary = await sqlite_storage.get_job_summary()
     assert summary == {}
 
 
-@pytest_asyncio.fixture
+@fixture
 async def redis_client():
     client = FakeRedis()
     yield client
@@ -228,7 +229,7 @@ async def test_executor_logs_history_integration(sqlite_storage: SQLiteHistorySt
     executor.storage = job_storage  # Manually set the storage
     executor.dispatcher = mock_dispatcher
 
-    job_id = str(uuid.uuid4())
+    job_id = str(uuid4())
     job_state = {
         "id": job_id,
         "blueprint_name": "test_bp",
@@ -252,7 +253,7 @@ async def test_executor_logs_history_integration(sqlite_storage: SQLiteHistorySt
             # which is fine for this test.
             break
 
-    await asyncio.sleep(0.1)  # Wait for async logs
+    await sleep(0.1)  # Wait for async logs
 
     history = await sqlite_storage.get_job_history(job_id)
 

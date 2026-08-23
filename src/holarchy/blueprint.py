@@ -4,12 +4,11 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
-import ast
-import inspect
-import textwrap
+from ast import Attribute, Call, Constant, Dict, parse, walk
 from collections.abc import Callable
+from inspect import getsource, signature
 from logging import getLogger
+from textwrap import dedent
 from typing import Any, cast
 
 from fast_filter import FastF
@@ -322,26 +321,25 @@ class Blueprint:
             if func is _PLACEHOLDER:
                 continue
             try:
-                source = textwrap.dedent(inspect.getsource(func))
-                tree = ast.parse(source)
-                for node in ast.walk(tree):
-                    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                source = dedent(getsource(func))
+                tree = parse(source)
+                for node in walk(tree):
+                    if not (isinstance(node, Call) and isinstance(node.func, Attribute)):
                         continue
 
-                    if node.func.attr == "go_to" and node.args and isinstance(node.args[0], ast.Constant):
+                    if node.func.attr == "go_to" and node.args and isinstance(node.args[0], Constant):
                         transitions[state].add(str(node.args[0].value))
 
-                    # Also handles await_human_approval, run_blueprint which use the same 'transitions' kwarg
                     elif node.func.attr in ("dispatch_task", "await_human_approval", "run_blueprint"):
                         for keyword in node.keywords:
-                            if keyword.arg == "transitions" and isinstance(keyword.value, ast.Dict):
+                            if keyword.arg == "transitions" and isinstance(keyword.value, Dict):
                                 for value_node in keyword.value.values:
-                                    if isinstance(value_node, ast.Constant):
+                                    if isinstance(value_node, Constant):
                                         transitions[state].add(str(value_node.value))
 
                     elif node.func.attr == "dispatch_parallel":
                         for keyword in node.keywords:
-                            if keyword.arg == "aggregate_into" and isinstance(keyword.value, ast.Constant):
+                            if keyword.arg == "aggregate_into" and isinstance(keyword.value, Constant):
                                 transitions[state].add(str(keyword.value.value))
 
             except (TypeError, OSError, SyntaxError) as e:
@@ -359,7 +357,7 @@ class Blueprint:
         )
 
         for func in all_funcs:
-            sig = inspect.signature(func)
+            sig = signature(func)
             self._handler_params[func] = tuple(sig.parameters.keys())
 
     def get_handler_params(self, func: Callable) -> tuple[str, ...]:

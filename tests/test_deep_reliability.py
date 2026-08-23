@@ -1,11 +1,12 @@
-from unittest.mock import ANY, MagicMock, patch
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import pytest
+
+from unittest.mock import ANY, MagicMock, patch
+
+from pytest import mark
 from rxon.constants import (
     AUTH_HEADER_WORKER,
     IGNORED_REASON_MISMATCH,
@@ -23,7 +24,7 @@ from holarchy.engine import OrchestratorEngine
 from holarchy.executor import JobExecutor
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_hijacking_prevention(aiohttp_client, app):
     """
     Security: Verify that worker B cannot submit results for a task assigned to worker A.
@@ -79,7 +80,7 @@ async def test_job_hijacking_prevention(aiohttp_client, app):
     assert final_state["status"] == JOB_STATUS_WAITING_FOR_WORKER
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_infinite_loop_prevention(config, redis_storage):
     """
     Reliability: Verify that a blueprint with an infinite loop is terminated.
@@ -135,7 +136,7 @@ async def test_infinite_loop_prevention(config, redis_storage):
         await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_stale_result_ignored(aiohttp_client, app):
     """
     Reliability: Verify that results for old tasks (stale) are ignored.
@@ -179,7 +180,7 @@ async def test_stale_result_ignored(aiohttp_client, app):
     assert final_state["current_task_id"] == "task-2"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_race_condition_protection(config, redis_storage):
     """
     Concurrency: Verify that parallel execution attempts are handled.

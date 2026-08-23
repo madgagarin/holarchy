@@ -6,8 +6,8 @@
 
 from unittest.mock import MagicMock
 
-import pytest
 from fast_filter import F
+from pytest import raises
 
 from holarchy.blueprint import Blueprint
 
@@ -55,7 +55,7 @@ def test_no_handler_matches_error_message():
     context = MagicMock()
     context.initial_data = {"x": 2}
 
-    with pytest.raises(ValueError, match="All conditions failed and no default handler registered"):
+    with raises(ValueError, match="All conditions failed and no default handler registered"):
         bp.find_handler("start", context)
 
 

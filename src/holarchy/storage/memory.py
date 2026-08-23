@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from asyncio import CancelledError, Lock, PriorityQueue, Queue, QueueEmpty, wait_for
 from collections.abc import Callable
 from fnmatch import fnmatch

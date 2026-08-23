@@ -3,10 +3,11 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
+
 from contextlib import suppress
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import fixture, mark, raises
 from rxon.models import InstalledArtifact, Resources
 from rxon.utils import from_dict
 from src.holarchy.config import Config
@@ -41,7 +42,7 @@ CPU_WORKER = {
 }
 
 
-@pytest.fixture
+@fixture
 def mock_storage():
     storage = MagicMock(spec=StorageBackend)
     storage.find_workers_for_skill = AsyncMock(return_value=[])
@@ -55,7 +56,7 @@ def mock_storage():
     return storage
 
 
-@pytest.fixture
+@fixture
 def mock_session():
     mock_sess = MagicMock()
     mock_post_response = AsyncMock()
@@ -65,7 +66,7 @@ def mock_session():
     return mock_sess
 
 
-@pytest.fixture
+@fixture
 def mock_config():
     mock_conf = MagicMock(spec=Config)
     mock_conf.WORKER_TOKEN = "test-token"
@@ -75,12 +76,12 @@ def mock_config():
     return mock_conf
 
 
-@pytest.fixture
+@fixture
 def dispatcher(mock_storage, mock_config):
     return Dispatcher(mock_storage, mock_config, metrics=MagicMock())
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dispatch_selects_worker_and_queues_task(dispatcher, mock_storage):
     """Tests that the dispatcher gets workers, selects one, and queues a task for it."""
     mock_worker = {
@@ -112,7 +113,7 @@ async def test_dispatch_selects_worker_and_queues_task(dispatcher, mock_storage)
     assert isinstance(called_priority, (int, float))
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dispatch_logs_warning_for_busy_mo_worker(dispatcher, mock_storage, caplog):
     """Tests that the dispatcher logs a warning if no workers found.
     Updated for O(1) dispatcher: checks for 'No idle workers found' warning.
@@ -122,13 +123,13 @@ async def test_dispatch_logs_warning_for_busy_mo_worker(dispatcher, mock_storage
     job_state = {"id": "job-abc", "tracing_context": {}}
     task_info = {"type": "test_task"}
 
-    with pytest.raises(RuntimeError, match="No suitable workers"):
+    with raises(RuntimeError, match="No suitable workers"):
         await dispatcher.dispatch(job_state, task_info)
 
     assert "No idle workers found for task 'test_task'" in caplog.text
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dispatch_sends_priority(dispatcher, mock_storage):
     """Tests that the dispatcher correctly passes the priority to the storage."""
     mock_worker = {
@@ -222,7 +223,7 @@ class TestDispatcherFiltering:
         assert is_compliant is False
         assert reason == "missing_artifact: v2"
 
-    @pytest.mark.asyncio
+    @mark.asyncio
     async def test_dispatch_filters_by_gpu_from_action_factory(
         self,
         dispatcher,
@@ -249,7 +250,7 @@ class TestDispatcherFiltering:
         dispatched_worker_id = called_args[0]
         assert dispatched_worker_id == GPU_WORKER["worker_id"]
 
-    @pytest.mark.asyncio
+    @mark.asyncio
     async def test_dispatch_raises_error_if_no_worker_meets_requirements(
         self,
         dispatcher,
@@ -267,14 +268,14 @@ class TestDispatcherFiltering:
             },  # No worker has this
         }
 
-        with pytest.raises(RuntimeError) as excinfo:
+        with raises(RuntimeError) as excinfo:
             await dispatcher.dispatch({"id": "job-1", "tracing_context": {}}, task_info)
 
         assert "No worker satisfies the resource requirements" in str(
             excinfo.value,
         )
 
-    @pytest.mark.asyncio
+    @mark.asyncio
     async def test_dispatch_filters_by_max_cost(self, dispatcher, mock_storage):
         """Tests that filtering by `max_cost` works correctly."""
         cheapest_worker = {
@@ -301,13 +302,13 @@ class TestDispatcherFiltering:
         assert called_args[0] == cheapest_worker["worker_id"]
 
         task_info_fail = {"type": "test_task", "max_cost": 0.005}
-        with pytest.raises(RuntimeError) as excinfo:
+        with raises(RuntimeError) as excinfo:
             await dispatcher.dispatch(job_state, task_info_fail)
         assert "No worker meets the maximum cost" in str(excinfo.value)
 
 
 class TestDispatcherStrategies:
-    @pytest.mark.asyncio
+    @mark.asyncio
     async def test_dispatch_selects_cheapest_worker(self, dispatcher, mock_storage):
         """Tests that with the 'cheapest' strategy, the cheapest worker is selected."""
         cheapest_worker = {
@@ -336,7 +337,7 @@ class TestDispatcherStrategies:
         dispatched_worker_id = called_args[0]
         assert dispatched_worker_id == cheapest_worker["worker_id"]
 
-    @pytest.mark.asyncio
+    @mark.asyncio
     async def test_dispatch_selects_best_value_worker(self, dispatcher, mock_storage):
         """Tests that the 'best_value' strategy selects the worker with the best
         cost/reputation ratio.
@@ -371,7 +372,7 @@ class TestDispatcherStrategies:
         assert dispatched_worker_id == worker_B["worker_id"]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dispatcher_worker_cache(dispatcher, mock_storage):
     """Checks that Dispatcher caches worker data to avoid redundant Redis hits."""
     mock_storage.get_workers.return_value = [{"worker_id": "w1", "reputation": 1.0}]
@@ -387,7 +388,7 @@ async def test_dispatcher_worker_cache(dispatcher, mock_storage):
     assert mock_storage.get_workers.call_count == 1  # Still 1
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_dispatcher_candidates_limit(mock_storage, mock_config):
     """Checks that Dispatcher limits compliance checks via DISPATCHER_MAX_CANDIDATES."""
     mock_config.DISPATCHER_MAX_CANDIDATES = 2

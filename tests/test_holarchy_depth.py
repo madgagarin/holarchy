@@ -1,16 +1,17 @@
-# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#
+# Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import mark
 
 from holarchy.executor import JobExecutor
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_holarchy_depth_exceeded_quarantines():
     engine = MagicMock()
     engine.blueprint_contracts = {}
@@ -39,7 +40,7 @@ async def test_holarchy_depth_exceeded_quarantines():
     storage.quarantine_job.assert_called_once_with("parent-1")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_holarchy_depth_at_limit_allowed():
     engine = MagicMock()
     engine.blueprint_contracts = {}

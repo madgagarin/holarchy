@@ -4,7 +4,7 @@ Este documento describe la arquitectura de alto nivel del sistema de orquestaci�
 
 > **Nota:** Este documento describe la **implementación en Python** del estándar HLN. Para la especificación arquitectónica de alto nivel, consulte el paquete `hln`.
 
-**ES** | [EN](../../architecture.md) | [RU](../ru/architecture.md)
+[EN](https://github.com/madgagarin/holarchy/blob/main/docs/architecture.md) | **ES** | [RU](https://github.com/madgagarin/holarchy/blob/main/docs/ru/architecture.md)
 
 ## Esquema General
 
@@ -12,7 +12,42 @@ El sistema consta de un **Orchestrator** central y múltiples **Workers**.
 
 ### Diagrama de Componentes
 
-(Consulte la versión en inglés para el diagrama Mermaid)
+```mermaid
+graph TD
+    subgraph "Mundo Exterior"
+        Client[Cliente API]
+    end
+
+    subgraph "Infraestructura"
+        NGINX(NGINX Reverse Proxy)
+    end
+
+    subgraph "Sistema de Orquestación"
+        O_API(Orchestrator API v1)
+        O_Engine{Engine}
+        O_Storage[(Almacenamiento: Redis)]
+        W1(Worker 1)
+        W2(Worker 2)
+    end
+
+    Client --"1. Crear Trabajo (HTTPS/2)"--> NGINX
+    NGINX --"2. Redireccionar Solicitud"--> O_API
+    O_API --> O_Engine
+    O_Engine --> O_Storage
+
+    W1 --"3. Long-Polling de tareas (HTTP)"--> NGINX
+    NGINX --> O_API
+    O_API --"4. Despachar Tarea"--> NGINX
+    NGINX --> W1
+
+    W1 --"5. Enviar Resultado"--> NGINX
+
+    W1 <-."6. Comando 'cancel' (WebSocket)".-> NGINX
+    NGINX <-." ".-> O_API
+
+    W1 --"Heartbeat"--> NGINX
+    W2 --"Heartbeat"--> NGINX
+```
 
 ## Principios de Alto Rendimiento
 

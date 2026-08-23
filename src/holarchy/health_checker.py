@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 """This module previously contained an active HealthChecker.
 In the new architecture with heartbeat messages from workers,
 the orchestrator no longer needs to actively poll workers.

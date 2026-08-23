@@ -1,16 +1,17 @@
-from unittest.mock import AsyncMock, MagicMock
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
-import pytest
-import src.holarchy.executor as executor_mod
+
+from unittest.mock import AsyncMock, MagicMock
+
+from pytest import mark
+from src.holarchy import executor as executor_mod
 from src.holarchy.executor import JobExecutor
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_executor_tracing_instantiation():
     """
     Verifies that the executor uses the pre-instantiated propagator
@@ -22,7 +23,7 @@ async def test_executor_tracing_instantiation():
     assert hasattr(executor_mod.propagator, "extract")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_executor_noop_tracing_safe_execution():
     """
     Verifies that the executor works correctly even if opentelemetry is missing

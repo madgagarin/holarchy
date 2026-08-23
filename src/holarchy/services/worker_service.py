@@ -4,7 +4,6 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-
 from asyncio import create_task
 from contextlib import suppress
 from hashlib import sha256
@@ -13,8 +12,8 @@ from secrets import token_urlsafe
 from time import monotonic, time
 from typing import Any
 
-import msgspec
 from aiohttp import web
+from msgspec.structs import replace as msgspec_replace
 from rxon.constants import (
     ERROR_CODE_CONTRACT_VIOLATION,
     ERROR_CODE_DEPENDENCY,
@@ -63,6 +62,7 @@ from holarchy.utils.crypto import decrypt_token
 from holarchy.utils.webhook_sender import WebhookPayload
 
 from ..metrics import LABEL_BLUEPRINT, Metrics
+from ..telemetry import trace
 
 logger = getLogger(__name__)
 
@@ -97,8 +97,6 @@ class WorkerService:
             return
 
         msg_timestamp = payload.get("timestamp")
-        from ..telemetry import trace  # noqa: PLC0415
-
         span = trace.get_current_span()
 
         if msg_timestamp:
@@ -114,6 +112,23 @@ class WorkerService:
             span.add_event("missing_timestamp")
             logger.critical(f"MISSING TIMESTAMP: Worker {worker_id} did not provide a timestamp for replay protection")
             raise PermissionError("Missing required timestamp for replay protection")
+
+        # Nonce-based Replay Attack protection within the valid timestamp window
+        nonce = payload.get("event_id") or payload.get("nonce") or payload.get("message_id")
+        if not nonce and isinstance(payload.get("security"), dict):
+            nonce = payload["security"].get("signature")
+        if nonce:
+            nonce_key = f"orchestrator:nonce:{worker_id}:{nonce}"
+            is_new = await self.storage.set_nx_ttl(nonce_key, "1", ttl=65)
+            if not is_new:
+                self.metrics.security_replay_detected_total.add(
+                    1, {"worker_id": worker_id, "reason": "duplicate_nonce"}
+                )
+                span.add_event("replay_detected_duplicate_nonce", {"nonce": nonce})
+                logger.critical(
+                    f"REPLAY ATTACK DETECTED: Message with nonce/id '{nonce}' from {worker_id} was already processed"
+                )
+                raise PermissionError("Duplicate message detected (replay attack)")
 
         if secret is None:
             secret = await self.storage.find_worker_token(worker_id)
@@ -152,7 +167,7 @@ class WorkerService:
             raise PermissionError(f"Message signer ID '{security.signer_id}' does not match worker ID '{worker_id}'")
 
         if secret:
-            logger.debug(f"Verifying signature for {worker_id} using token starting with: {secret[:4]}...")
+            logger.debug(f"Verifying signature for {worker_id} using configured token")
         else:
             logger.warning(
                 f"No token found for {worker_id}, skipping signature check (Zero Trust disabled for this worker)"
@@ -318,7 +333,7 @@ class WorkerService:
         try:
             validated_res = from_dict(TaskResult, result_payload)
             if validated_res.worker_id is None:
-                validated_res = msgspec.structs.replace(validated_res, worker_id=authenticated_worker_id)
+                validated_res = msgspec_replace(validated_res, worker_id=authenticated_worker_id)
 
             result_payload = to_dict(validated_res)
         except (AttributeError, TypeError, ValueError) as e:
@@ -732,7 +747,7 @@ class WorkerService:
         ):
             new_chain.append(authenticated_worker_id)
 
-        event = msgspec.structs.replace(event, bubbling_chain=new_chain)
+        event = msgspec_replace(event, bubbling_chain=new_chain)
 
         if event.event_type == EVENT_TYPE_PROGRESS:
             target_id = event.target_job_id or event.target_task_id
