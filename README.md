@@ -6,13 +6,16 @@
 [![PyPI Version](https://img.shields.io/pypi/v/holarchy.svg)](https://pypi.org/project/holarchy/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 
-**Holarchy** is a high-performance, state-machine based orchestrator for long-running AI workflows and distributed tasks. It serves as the core of a **Hierarchical Logic Network (HLN)**, coordinating **Holons** (workers) via the **RXON** protocol.
+**Holarchy** is a high-performance, state-machine based orchestrator for long-running AI workflows and distributed tasks. It serves as the core of a **Holarchical Logic Network (HLN)**, coordinating **Holons** (workers) via the **RXON** protocol.
 
 ## 🚀 Key Features
 
 - **State-Machine Driven**: Declarative Python Blueprints for complex logic.
 - **High-Performance**: **ZSET-based** queue indexing, **Work Stealing** mechanism (Lua), and atomic state transitions.
-- **Zero Trust Security & Policy Enforcement**: Full `SecurityContext` implementation, automatic HMAC SHA256 signing for Redis job states, identity chain verification, and granular skill execution policies (`allowed_skills`).
+- **Zero Trust Security & Policy Enforcement**: Full `SecurityContext` implementation, cryptographic HMAC-SHA256 task signing (`sig`) via `ORCHESTRATOR_SECRET_KEY`, identity chain verification, and granular skill execution policies (`allowed_skills`).
+- **Human-in-the-Loop Scoped Approval**: Secure single-use approval tokens (`approval_token`) for external approval webhooks (Email, Slack, Telegram) without exposing master client tokens.
+- **Atomic CAS Watcher & Concurrency Safety**: CAS-based atomic state transitions (`update_job_state_atomic`) protecting against race conditions and guarding terminal states against timeout overwrites.
+- **Strict Production Configuration**: Fail-safe startup validation in production (`ENVIRONMENT=production`), blocking execution if insecure default tokens or missing secrets are detected.
 - **Holarchy Depth Guard**: Configurable limit (`MAX_HOLARCHY_DEPTH`) to prevent infinite recursion in sub-blueprints with automatic process quarantine.
 - **Middleware Infrastructure**: Flexible `MiddlewareChain` for intercepting handlers, worker results, and outbound tasks.
 - **D-DNA Crypto-Audit**: CLI verification tools (`holarchy.cli.audit`) ensuring tamper-proof event history integrity.
@@ -61,9 +64,9 @@ In the **HLN** architecture, the Orchestrator acts as a "Ghost" (Internal logic)
 
 Holarchy is part of a larger ecosystem:
 
-- **[Holarchy Protocol](https://github.com/madgagarin/rxon)**: Shared package containing protocol definitions, data models, and utilities ensuring consistency across all components.
+- **[RXON Protocol](https://github.com/madgagarin/rxon)**: Shared lightweight reverse-connection protocol powering inter-node communication across the HLN ecosystem.
 - **[Holarchy Worker SDK](https://github.com/madgagarin/holonode)**: The official Python SDK for building workers that connect to this engine.
-- **[HLN Protocol](https://github.com/madgagarin/hln)**: The architectural specification and manifesto behind the system (Hierarchical Logic Network).
+- **[HLN (Holarchical Logic Network)](https://github.com/madgagarin/hln)**: The architectural pattern, manifesto, and design specification for self-similar holarchies.
 - **[Full Example](https://github.com/madgagarin/holarchy-full-example)**: A complete reference project demonstrating the engine and workers in action.
 
 ## Installation
@@ -150,7 +153,7 @@ from holarchy.config import Config
 
 # 1. General Configuration
 storage = MemoryStorage()
-config = Config() # Loads configuration from environment variables
+config = Config()  # Loads configuration from environment variables
 
 # Explicitly set tokens for this example
 # Client token must be sent in the 'X-Client-Token' header.
@@ -159,11 +162,8 @@ config.CLIENT_TOKEN = "my-secret-client-token"
 config.GLOBAL_WORKER_TOKEN = "my-secret-worker-token"
 
 # 2. Define the Workflow Blueprint
-bp = Blueprint(
-    name="bp",
-    api_version="v1",
-    api_endpoint="/jobs/my_flow"
-)
+bp = Blueprint(name="bp", api_version="v1", api_endpoint="/jobs/my_flow")
+
 
 # Use dependency injection to get only the data you need.
 @bp.handler(is_start=True)
@@ -172,11 +172,13 @@ async def start(job_id: str, initial_data: dict, actions: ActionFactory):
     print(f"Job {job_id} | Start: {initial_data}")
     actions.go_to("end")
 
+
 # You can still request the full context object if you prefer.
 @bp.handler(is_end=True)
 async def end(context):
     """The final state. The pipeline ends here."""
     print(f"Job {context.job_id} | Complete.")
+
 
 # 3. Initialize the Orchestrator Engine
 engine = OrchestratorEngine(storage, config)
@@ -188,6 +190,7 @@ engine.register_blueprint(bp)
 # app = engine.app
 # dispatcher = app[DISPATCHER_KEY]
 
+
 # 5. Define the main entrypoint to run the server
 async def main():
     await engine.start()
@@ -196,6 +199,7 @@ async def main():
         await asyncio.Event().wait()
     finally:
         await engine.stop()
+
 
 if __name__ == "__main__":
     try:
@@ -243,12 +247,13 @@ This is the recommended way to write handlers.
 # A worker for this task returned: {"output_path": "/videos/123.mp4", "duration": 95}
 # This dictionary was automatically merged into `state_history`.
 
+
 @bp.handler
 async def publish_video(
     job_id: str,
-    output_path: str, # Injected from state_history
-    duration: int,    # Injected from state_history
-    actions: ActionFactory
+    output_path: str,  # Injected from state_history
+    duration: int,  # Injected from state_history
+    actions: ActionFactory,
 ):
     print(f"Job {job_id}: Publishing video at {output_path} ({duration}s).")
     actions.go_to("complete")
@@ -316,15 +321,18 @@ Pass conditions directly to `@bp.handler()` to create conditional logic branches
 ```python
 from holarchy import F  # F is re-exported from fast-filter
 
+
 # Simple equality check on initial_data (inferred state name "decision_step")
 @bp.handler(F.initial_data["type"] == "urgent")
 async def decision_step(actions):
     actions.go_to("urgent_processing")
 
+
 # Compound condition with logical AND (custom state name "decision_step")
 @bp.handler("decision_step", (F.initial_data["priority"] >= 8) & (F.initial_data["active"] == True))
 async def high_priority_step(actions):
     actions.go_to("priority_lane")
+
 
 # The default handler if no condition matches.
 @bp.handler
@@ -361,8 +369,8 @@ async def transcode_video(initial_data, actions):
         transitions={
             "success": "publish_video",
             "failure": "transcoding_failed",
-            "needs_review": "manual_review" # Example of a custom status
-        }
+            "needs_review": "manual_review",  # Example of a custom status
+        },
     )
 ```
 
@@ -377,15 +385,12 @@ Run multiple tasks simultaneously and gather their results. **Isolated branch st
 @bp.handler
 async def process_files(initial_data, actions):
     tasks_to_dispatch = [
-        {"task_type": "file_analysis", "params": {"file": file}}
-        for file in initial_data.get("files", [])
+        {"task_type": "file_analysis", "params": {"file": file}} for file in initial_data.get("files", [])
     ]
     # Use dispatch_parallel to send all tasks at once.
     # All successful tasks will implicitly lead to the 'aggregate_into' state.
-    actions.dispatch_parallel(
-        tasks=tasks_to_dispatch,
-        aggregate_into="aggregate_results"
-    )
+    actions.dispatch_parallel(tasks=tasks_to_dispatch, aggregate_into="aggregate_results")
+
 
 # 2. Fan-in: Collect results using the @aggregator decorator
 @bp.aggregator
@@ -408,10 +413,8 @@ import redis.asyncio as redis
 
 # 1. Initialize and register your DataStore
 redis_client = redis.Redis(decode_responses=True)
-bp = Blueprint(
-    "blueprint_with_datastore",
-    data_stores={"cache": redis_client}
-)
+bp = Blueprint("blueprint_with_datastore", data_stores={"cache": redis_client})
+
 
 # 2. Use it in a handler via dependency injection
 @bp.handler
@@ -582,10 +585,12 @@ POST /api/v1/jobs/my_flow
 ```python
 from holarchy.middleware import BaseMiddleware
 
+
 class AuditLogMiddleware(BaseMiddleware):
     async def process_outbound_task(self, context, task_payload):
         task_payload["audit_tag"] = "monitored"
         return task_payload
+
 
 engine.middleware_chain.add(AuditLogMiddleware())
 ```

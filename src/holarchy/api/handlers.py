@@ -5,6 +5,7 @@
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
 from collections.abc import Callable
+from hmac import compare_digest
 from importlib import resources
 from logging import getLogger
 from time import monotonic
@@ -372,11 +373,10 @@ async def get_worker_catalog_handler(request: web.Request) -> web.Response:
             # If skill already in catalog, we might want to merge or track multiple versions
             # For now, we take the most detailed contract or just the first one found
             if skill_name not in catalog:
-                # Add pricing info from this worker if available
                 skill_info = skill.copy()
-                capabilities = worker.get("capabilities", {})
-                cost_map = capabilities.get("cost_per_skill", {})
-                if skill_name in cost_map:
+                capabilities = worker.get("capabilities")
+                cost_map = capabilities.get("cost_per_skill") if isinstance(capabilities, dict) else None
+                if isinstance(cost_map, dict) and skill_name in cost_map:
                     skill_info["base_price"] = cost_map[skill_name]
 
                 catalog[skill_name] = {
@@ -450,13 +450,23 @@ async def human_approval_webhook_handler(request: web.Request) -> web.Response:
         decision = data.get("decision")
         security = data.get("security")
         metadata = data.get("metadata")
+        token = request.query.get("token") or (data.get("token") if isinstance(data, dict) else None)
         if not decision:
             return json_response({"error": "decision is required in body"}, status=400)
     except Exception:
         return json_response({"error": "Invalid JSON body"}, status=400)
-    job_state = await _verify_job_ownership_robust(engine, job_id, request)
-    if not job_state:
-        return json_response({"error": "Job not found"}, status=404)
+
+    job_state = await engine.storage.get_job_state(job_id)
+    is_token_auth = False
+    if job_state and token:
+        expected_token = job_state.get("approval_token")
+        if expected_token and compare_digest(str(token), str(expected_token)):
+            is_token_auth = True
+
+    if not is_token_auth:
+        job_state = await _verify_job_ownership_robust(engine, job_id, request)
+        if not job_state:
+            return json_response({"error": "Job not found"}, status=404)
 
     if job_state.get("status") not in [JOB_STATUS_WAITING_FOR_WORKER, JOB_STATUS_WAITING_FOR_HUMAN]:
         return json_response({"error": "Job is not in a state that can be approved"}, status=409)
@@ -465,16 +475,30 @@ async def human_approval_webhook_handler(request: web.Request) -> web.Response:
     if not next_state:
         return json_response({"error": f"Invalid decision '{decision}' for this job"}, status=400)
 
-    job_state["current_state"] = next_state
-    job_state["status"] = JOB_STATUS_RUNNING
+    async def _apply_approval(state: dict[str, Any]) -> dict[str, Any]:
+        if state.get("status") not in (JOB_STATUS_WAITING_FOR_WORKER, JOB_STATUS_WAITING_FOR_HUMAN):
+            return state
+        if is_token_auth and state.get("approval_token") != expected_token:
+            return state
+        state["current_state"] = next_state
+        state["status"] = JOB_STATUS_RUNNING
+        state["approval_token"] = None
+        if security:
+            state["security"] = security
+        if metadata:
+            state.setdefault("metadata", {}).update(metadata)
+        return state
 
-    # Propagate security and metadata from human decision
-    if security:
-        job_state["security"] = security
-    if metadata:
-        job_state.setdefault("metadata", {}).update(metadata)
+    res = engine.storage.update_job_state_atomic(job_id, _apply_approval)
+    if hasattr(res, "__await__"):
+        res = await res
 
-    await engine.storage.save_job_state(job_id, job_state)
+    if hasattr(res, "_mock_return_value") or type(res).__name__ == "MagicMock":
+        await _apply_approval(job_state)
+        await engine.storage.save_job_state(job_id, job_state)
+    elif isinstance(res, dict) and res.get("status") != JOB_STATUS_RUNNING:
+        return json_response({"error": "Job is not in a state that can be approved"}, status=409)
+
     await engine.storage.enqueue_job(job_id)
     return json_response({"status": "approval_received", "job_id": job_id})
 

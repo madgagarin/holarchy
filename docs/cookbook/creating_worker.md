@@ -49,6 +49,7 @@ async def check_inventory_handler(params: dict, **kwargs) -> dict:
 class CheckParams(BaseModel):
     items: list[str]
 
+
 @worker.skill("check_inventory")
 async def check_inventory_handler(params: CheckParams, **kwargs) -> dict:
     """The SDK will automatically validate incoming data against the CheckParams model."""
@@ -70,10 +71,11 @@ async def long_task_handler(params: dict, **kwargs) -> dict:
             print(f"Cancellation detected for task {task_id}. Stopping...")
             return {"status": "cancelled", "message": "Task was cancelled by user."}
 
-        print(f"Step {i+1}/10 done...")
+        print(f"Step {i + 1}/10 done...")
         await asyncio.sleep(2)
 
     return {"status": "success"}
+
 
 # 3. Run worker
 if __name__ == "__main__":
@@ -97,7 +99,7 @@ WORKER_TOKEN=your-secret-worker-token
 
 # (Optional) Enable WebSocket for instant task cancellation
 WORKER_ENABLE_WEBSOCKETS=true
-````
+```
 
 ## Step 4: Launch
 

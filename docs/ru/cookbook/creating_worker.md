@@ -49,6 +49,7 @@ async def check_inventory_handler(params: dict, **kwargs) -> dict:
 class CheckParams(BaseModel):
     items: list[str]
 
+
 @worker.skill("check_inventory")
 async def check_inventory_handler(params: CheckParams, **kwargs) -> dict:
     """SDK автоматически проверит входные данные по модели CheckParams."""
@@ -70,10 +71,11 @@ async def long_task_handler(params: dict, **kwargs) -> dict:
             print(f"Отмена задачи {task_id} обнаружена. Завершаем...")
             return {"status": "cancelled", "message": "Task was cancelled by user."}
 
-        print(f"Шаг {i+1}/10 выполнен...")
+        print(f"Шаг {i + 1}/10 выполнен...")
         await asyncio.sleep(2)
 
     return {"status": "success"}
+
 
 # 3. Запустите воркер
 if __name__ == "__main__":
@@ -97,7 +99,7 @@ WORKER_TOKEN=your-secret-worker-token
 
 # (Опционально) Включить WebSocket для мгновенной отмены задач
 WORKER_ENABLE_WEBSOCKETS=true
-````
+```
 
 ## Шаг 4: Запуск
 

@@ -8,7 +8,9 @@ from asyncio import sleep
 from time import time
 from unittest.mock import patch
 
-from pytest import fixture, mark
+from pytest import fixture, mark, raises
+
+from holarchy.storage.redis import RedisStorage
 
 try:
     from .storage_test_suite import StorageTestSuite
@@ -135,3 +137,20 @@ async def test_redis_storage_lua_merge(storage):
 
         updated_info = await storage.get_worker_info(worker_id)
         assert updated_info["metadata"]["load"] == 0.5
+
+
+async def test_redis_unpacked_recursion_limit():
+    """Verifies that RedisStorage._normalize_unpacked rejects recursion depth > 30."""
+    deep_data = "leaf"
+    for _ in range(29):
+        deep_data = {"k": deep_data}
+
+    normalized = RedisStorage._normalize_unpacked(deep_data)
+    assert normalized is not None
+
+    too_deep = "leaf"
+    for _ in range(32):
+        too_deep = {"k": too_deep}
+
+    with raises(ValueError, match="Max recursion depth \\(30\\) exceeded"):
+        RedisStorage._normalize_unpacked(too_deep)

@@ -116,6 +116,7 @@ async def test_job_event_ghost_worker_allowed():
     service = WorkerService(storage, AsyncMock(), MagicMock(), engine, MagicMock())
     service._verify_zero_trust = AsyncMock()
     storage.get_worker_info.return_value = None
+    storage.get_job_state.return_value = None
 
     event = WorkerEventPayload(
         event_id="ev-ghost",

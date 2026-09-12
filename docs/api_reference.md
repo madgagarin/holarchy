@@ -24,9 +24,24 @@ These endpoints do not require authentication and always use the fixed `/_public
 ### Webhook for "Human Approval"
 
 - **Endpoint:** `POST /_public/webhooks/approval/{job_id}`
-- **Description:** Allows an external system to approve or reject a step in the pipeline.
-- **Request Body:** `{"decision": "approved"}`
-- **Response (`200 OK`):** `{"status": "approval_received", "job_id": "..."}`
+- **Description:** Allows an external system or operator to approve, reject, or decide the next branch for a step in the pipeline when a job is in `waiting_for_human` state.
+- **Authentication & Security:**
+  - **Scoped Approval Token:** A single-use, time-bound cryptographic token generated when entering `waiting_for_human`. Can be passed either as a URL query parameter (`?token=<approval_token>`) or inside the JSON payload (`{"token": "<approval_token>", ...}`). Once consumed, the token is permanently invalidated to prevent replay attacks.
+  - **Fallback Client Token:** If no approval token is provided, requests must include the valid `X-Client-Token` of the job's owner. Unauthorized or unauthenticated attempts return `401 Unauthorized`.
+- **Request Body:**
+  ```json
+  {
+    "decision": "approved",
+    "token": "optional_token_if_not_in_query"
+  }
+  ```
+  - `decision` (string, required): Decision outcome matching one of the configured approval step branches (e.g., `"approved"`, `"rejected"`).
+  - `token` (string, optional): Scoped approval token (if not supplied via URL query parameter).
+- **Responses:**
+  - `200 OK`: `{"status": "approval_received", "job_id": "..."}`
+  - `400 Bad Request`: Missing body, malformed JSON, or missing `decision`.
+  - `401 Unauthorized`: Missing or invalid `token` and missing/invalid `X-Client-Token`.
+  - `409 Conflict`: Job is not in `waiting_for_human` state or cannot accept decision.
 
 ### Debug Endpoint for DB Flushing
 

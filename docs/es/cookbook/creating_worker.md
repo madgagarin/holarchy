@@ -49,6 +49,7 @@ async def check_inventory_handler(params: dict, **kwargs) -> dict:
 class CheckParams(BaseModel):
     items: list[str]
 
+
 @worker.skill("check_inventory")
 async def check_inventory_handler(params: CheckParams, **kwargs) -> dict:
     """El SDK validará automáticamente los datos entrantes contra el modelo CheckParams."""
@@ -70,10 +71,11 @@ async def long_task_handler(params: dict, **kwargs) -> dict:
             print(f"Cancelación detectada para la tarea {task_id}. Deteniendo...")
             return {"status": "cancelled", "message": "La tarea fue cancelada por el usuario."}
 
-        print(f"Paso {i+1}/10 hecho...")
+        print(f"Paso {i + 1}/10 hecho...")
         await asyncio.sleep(2)
 
     return {"status": "success"}
+
 
 # 3. Ejecutar worker
 if __name__ == "__main__":
@@ -97,7 +99,7 @@ WORKER_TOKEN=tu-token-secreto-de-worker
 
 # (Opcional) Habilitar WebSocket para cancelación instantánea de tareas
 WORKER_ENABLE_WEBSOCKETS=true
-````
+```
 
 ## Paso 4: Lanzamiento
 

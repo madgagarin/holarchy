@@ -6,13 +6,16 @@
 [![Versión de PyPI](https://img.shields.io/pypi/v/holarchy.svg)](https://pypi.org/project/holarchy/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 
-**Holarchy** es un orquestador de alto rendimiento basado en máquinas de estados, diseñado para gestionar flujos de trabajo de IA de larga duración y tareas distribuidas. Actúa como el núcleo de una **Red Lógica Jerárquica (HLN)**, coordinando **Holones** (workers) a través del protocolo **RXON**.
+**Holarchy** es un orquestador de alto rendimiento basado en máquinas de estados, diseñado para gestionar flujos de trabajo de IA de larga duración y tareas distribuidas. Actúa como el núcleo de una **Red Lógica Holárquica (HLN)**, coordinando **Holones** (workers) a través del protocolo **RXON**.
 
 ## 🚀 Características Principales
 
 - **State-Machine Driven**: Blueprints declarativos en Python para lógica compleja.
 - **Alto Rendimiento**: Indexación de colas vía **ZSET**, mecanismo de **Work Stealing** (robo de tareas) en Lua y transiciones de estado atómicas.
-- **Seguridad Zero Trust y Capa de Políticas**: Implementación completa de `SecurityContext`, firma automática HMAC SHA256 para estados en Redis, verificación de cadenas de identidad (Identity Chains) y políticas granulares para habilidades (`allowed_skills`).
+- **Seguridad Zero Trust y Capa de Políticas**: Implementación completa de `SecurityContext`, firma criptográfica de tareas HMAC-SHA256 (`sig`) mediante `ORCHESTRATOR_SECRET_KEY`, verificación de cadenas de identidad (Identity Chains) y políticas granulares para habilidades (`allowed_skills`).
+- **Aprobación Scoped Human-in-the-Loop**: Tokens de confirmación seguros de un solo uso (`approval_token`) para webhooks externos (Email, Slack, Telegram) sin exponer tokens maestros de clientes.
+- **Atomicidad CAS y Seguridad de Watcher**: Transiciones atómicas basadas en CAS (`update_job_state_atomic`) que protegen contra condiciones de carrera y evitan la sobreescritura de estados terminales por tiempos de espera.
+- **Validación Estricta de Configuración en Producción**: Control de inicio seguro (`ENVIRONMENT=production`) que bloquea la ejecución si se detectan tokens predeterminados inseguros o claves secretas faltantes.
 - **Protección de Profundidad de Holarquía**: Límite configurable (`MAX_HOLARCHY_DEPTH`) para prevenir la recursión infinita en sub-blueprints con cuarentena automática.
 - **Infraestructura de Middleware**: `MiddlewareChain` flexible para interceptar solicitudes, respuestas, resultados de воркеров y tareas salientes.
 - **Criptoauditoría D-DNA**: Herramientas CLI de verificación (`holarchy.cli.audit`) que garantizan la integridad de la cadena de historial de eventos.
@@ -61,9 +64,9 @@ En el marco de la arquitectura **HLN**, el Orquestador actúa como un "Ghost" (F
 
 Holarchy es parte de un ecosistema más grande:
 
-- **[Protocolo Holarchy](https://github.com/madgagarin/rxon)**: Paquete compartido que contiene definiciones de protocolo, modelos de datos y utilidades que garantizan la coherencia en todos los componentes.
+- **[Protocolo RXON](https://github.com/madgagarin/rxon)**: Paquete compartido de conexión inversa ligera que potencia la comunicación entre nodos en el ecosistema HLN.
 - **[SDK de Worker de Holarchy](https://github.com/madgagarin/holonode)**: El SDK oficial de Python para construir workers que se conectan a este motor.
-- **[Protocolo HLN](https://github.com/madgagarin/hln)**: La especificación arquitectónica y el manifiesto detrás del sistema (Hierarchical Logic Network).
+- **[HLN (Holarchical Logic Network)](https://github.com/madgagarin/hln)**: El patrón arquitectónico, manifiesto y especificación de diseño para holarquías autosimilares.
 - **[Ejemplo Completo](https://github.com/madgagarin/holarchy-full-example)**: Un proyecto de referencia completo que demuestra el motor y los workers en acción.
 
 ## Instalación
@@ -150,7 +153,7 @@ from holarchy.config import Config
 
 # 1. Configuración General
 storage = MemoryStorage()
-config = Config() # Carga la configuración desde variables de entorno
+config = Config()  # Carga la configuración desde variables de entorno
 
 # Establecer tokens explícitamente para este ejemplo
 # El token del cliente debe enviarse en el encabezado 'X-Client-Token'.
@@ -159,11 +162,8 @@ config.CLIENT_TOKEN = "my-secret-client-token"
 config.GLOBAL_WORKER_TOKEN = "my-secret-worker-token"
 
 # 2. Definir el Blueprint del Flujo de Trabajo
-bp = Blueprint(
-    name="bp",
-    api_version="v1",
-    api_endpoint="/jobs/my_flow"
-)
+bp = Blueprint(name="bp", api_version="v1", api_endpoint="/jobs/my_flow")
+
 
 # Usar inyección de dependencias para obtener solo los datos que necesitas.
 @bp.handler(is_start=True)
@@ -172,11 +172,13 @@ async def start(job_id: str, initial_data: dict, actions: ActionFactory):
     print(f"Job {job_id} | Inicio: {initial_data}")
     actions.go_to("end")
 
+
 # Todavía puedes solicitar el objeto de contexto completo si lo prefieres.
 @bp.handler(is_end=True)
 async def end(context):
     """El estado final. El pipeline termina aquí."""
     print(f"Job {context.job_id} | Completo.")
+
 
 # 3. Inicializar el Motor del Orquestador
 engine = OrchestratorEngine(storage, config)
@@ -188,6 +190,7 @@ engine.register_blueprint(bp)
 # app = engine.app
 # dispatcher = app[DISPATCHER_KEY]
 
+
 # 5. Definir el punto de entrada principal para ejecutar el servidor
 async def main():
     await engine.start()
@@ -196,6 +199,7 @@ async def main():
         await asyncio.Event().wait()
     finally:
         await engine.stop()
+
 
 if __name__ == "__main__":
     try:
@@ -238,9 +242,9 @@ Los siguientes argumentos se pueden inyectar por nombre:
 @bp.handler
 async def publish_video(
     job_id: str,
-    output_path: str, # Inyectado desde state_history
-    duration: int,    # Inyectado desde state_history
-    actions: ActionFactory
+    output_path: str,  # Inyectado desde state_history
+    duration: int,  # Inyectado desde state_history
+    actions: ActionFactory,
 ):
     print(f"Job {job_id}: Publicando video en {output_path} ({duration}s).")
     actions.go_to("complete")
@@ -294,15 +298,18 @@ Pasa condiciones directamente a `@bp.handler()` para crear ramas de lógica cond
 ```python
 from holarchy import F  # F se re-exporta desde fast-filter
 
+
 # Comparación simple sobre initial_data (nombre de estado inferido "decision_step")
 @bp.handler(F.initial_data["type"] == "urgent")
 async def decision_step(actions):
     actions.go_to("urgent_processing")
 
+
 # Condición compuesta con AND lógico (nombre de estado personalizado "decision_step")
 @bp.handler("decision_step", (F.initial_data["priority"] >= 8) & (F.initial_data["active"] == True))
 async def high_priority_step(actions):
     actions.go_to("priority_lane")
+
 
 # Manejador por defecto si ninguna condición coincide
 @bp.handler
@@ -322,7 +329,7 @@ async def transcode_video(initial_data, actions):
     actions.dispatch_task(
         task_type="video_transcoding",
         params={"input_path": initial_data.get("path")},
-        transitions={"success": "publish_video", "failure": "retry"}
+        transitions={"success": "publish_video", "failure": "retry"},
     )
 ```
 
@@ -332,6 +339,7 @@ Ejecución de múltiples tareas simultáneamente. **Aislamiento de estado por ra
 
 ```python
 actions.dispatch_parallel(tasks=tasks_to_dispatch, aggregate_into="aggregate_results")
+
 
 @bp.aggregator
 async def aggregate_results(aggregation_results, state_history, actions):
@@ -344,6 +352,7 @@ async def aggregate_results(aggregation_results, state_history, actions):
 
 ```python
 bp = Blueprint("bp", data_stores={"cache": redis_client})
+
 
 @bp.handler
 async def get_from_cache(data_stores):
@@ -446,10 +455,12 @@ POST /api/v1/jobs/my_flow
 ```python
 from holarchy.middleware import BaseMiddleware
 
+
 class AuditLogMiddleware(BaseMiddleware):
     async def process_outbound_task(self, context, task_payload):
         task_payload["audit_tag"] = "monitored"
         return task_payload
+
 
 engine.middleware_chain.add(AuditLogMiddleware())
 ```

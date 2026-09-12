@@ -3,12 +3,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import os
+from os import remove
+from os.path import exists
 from tempfile import NamedTemporaryFile
 from unittest.mock import MagicMock
 
-import pytest
 from aiohttp import web
+from pytest import mark
 from rxon.constants import AUTH_HEADER_CLIENT
 
 from holarchy.api.routes import setup_routes
@@ -20,7 +21,7 @@ from holarchy.engine import OrchestratorEngine
 from holarchy.storage.memory import MemoryStorage
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_quickstart_client_token_fallback_success(aiohttp_client):
     """Quick Start scenario: config.CLIENT_TOKEN enables API access without clients.toml."""
     storage = MemoryStorage()
@@ -62,7 +63,7 @@ async def test_quickstart_client_token_fallback_success(aiohttp_client):
     assert data["status"] == "accepted"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_quickstart_client_token_fallback_rejections(aiohttp_client):
     """Quick Start scenario: Invalid or missing token is strictly rejected (401)."""
     storage = MemoryStorage()
@@ -109,7 +110,7 @@ async def test_quickstart_client_token_fallback_rejections(aiohttp_client):
     assert f"Missing {AUTH_HEADER_CLIENT} header" in (await resp_missing.json())["error"]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_clients_toml_has_highest_precedence(aiohttp_client):
     """Production scenario: clients.toml profiles take precedence over fallback."""
     storage = MemoryStorage()
@@ -173,11 +174,11 @@ allowed_languages = ["python", "rust"]
         )
         assert resp_fallback.status == 202
     finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if exists(tmp_path):
+            remove(tmp_path)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_strict_zero_trust_when_no_tokens_configured(aiohttp_client):
     """Strict Zero Trust: If no CLIENT_TOKEN and no clients.toml, all access is denied."""
     storage = MemoryStorage()

@@ -93,8 +93,6 @@ async def test_redis_hmac_corrupted_signature_string():
 async def test_redis_hmac_disabled_when_no_secret():
     if "ORCHESTRATOR_SECRET_KEY" in environ:
         del environ["ORCHESTRATOR_SECRET_KEY"]
-    if "ORCHESTRATOR_INTERNAL_KEY" in environ:
-        del environ["ORCHESTRATOR_INTERNAL_KEY"]
 
     fake_redis_dict = {}
 

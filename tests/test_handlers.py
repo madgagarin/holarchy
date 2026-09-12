@@ -7,8 +7,10 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiohttp import web
+from aiohttp.web import HTTPUnauthorized
 from orjson import loads as orjson_loads
-from pytest import fixture, mark
+from pytest import fixture, mark, raises
+from rxon.constants import JOB_STATUS_FINISHED, JOB_STATUS_WAITING_FOR_HUMAN
 
 from holarchy.api.handlers import (
     cancel_job_handler,
@@ -276,3 +278,147 @@ async def test_docs_handler_file_not_found(engine, request_mock):
     with patch("importlib.resources.read_text", side_effect=FileNotFoundError):
         response = await docs_handler(request_mock)
         assert response.status == 500
+
+
+@mark.asyncio
+async def test_human_approval_with_scoped_token(engine, request_mock):
+    """Checks that approval_token allows approving without X-Client-Token header."""
+    job_id = "job-approval-1"
+    approval_token = "valid-secret-approval-token"
+    job_state = {
+        "id": job_id,
+        "status": "waiting_for_human",
+        "approval_token": approval_token,
+        "current_task_transitions": {"approved": "next_step"},
+        "client_config": {"token": "owner-token"},
+    }
+    await engine.storage.save_job_state(job_id, job_state)
+
+    request_mock.get.side_effect = lambda k, default=None: None
+    request_mock.match_info = {"job_id": job_id}
+    request_mock.query = {"token": approval_token}
+    request_mock.json = AsyncMock(return_value={"decision": "approved"})
+
+    response = await human_approval_webhook_handler(request_mock)
+    assert response.status == 200
+    res_data = orjson_loads(response.body)
+    assert res_data["status"] == "approval_received"
+
+    updated = await engine.storage.get_job_state(job_id)
+    assert updated["current_state"] == "next_step"
+    assert updated["status"] == "running"
+    assert updated["approval_token"] is None
+
+
+@mark.asyncio
+async def test_human_approval_with_body_token(engine, request_mock):
+    """Verifies human approval works when token is supplied in body."""
+    job_id = "job-approval-body-1"
+    token = "token-in-body-xyz"
+    job_state = {
+        "id": job_id,
+        "status": JOB_STATUS_WAITING_FOR_HUMAN,
+        "approval_token": token,
+        "current_task_transitions": {"proceed": "step_next"},
+    }
+    await engine.storage.save_job_state(job_id, job_state)
+
+    request_mock.get.side_effect = lambda k, default=None: None
+    request_mock.match_info = {"job_id": job_id}
+    request_mock.query = {}
+    request_mock.json = AsyncMock(return_value={"decision": "proceed", "token": token})
+
+    resp = await human_approval_webhook_handler(request_mock)
+    assert resp.status == 200
+    updated = await engine.storage.get_job_state(job_id)
+    assert updated["current_state"] == "step_next"
+
+
+@mark.asyncio
+async def test_human_approval_single_use_token_replay_rejected(engine, request_mock):
+    """Verifies that consuming an approval token invalidates it for subsequent requests."""
+    job_id = "job-approval-replay-1"
+    token = "secure-unique-token-123"
+    job_state = {
+        "id": job_id,
+        "status": JOB_STATUS_WAITING_FOR_HUMAN,
+        "approval_token": token,
+        "current_task_transitions": {"approve": "step_accepted"},
+    }
+    await engine.storage.save_job_state(job_id, job_state)
+
+    request_mock.get.side_effect = lambda k, default=None: None
+    request_mock.match_info = {"job_id": job_id}
+    request_mock.query = {"token": token}
+    request_mock.json = AsyncMock(return_value={"decision": "approve"})
+
+    resp1 = await human_approval_webhook_handler(request_mock)
+    assert resp1.status == 200
+
+    with raises(HTTPUnauthorized):
+        await human_approval_webhook_handler(request_mock)
+
+
+@mark.asyncio
+async def test_human_approval_invalid_inputs_rejected(engine, request_mock):
+    """Verifies rejection of wrong tokens, missing decision, unknown decision, and malformed JSON."""
+    job_id = "job-approval-neg-1"
+    valid_token = "good-token"
+    job_state = {
+        "id": job_id,
+        "status": JOB_STATUS_WAITING_FOR_HUMAN,
+        "approval_token": valid_token,
+        "current_task_transitions": {"allow": "ok_step"},
+    }
+    await engine.storage.save_job_state(job_id, job_state)
+
+    request_mock.get.side_effect = lambda k, default=None: None
+    request_mock.match_info = {"job_id": job_id}
+
+    request_mock.query = {"token": "wrong-token"}
+    request_mock.json = AsyncMock(return_value={"decision": "allow"})
+    with raises(HTTPUnauthorized):
+        await human_approval_webhook_handler(request_mock)
+
+    request_mock.query = {"token": valid_token}
+    request_mock.json = AsyncMock(return_value={"decision": "unknown"})
+    resp = await human_approval_webhook_handler(request_mock)
+    assert resp.status == 400
+
+    request_mock.json = AsyncMock(return_value={"no_decision": 1})
+    resp = await human_approval_webhook_handler(request_mock)
+    assert resp.status == 400
+
+    request_mock.json = AsyncMock(side_effect=Exception("Malformed JSON"))
+    resp = await human_approval_webhook_handler(request_mock)
+    assert resp.status == 400
+
+
+@mark.asyncio
+async def test_human_approval_cas_conflict(engine, request_mock):
+    """Verifies that approval returns 409 if state changes during CAS."""
+    job_id = "job-cas-conflict-1"
+    token = "token-conflict-123"
+    job_state = {
+        "id": job_id,
+        "status": JOB_STATUS_WAITING_FOR_HUMAN,
+        "approval_token": token,
+        "current_task_transitions": {"approve": "next_step"},
+    }
+    await engine.storage.save_job_state(job_id, job_state)
+
+    async def simulated_racing_update(jid, callback):
+        racing_state = {"id": jid, "status": JOB_STATUS_FINISHED, "approval_token": None}
+        return await callback(racing_state)
+
+    engine.storage.update_job_state_atomic = simulated_racing_update
+
+    request_mock.get.side_effect = lambda k, default=None: None
+    request_mock.match_info = {"job_id": job_id}
+    request_mock.query = {"token": token}
+    request_mock.json = AsyncMock(return_value={"decision": "approve"})
+
+    resp = await human_approval_webhook_handler(request_mock)
+    assert resp.status == 409
+    body = orjson_loads(resp.body)
+    assert "Job is not in a state that can be approved" in body["error"]

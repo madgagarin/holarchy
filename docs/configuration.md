@@ -247,3 +247,16 @@ Configure these variables to enable S3 Payload Offloading.
 | `S3_MAX_CONCURRENCY` | Maximum number of concurrent connections to S3 across all jobs. Prevents file descriptor exhaustion.   | `100`                      |
 | `S3_AUTO_CLEANUP`    | If `true`, automatically deletes S3 files and local temporary artifacts when a job completes or fails. | `true`                     |
 | `TASK_FILES_DIR`     | Local directory for temporary file storage during job execution.                                       | `/tmp/holarchy-payloads` |
+
+---
+
+## 4. Production Security Enforcement
+
+When running in production (`ENVIRONMENT=production` or `ENV=production`), the Orchestrator enforces a strict **Zero Trust & Fail-Safe** policy at startup:
+
+1. **`CLIENT_TOKEN`**: Must be set explicitly to a secure custom string. The insecure default (`"secure-orchestrator-token"`) is rejected.
+2. **`GLOBAL_WORKER_TOKEN`**: Must be set explicitly to a secure custom string. The insecure default (`"secure-worker-token"`) is rejected.
+3. **`ORCHESTRATOR_SECRET_KEY`**: Must be set explicitly. Auto-generated ephemeral tokens are prohibited in production because they invalidate signatures upon server restart and prevent horizontal scaling across multiple orchestrator instances.
+
+If any of these requirements are violated, `Config()` raises a `ValueError` immediately on startup, preventing execution in an unhardened state.
+

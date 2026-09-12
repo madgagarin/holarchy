@@ -3,15 +3,15 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import logging
+from logging import DEBUG
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import time
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
+from pytest import mark, raises
 from rxon.security import sign_payload
 
 from holarchy.api.handlers import get_quarantined_jobs_handler
@@ -22,7 +22,7 @@ from holarchy.s3 import TaskFiles
 from holarchy.services.worker_service import WorkerService
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_debug_flush_db_endpoint_removed():
     """AVT-SEC-1: Verify that POST /_public/debug/flush_db does not exist."""
     app = web.Application()
@@ -42,7 +42,7 @@ async def test_debug_flush_db_endpoint_removed():
     assert not any("flush_db" in p for p in route_paths)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_quarantined_jobs_requires_auth():
     """AVT-SEC-1: Verify quarantined jobs endpoint requires authentication."""
     engine = MagicMock()
@@ -65,7 +65,7 @@ async def test_quarantined_jobs_requires_auth():
     assert resp_auth.status == 200
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_worker_service_replay_attack_prevention():
     """AVT-SEC-2: Replay attack prevention via timestamp and nonce cache."""
     engine = MagicMock()
@@ -114,7 +114,7 @@ async def test_worker_service_replay_attack_prevention():
     await service._verify_zero_trust(event_payload, "worker-1")
 
     # 2. Replay of the exact same event within valid timestamp window -> Must raise PermissionError
-    with pytest.raises(PermissionError, match="Duplicate message detected \\(replay attack\\)"):
+    with raises(PermissionError, match="Duplicate message detected \\(replay attack\\)"):
         await service._verify_zero_trust(event_payload, "worker-1")
 
     # 3. Expired timestamp (> 60s) -> Must raise PermissionError
@@ -124,7 +124,7 @@ async def test_worker_service_replay_attack_prevention():
     sig_exp = sign_payload(expired_payload, token, ignore_fields=["security"])
     expired_payload["security"] = {"signature": sig_exp, "signer_id": "worker-1"}
 
-    with pytest.raises(PermissionError, match="Message timestamp expired"):
+    with raises(PermissionError, match="Message timestamp expired"):
         await service._verify_zero_trust(expired_payload, "worker-1")
 
     # 4. Missing timestamp -> Must raise PermissionError
@@ -134,7 +134,7 @@ async def test_worker_service_replay_attack_prevention():
     sig_no_ts = sign_payload(missing_ts_payload, token, ignore_fields=["security"])
     missing_ts_payload["security"] = {"signature": sig_no_ts, "signer_id": "worker-1"}
 
-    with pytest.raises(PermissionError, match="Missing required timestamp"):
+    with raises(PermissionError, match="Missing required timestamp"):
         await service._verify_zero_trust(missing_ts_payload, "worker-1")
 
 
@@ -151,11 +151,11 @@ def test_task_files_path_traversal_prevention_server():
         # 2. Negative: Path traversal attempts
         bad_paths = ["../../etc/passwd", "../../../root/.bashrc", "subdir/../../outside.txt"]
         for bad in bad_paths:
-            with pytest.raises(PermissionError, match="Path traversal attempt detected"):
+            with raises(PermissionError, match="Path traversal attempt detected"):
                 task_files.path(bad)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_token_not_leaked_in_logs(caplog):
     """AVT-SEC-3: Secret token is never leaked in debug/info logs."""
     # 1. Test worker service verify logging
@@ -186,7 +186,7 @@ async def test_token_not_leaked_in_logs(caplog):
     sig = sign_payload(payload, secret_token, ignore_fields=["security"])
     payload["security"] = {"signature": sig, "signer_id": "worker-1"}
 
-    with caplog.at_level(logging.DEBUG):
+    with caplog.at_level(DEBUG):
         await service._verify_zero_trust(payload, "worker-1")
         # Ensure secret token prefix is not printed
         for record in caplog.records:
@@ -195,7 +195,7 @@ async def test_token_not_leaked_in_logs(caplog):
             assert secret_token not in record.message
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_timeout_decrements_worker_load():
     """AVT-CNC-1: Engine decrements worker load upon job timeout."""
     config = MagicMock()

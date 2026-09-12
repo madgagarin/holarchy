@@ -6,6 +6,7 @@
 
 from collections import defaultdict
 from logging import getLogger
+from os import getenv
 from time import time
 from typing import Any
 from uuid import uuid4
@@ -14,6 +15,7 @@ from cachebox import TTLCache
 from rxon.constants import WORKER_STATUS_DRAINING
 from rxon.models import InstalledArtifact, Resources, SkillInfo, TaskPayload
 from rxon.schema import validate_data
+from rxon.security import sign_payload
 from rxon.utils import from_dict, to_dict
 
 from . import telemetry
@@ -166,6 +168,17 @@ class Dispatcher:
         return True, None
 
     @staticmethod
+    def _get_worker_skill_cost(worker: dict[str, Any], task_type: str) -> float:
+        caps = worker.get("capabilities")
+        if isinstance(caps, dict):
+            cost_map = caps.get("cost_per_skill")
+            if isinstance(cost_map, dict):
+                val = cost_map.get(task_type)
+                if isinstance(val, (int, float)):
+                    return float(val)
+        return float("inf")
+
+    @staticmethod
     def _select_default(
         workers: list[dict[str, Any]],
         task_type: str,
@@ -182,8 +195,7 @@ class Dispatcher:
         target_pool = hot_skill_workers or workers
 
         def get_cost(w: dict[str, Any]) -> float:
-            cost_map = w.get("capabilities", {}).get("cost_per_skill", {})
-            return float(cost_map.get(task_type, float("inf")))
+            return Dispatcher._get_worker_skill_cost(w, task_type)
 
         min_cost = min(get_cost(w) for w in target_pool)
         cheapest_workers = [w for w in target_pool if get_cost(w) == min_cost]
@@ -224,7 +236,7 @@ class Dispatcher:
         """Selects the cheapest worker based on cost for the specific task_type."""
 
         def get_cost(w: dict[str, Any]) -> float:
-            return float(w.get("capabilities", {}).get("cost_per_skill", {}).get(task_type, float("inf")))
+            return Dispatcher._get_worker_skill_cost(w, task_type)
 
         return min(workers, key=get_cost)
 
@@ -233,11 +245,8 @@ class Dispatcher:
         """Calculates a "score" for a worker using the formula cost / reputation.
         The lower the score, the better.
         """
-        cost = worker.get("capabilities", {}).get("cost_per_skill", {}).get(task_type, float("inf"))
-
-        # Default reputation is 1.0 if absent
+        cost = Dispatcher._get_worker_skill_cost(worker, task_type)
         reputation = worker.get("reputation", 1.0)
-        # Avoid division by zero
         return float("inf") if reputation == 0 else cost / reputation
 
     @staticmethod
@@ -261,12 +270,9 @@ class Dispatcher:
         """
 
         def get_cost(w: dict[str, Any]) -> float:
-            return float(w.get("capabilities", {}).get("cost_per_skill", {}).get(task_type, float("inf")))
+            return Dispatcher._get_worker_skill_cost(w, task_type)
 
-        # Sort by cost (ASC)
         sorted_workers = sorted(workers, key=get_cost)
-
-        # Apply max_cost filter if provided
         if max_cost is not None:
             sorted_workers = [w for w in sorted_workers if get_cost(w) <= max_cost]
 
@@ -393,7 +399,7 @@ class Dispatcher:
         if max_cost is not None:
 
             def is_cost_compliant(w: dict[str, Any]) -> bool:
-                cost = w.get("capabilities", {}).get("cost_per_skill", {}).get(task_type, float("inf"))
+                cost = Dispatcher._get_worker_skill_cost(w, task_type)
                 return bool(cost <= max_cost)
 
             cost_compliant_workers = [w for w in capable_workers if is_cost_compliant(w)]
@@ -470,7 +476,8 @@ class Dispatcher:
             priority=priority,
             deadline=deadline,
             security=job_state.get("security"),
-            timestamp=time(),
+            metadata=job_state.get("metadata"),
+            timestamp=int(time()),
             policy=job_state.get("policy"),
             step=job_state.get("step", 0),
             depth=job_state.get("depth", 0),
@@ -478,6 +485,10 @@ class Dispatcher:
         )
         telemetry.inject(payload_obj.tracing_context, context=job_state.get("tracing_context"))
         payload = to_dict(payload_obj)
+
+        secret = getenv("ORCHESTRATOR_SECRET_KEY") or getattr(self.config, "ORCHESTRATOR_SECRET_KEY", "")
+        if secret and isinstance(secret, (str, bytes)):
+            payload["sig"] = sign_payload(payload, secret, ignore_fields=["sig", "orchestrator_signature"])
 
         if (
             hasattr(self, "engine")

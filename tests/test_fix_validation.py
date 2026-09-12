@@ -6,6 +6,8 @@
 
 from asyncio import open_connection, sleep
 from contextlib import suppress
+from os import environ
+from os.path import exists
 from time import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -13,11 +15,19 @@ from docker import from_env as docker_from_env
 from docker.errors import NotFound as DockerNotFound
 from pytest import mark, skip
 from pytest_asyncio import fixture
-from redis import asyncio as redis
+from redis.asyncio import Redis as AsyncRedis
 
 from holarchy.config import Config
 from holarchy.services.worker_service import WorkerService
 from holarchy.storage.redis import RedisStorage
+
+
+def is_docker_available() -> bool:
+    """Check if Docker socket or DOCKER_HOST is available before calling docker.from_env()."""
+    docker_host = environ.get("DOCKER_HOST")
+    if docker_host:
+        return True
+    return exists("/var/run/docker.sock")
 
 
 async def is_redis_accessible(host="localhost", port=6379):
@@ -36,46 +46,59 @@ async def is_redis_accessible(host="localhost", port=6379):
 async def redis_container():
     """Optional fixture to start a Redis container if docker is available."""
     container = None
+    client = None
     try:
         # 1. First, check if Redis is already accessible (e.g. running on host or in an existing container)
         if await is_redis_accessible():
             yield None
             return
 
-        client = docker_from_env()
+        if not is_docker_available():
+            yield None
+            return
 
-        # 2. Check if there's any container already running the redis image and mapping to 6379
-        for c in client.containers.list():
-            if "redis" in c.image.tags[0] and "6379/tcp" in c.ports:
-                # If we found a running redis container on the right port, use it
-                yield None
-                return
-
-        # 3. Check if our specific test container exists but is stopped
         try:
-            c = client.containers.get("holarchy-test-redis")
-            if c.status != "running":
-                c.start()
-            container = c
-        except DockerNotFound:
-            # 4. If not found, create and run a new one
-            container = client.containers.run(
-                "redis:alpine", detach=True, ports={"6379/tcp": 6379}, name="holarchy-test-redis", auto_remove=True
-            )
+            client = docker_from_env()
 
-        # Wait for redis to be ready
-        for _ in range(10):
-            if await is_redis_accessible():
-                break
-            await sleep(0.5)
-    except Exception:
-        pass
+            # 2. Check if there's any container already running the redis image and mapping to 6379
+            for c in client.containers.list():
+                if c.image.tags and any("redis" in tag for tag in c.image.tags) and "6379/tcp" in c.ports:
+                    # If we found a running redis container on the right port, use it
+                    yield None
+                    return
 
-    yield container
+            # 3. Check if our specific test container exists but is stopped
+            try:
+                c = client.containers.get("holarchy-test-redis")
+                if c.status != "running":
+                    c.start()
+                container = c
+            except DockerNotFound:
+                # 4. If not found, create and run a new one
+                container = client.containers.run(
+                    "redis:alpine",
+                    detach=True,
+                    ports={"6379/tcp": 6379},
+                    name="holarchy-test-redis",
+                    auto_remove=True,
+                )
 
-    if container:
-        with suppress(Exception):
-            container.stop()
+            # Wait for redis to be ready
+            for _ in range(10):
+                if await is_redis_accessible():
+                    break
+                await sleep(0.5)
+        except Exception:
+            pass
+
+        yield container
+    finally:
+        if container:
+            with suppress(Exception):
+                container.stop()
+        if client:
+            with suppress(Exception):
+                client.close()
 
 
 @fixture
@@ -89,7 +112,7 @@ async def real_redis_storage(redis_container):
     if not await is_redis_accessible(host, port):
         skip("Real Redis is not available (Docker might be missing or port 6379 blocked)")
 
-    client = redis.Redis(host=host, port=port, db=10, decode_responses=False)
+    client = AsyncRedis(host=host, port=port, db=10, decode_responses=False)
     try:
         # Flush test DB to ensure clean state
         await client.flushdb()

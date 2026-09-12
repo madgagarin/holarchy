@@ -7,6 +7,7 @@
 from asyncio import CancelledError, Semaphore, Task, create_task, gather, sleep
 from contextlib import suppress
 from logging import getLogger
+from secrets import token_urlsafe
 from time import monotonic, time
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -467,6 +468,7 @@ class JobExecutor:
         if task_info.get("type") == "human_approval":
             job_state["status"] = "waiting_for_human"
             job_state["current_task_transitions"] = task_info.get("transitions", {})
+            job_state["approval_token"] = token_urlsafe(32)
             await self.storage.save_job_state(job_id, job_state)
             logger.info(f"Job {job_id} is now paused, awaiting human approval.")
         else:

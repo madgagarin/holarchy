@@ -236,9 +236,8 @@ class MemoryStorage(StorageBackend):
 
                 supported = info.get("supported_skills", [])
                 for skill in supported:
-                    name = getattr(skill, "name", skill.get("name"))
-                    skill_type = getattr(skill, "type", skill.get("type"))
-                    if skill_name in (name, skill_type):
+                    name = getattr(skill, "name", skill.get("name") if isinstance(skill, dict) else None)
+                    if name == skill_name:
                         candidates.append(worker_id)
                         break
             return candidates

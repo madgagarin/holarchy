@@ -25,7 +25,7 @@ from holarchy import Blueprint
 order_pipeline = Blueprint(
     name="order_processing_flow",
     api_version="v1",
-    api_endpoint="/jobs/process_order"  # URL для создания задач
+    api_endpoint="/jobs/process_order",  # URL для создания задач
 )
 ```
 
@@ -49,6 +49,7 @@ order_pipeline = Blueprint(
 ```python
 from holarchy import ActionFactory
 
+
 @order_pipeline.handler(is_start=True)
 async def start(initial_data: dict, actions: ActionFactory, job_id: str):
     """
@@ -70,14 +71,14 @@ async def dispatch_to_worker(initial_data: dict, actions: ActionFactory):
     actions.dispatch_task(
         task_type="check_inventory",  # Тип задачи, который поймет воркер
         params={"items": initial_data.get("items")},
-
         # Определяем, куда пойдет процесс в зависимости от ответа воркера
         transitions={
-            "success": "inventory_ok",      # Если воркер вернет status="success"
-            "out_of_stock": "inventory_failed", # Если воркер вернет кастомный статус
-            "failure": "generic_failure"    # Если воркер вернет status="failure"
-        }
+            "success": "inventory_ok",  # Если воркер вернет status="success"
+            "out_of_stock": "inventory_failed",  # Если воркер вернет кастомный статус
+            "failure": "generic_failure",  # Если воркер вернет status="failure"
+        },
     )
+
 
 @order_pipeline.handler
 async def inventory_ok(actions: ActionFactory, state_history: dict):
@@ -111,7 +112,6 @@ async def finished_successfully(context):
     Конечное состояние при успешном выполнении.
     """
     print(f"Job {context.job_id}: заказ успешно обработан!")
-
 ```
 
 ## Шаг 4: Регистрация Блупринта
@@ -151,10 +151,12 @@ engine.run()
 ```python
 from holarchy import F  # Автоматически реэкспортируется из fast-filter
 
+
 # Маршрутизация на основе initial_data во время выполнения
 @order_pipeline.handler("decide_priority", F.initial_data["priority"] == "express")
 async def handle_express(actions: ActionFactory):
     actions.go_to("express_lane")
+
 
 # Резервный обработчик по умолчанию, если ни одно условие не совпало
 @order_pipeline.handler("decide_priority")

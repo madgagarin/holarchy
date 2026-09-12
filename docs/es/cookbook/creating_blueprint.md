@@ -25,7 +25,7 @@ from holarchy import Blueprint
 order_pipeline = Blueprint(
     name="order_processing_flow",
     api_version="v1",
-    api_endpoint="/jobs/process_order"  # URL para creación de tareas
+    api_endpoint="/jobs/process_order",  # URL para creación de tareas
 )
 ```
 
@@ -46,6 +46,7 @@ El manejador recibe argumentos a través de **Inyección de Dependencias**. Pued
 
 ```python
 from holarchy import ActionFactory
+
 
 @order_pipeline.handler(is_start=True)
 async def start(initial_data: dict, actions: ActionFactory, job_id: str):
@@ -68,14 +69,14 @@ async def dispatch_to_worker(initial_data: dict, actions: ActionFactory):
     actions.dispatch_task(
         task_type="check_inventory",  # Tipo de tarea que entiende el worker
         params={"items": initial_data.get("items")},
-
         # Definir a dónde va el proceso dependiendo de la respuesta del worker
         transitions={
-            "success": "inventory_ok",      # Si el worker devuelve status="success"
-            "out_of_stock": "inventory_failed", # Si el worker devuelve estado personalizado
-            "failure": "generic_failure"    # Si el worker devuelve status="failure"
-        }
+            "success": "inventory_ok",  # Si el worker devuelve status="success"
+            "out_of_stock": "inventory_failed",  # Si el worker devuelve estado personalizado
+            "failure": "generic_failure",  # Si el worker devuelve status="failure"
+        },
     )
+
 
 @order_pipeline.handler
 async def inventory_ok(actions: ActionFactory, state_history: dict):
@@ -109,7 +110,6 @@ async def finished_successfully(actions: ActionFactory):
     Estado final en caso de éxito.
     """
     print("¡Pedido procesado exitosamente!")
-
 ```
 
 ## Paso 4: Registrar el Blueprint
@@ -149,10 +149,12 @@ Para enrutar el flujo basado en el contexto de tiempo de ejecución, pasa una ex
 ```python
 from holarchy import F  # Se reexporta automáticamente desde fast-filter
 
+
 # Enrutar basado en initial_data en tiempo de ejecución
 @order_pipeline.handler("decide_priority", F.initial_data["priority"] == "express")
 async def handle_express(actions: ActionFactory):
     actions.go_to("express_lane")
+
 
 # Fallback por defecto cuando ninguna condición coincide
 @order_pipeline.handler("decide_priority")

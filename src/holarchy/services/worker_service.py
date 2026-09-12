@@ -302,10 +302,9 @@ class WorkerService:
                     watch_key = f"{job_id}:{task_id}" if is_parallel else job_id
                     await self.storage.add_job_to_watch(watch_key, new_timeout_at)
 
-                    # Enrich task with security context and metadata from the job state
-                    if updated_state.get("security"):
+                    if not task.get("security") and updated_state.get("security"):
                         task["security"] = updated_state["security"]
-                    if updated_state.get("metadata"):
+                    if not task.get("metadata") and updated_state.get("metadata"):
                         task["metadata"] = updated_state["metadata"]
 
                     # Include required skill version/type in the task payload for worker validation

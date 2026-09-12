@@ -1,4 +1,4 @@
-> **Note:** This document describes the **Python implementation** of the HLN standard. For the high-level architectural specification, please refer to the `hln` package.
+> **Note:** This document describes the **Python implementation** of the HLN standard. For the high-level architectural specification, please refer to the [`hln`](https://github.com/madgagarin/hln) package.
 
 **EN** | [ES](https://github.com/madgagarin/holarchy/blob/main/docs/es/architecture.md) | [RU](https://github.com/madgagarin/holarchy/blob/main/docs/ru/architecture.md)
 

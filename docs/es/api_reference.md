@@ -24,8 +24,24 @@ Estos puntos finales no requieren autenticación y siempre utilizan el prefijo f
 ### Webhook para "Aprobación Humana"
 
 - **Punto final:** `POST /_public/webhooks/approval/{job_id}`
-- **Descripción:** Permite la aprobación manual de un paso del pipeline.
-- **Respuesta (`200 OK`):** `{"status": "approval_received"}`
+- **Descripción:** Permite que un sistema externo u operador apruebe, rechace o decida la bifurcación siguiente para un paso del pipeline en estado `waiting_for_human`.
+- **Autenticación y Seguridad:**
+  - **Token de Aprobación de Ámbito Limitado (Scoped Approval Token):** Un token criptográfico de un solo uso y con límite de tiempo generado al entrar en `waiting_for_human`. Puede enviarse como parámetro de consulta en la URL (`?token=<approval_token>`) o dentro del cuerpo JSON (`{"token": "<approval_token>", ...}`). Una vez consumido con éxito, el token queda permanentemente invalidado para evitar ataques de repetición (replay attacks).
+  - **Autenticación Alternativa con Token de Cliente:** Si no se proporciona un token de aprobación, la solicitud debe incluir la cabecera `X-Client-Token` válida del propietario del trabajo. Las solicitudes no autorizadas devuelven `401 Unauthorized`.
+- **Cuerpo de la Solicitud:**
+  ```json
+  {
+    "decision": "approved",
+    "token": "token_opcional_si_no_se_pasa_en_la_url"
+  }
+  ```
+  - `decision` (cadena, obligatorio): Decisión que coincide con una de las ramas configuradas para el paso (ej. `"approved"`, `"rejected"`).
+  - `token` (cadena, opcional): Token de aprobación de un solo uso (si no se proporciona mediante el parámetro de consulta en la URL).
+- **Códigos de Respuesta:**
+  - `200 OK`: `{"status": "approval_received", "job_id": "..."}`
+  - `400 Bad Request`: Solicitud vacía, JSON no válido o falta de campo `decision`.
+  - `401 Unauthorized`: Falta o es inválido el `approval_token` y falta el encabezado `X-Client-Token` válido.
+  - `409 Conflict`: El trabajo no está en estado `waiting_for_human` o hay conflicto en la transición.
 
 ---
 

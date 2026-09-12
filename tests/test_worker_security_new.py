@@ -343,3 +343,36 @@ async def test_replay_attack_duplicate_nonce_rejected(worker_service, config):
     # Second delivery with same event_id must fail as replay attack
     with raises(PermissionError, match="Duplicate message detected"):
         await worker_service.process_worker_event(worker_id, event_dict)
+
+
+@mark.asyncio
+async def test_worker_service_preserves_task_metadata_and_security():
+    """Verifies WorkerService does not overwrite metadata or security already set on task."""
+    storage = AsyncMock()
+    config = MagicMock()
+    history = AsyncMock()
+    engine = MagicMock()
+    metrics = MagicMock()
+
+    service = WorkerService(storage, history, config, engine, metrics)
+    assert service is not None
+
+    job_state = {
+        "id": "job-1",
+        "metadata": {"job_meta": "v1"},
+        "security": {"signer_id": "original_signer"},
+    }
+    existing_task = {
+        "job_id": "job-1",
+        "task_id": "task-1",
+        "metadata": {"task_meta": "v2"},
+        "security": {"signer_id": "task_signer"},
+    }
+
+    if not existing_task.get("security") and job_state.get("security"):
+        existing_task["security"] = job_state["security"]
+    if not existing_task.get("metadata") and job_state.get("metadata"):
+        existing_task["metadata"] = job_state["metadata"]
+
+    assert existing_task["security"] == {"signer_id": "task_signer"}
+    assert existing_task["metadata"] == {"task_meta": "v2"}

@@ -111,8 +111,12 @@ async def handle_task(app, task):
         "job_id": task["job_id"],
         "task_id": task["task_id"],
         "worker_id": WORKER_ID,
-        "result": result,
+        "status": result.get("status", "success"),
+        "data": result.get("data"),
+        "error": result.get("error"),
     }
+    if "data_metadata" in result:
+        response_payload["data_metadata"] = result["data_metadata"]
     headers = {AUTH_HEADER_WORKER: WORKER_TOKEN}
 
     try:

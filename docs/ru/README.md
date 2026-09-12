@@ -6,13 +6,16 @@
 [![Версия PyPI](https://img.shields.io/pypi/v/holarchy.svg)](https://pypi.org/project/holarchy/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 
-**Holarchy** — это высокопроизводительный оркестратор на базе конечных автоматов, предназначенный для управления длительными процессами ИИ и распределенными задачами. Он является ядром **Иерархической Логической Сети (HLN)**, координируя **Холоны** (воркеры) через протокол **RXON**.
+**Holarchy** — это высокопроизводительный оркестратор на базе конечных автоматов, предназначенный для управления длительными процессами ИИ и распределенными задачами. Он является ядром **Холархической Логической Сети (HLN)**, координируя **Холоны** (воркеры) через протокол **RXON**.
 
 ## 🚀 Основные возможности
 
 - **State-Machine Driven**: Описание сложной логики через декларативные Блюпринты на Python.
 - **Высокая производительность**: Индексация очередей через **ZSET**, механизм **Work Stealing** (кража задач) на Lua и атомарные переходы состояний.
-- **Безопасность Zero Trust и слой политик**: Полная реализация `SecurityContext`, автоматическая подпись HMAC SHA256 состояний в Redis, проверка цепочек идентичности (Identity Chains) и гранулярные политики выполнения скиллов (`allowed_skills`).
+- **Безопасность Zero Trust и слой политик**: Полная реализация `SecurityContext`, криптографическое подписание задач HMAC-SHA256 (`sig`) через `ORCHESTRATOR_SECRET_KEY`, проверка цепочек идентичности (Identity Chains) и гранулярные политики выполнения скиллов (`allowed_skills`).
+- **Human-in-the-Loop Scoped Approval**: Безопасные одноразовые токены подтверждения (`approval_token`) для внешних вебхуков (Email, Slack, Telegram) без компрометации мастер-токенов клиентов.
+- **Атомарность CAS и безопасность Watcher**: Защита от состояний гонки через CAS-транзакции (`update_job_state_atomic`) с гарантией невозможности перезаписи терминальных статусов таймаутами.
+- **Строгая валидация конфигурации в проде**: Fail-safe контроль запуска (`ENVIRONMENT=production`), блокирующий старт при наличии дефолтных токенов или отсутствии секретных ключей.
 - **Защита глубин холархии**: Настраиваемый лимит (`MAX_HOLARCHY_DEPTH`) для предотвращения бесконечной рекурсии суб-блупринтов с автоматической карантинизацией джобов.
 - **Инфраструктура Middleware**: Гибкий `MiddlewareChain` для перехвата запросов, ответов хендлеров, входящих результатов и отправляемых задач.
 - **D-DNA Криптоаудит**: CLI-инструменты верификации истории событий (`holarchy.cli.audit`), гарантирующие защиту цепочки от подделки.
@@ -64,9 +67,9 @@
 
 Holarchy является частью более широкой экосистемы:
 
-- **[Holarchy Protocol](https://github.com/madgagarin/rxon)**: Общий пакет с определениями протокола, моделями данных и утилитами, обеспечивающий совместимость всех компонентов.
+- **[Протокол RXON](https://github.com/madgagarin/rxon)**: Легковесный протокол обратного соединения, обеспечивающий межузловое взаимодействие во всей экосистеме HLN.
 - **[Holarchy Worker SDK](https://github.com/madgagarin/holonode)**: Официальный Python SDK для создания воркеров, подключаемых к этому движку.
-- **[Протокол HLN](https://github.com/madgagarin/hln)**: Архитектурная спецификация и манифест, лежащие в основе системы.
+- **[HLN (Holarchical Logic Network)](https://github.com/madgagarin/hln)**: Архитектурный паттерн, манифест и спецификация самоподобных холархий.
 - **[Полный пример (Full Example)](https://github.com/madgagarin/holarchy-full-example)**: Готовый эталонный проект, демонстрирующий совместную работу движка и воркеров.
 
 ## Установка
@@ -155,7 +158,7 @@ from holarchy.config import Config
 
 # 1. Общая конфигурация
 storage = MemoryStorage()
-config = Config() # Загружает конфигурацию из переменных окружения
+config = Config()  # Загружает конфигурацию из переменных окружения
 
 # Явно задаем токены для этого примера
 # Токен клиента должен быть отправлен в заголовке 'X-Client-Token'.
@@ -164,11 +167,8 @@ config.CLIENT_TOKEN = "my-secret-client-token"
 config.GLOBAL_WORKER_TOKEN = "my-secret-worker-token"
 
 # 2. Определение Блупринта рабочего процесса
-bp = Blueprint(
-    name="bp",
-    api_version="v1",
-    api_endpoint="/jobs/my_flow"
-)
+bp = Blueprint(name="bp", api_version="v1", api_endpoint="/jobs/my_flow")
+
 
 # Используйте внедрение зависимостей, чтобы получить только нужные данные.
 @bp.handler(is_start=True)
@@ -177,11 +177,13 @@ async def start(job_id: str, initial_data: dict, actions: ActionFactory):
     print(f"Job {job_id} | Start: {initial_data}")
     actions.go_to("end")
 
+
 # Вы все еще можете запросить полный объект контекста, если предпочитаете.
 @bp.handler(is_end=True)
 async def end(context):
     """Конечное состояние. Пайплайн заканчивается здесь."""
     print(f"Job {context.job_id} | Complete.")
+
 
 # 3. Инициализация движка Оркестратора
 engine = OrchestratorEngine(storage, config)
@@ -193,6 +195,7 @@ engine.register_blueprint(bp)
 # app = engine.app
 # dispatcher = app[DISPATCHER_KEY]
 
+
 # 5. Определение главной точки входа для запуска сервера
 async def main():
     await engine.start()
@@ -201,6 +204,7 @@ async def main():
         await asyncio.Event().wait()
     finally:
         await engine.stop()
+
 
 if __name__ == "__main__":
     try:
@@ -266,15 +270,18 @@ Holarchy спроектирована для высоконагруженных 
 ```python
 from holarchy import F  # F реэкспортируется из fast-filter
 
+
 # Простая проверка равенства initial_data (имя состояния выводится автоматически: "decision_step")
 @bp.handler(F.initial_data["type"] == "urgent")
 async def decision_step(actions):
     actions.go_to("urgent_processing")
 
+
 # Составное условие с логическим И (кастомное имя состояния: "decision_step")
 @bp.handler("decision_step", (F.initial_data["priority"] >= 8) & (F.initial_data["active"] == True))
 async def high_priority_step(actions):
     actions.go_to("priority_lane")
+
 
 # Обработчик по умолчанию, если ни одно условие не совпало.
 @bp.handler
@@ -311,8 +318,8 @@ async def transcode_video(initial_data, actions):
         transitions={
             "success": "publish_video",
             "failure": "transcoding_failed",
-            "needs_review": "manual_review" # Пример кастомного статуса
-        }
+            "needs_review": "manual_review",  # Пример кастомного статуса
+        },
     )
 ```
 
@@ -327,15 +334,12 @@ async def transcode_video(initial_data, actions):
 @bp.handler
 async def process_files(initial_data, actions):
     tasks_to_dispatch = [
-        {"task_type": "file_analysis", "params": {"file": file}}
-        for file in initial_data.get("files", [])
+        {"task_type": "file_analysis", "params": {"file": file}} for file in initial_data.get("files", [])
     ]
     # Используйте dispatch_parallel, чтобы отправить все задачи сразу.
     # Все успешные задачи неявно приведут к состоянию 'aggregate_into'.
-    actions.dispatch_parallel(
-        tasks=tasks_to_dispatch,
-        aggregate_into="aggregate_results"
-    )
+    actions.dispatch_parallel(tasks=tasks_to_dispatch, aggregate_into="aggregate_results")
+
 
 # 2. Fan-in: Сбор результатов с помощью декоратора @aggregator
 @bp.aggregator
@@ -358,10 +362,8 @@ import redis.asyncio as redis
 
 # 1. Инициализация и регистрация вашего DataStore
 redis_client = redis.Redis(decode_responses=True)
-bp = Blueprint(
-    "blueprint_with_datastore",
-    data_stores={"cache": redis_client}
-)
+bp = Blueprint("blueprint_with_datastore", data_stores={"cache": redis_client})
+
 
 # 2. Использование его в обработчике через внедрение зависимостей
 @bp.handler
@@ -524,10 +526,12 @@ POST /api/v1/jobs/my_flow
 ```python
 from holarchy.middleware import BaseMiddleware
 
+
 class AuditLogMiddleware(BaseMiddleware):
     async def process_outbound_task(self, context, task_payload):
         task_payload["audit_tag"] = "monitored"
         return task_payload
+
 
 engine.middleware_chain.add(AuditLogMiddleware())
 ```

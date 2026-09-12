@@ -8,7 +8,7 @@ from asyncio import Task
 from typing import TYPE_CHECKING
 
 from aiohttp import ClientSession
-from aiohttp.web import AppKey
+from aiohttp.web import AppKey, RequestKey
 
 if TYPE_CHECKING:
     pass
@@ -37,4 +37,4 @@ S3_SERVICE_KEY = AppKey("s3_service", "S3Service")
 WORKER_SERVICE_KEY = AppKey("worker_service", "WorkerService")
 STORAGE_KEY = AppKey("storage", "StorageBackend")
 HISTORY_KEY = AppKey("history", "HistoryStorageBase")
-CLIENT_CONFIG_KEY = "client_config"
+CLIENT_CONFIG_KEY: RequestKey[dict] = RequestKey("client_config", dict)

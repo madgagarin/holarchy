@@ -25,7 +25,7 @@ from holarchy import Blueprint
 order_pipeline = Blueprint(
     name="order_processing_flow",
     api_version="v1",
-    api_endpoint="/jobs/process_order"  # URL for task creation
+    api_endpoint="/jobs/process_order",  # URL for task creation
 )
 ```
 
@@ -46,6 +46,7 @@ The handler receives arguments via **Dependency Injection**. You can request:
 
 ```python
 from holarchy import ActionFactory
+
 
 @order_pipeline.handler(is_start=True)
 async def start_handler(initial_data: dict, actions: ActionFactory, job_id: str):
@@ -68,14 +69,14 @@ async def dispatch_to_worker(initial_data: dict, actions: ActionFactory):
     actions.dispatch_task(
         task_type="check_inventory",  # Task type worker understands
         params={"items": initial_data.get("items")},
-
         # Define where process goes depending on worker response
         transitions={
-            "success": "inventory_ok",      # If worker returns status="success"
-            "out_of_stock": "inventory_failed", # If worker returns custom status
-            "failure": "generic_failure"    # If worker returns status="failure"
-        }
+            "success": "inventory_ok",  # If worker returns status="success"
+            "out_of_stock": "inventory_failed",  # If worker returns custom status
+            "failure": "generic_failure",  # If worker returns status="failure"
+        },
     )
+
 
 @order_pipeline.handler
 async def inventory_ok(actions: ActionFactory, state_history: dict):
@@ -109,7 +110,6 @@ async def finished_successfully(actions: ActionFactory):
     Final state on success.
     """
     print("Order processed successfully!")
-
 ```
 
 ## Step 4: Register the Blueprint
@@ -149,10 +149,12 @@ To route the flow based on runtime context, pass a `FastF` expression from `fast
 ```python
 from holarchy import F  # Re-exported from fast-filter
 
+
 # Route based on initial_data at runtime
 @order_pipeline.handler("decide_priority", F.initial_data["priority"] == "express")
 async def handle_express(actions: ActionFactory):
     actions.go_to("express_lane")
+
 
 # Default fallback when no condition matches
 @order_pipeline.handler("decide_priority")

@@ -246,23 +246,26 @@ class RedisStorage(StorageBackend):
             return None
 
     @staticmethod
-    def _normalize_unpacked(data: Any) -> Any:
+    def _normalize_unpacked(data: Any, _depth: int = 0) -> Any:
         """
         Recursively ensures that nested msgpack-encoded bytes (from Redis Lua)
         are properly restored to their original structures and bytes are decoded.
         """
+        if _depth > 30:
+            raise ValueError("Max recursion depth (30) exceeded in unpacked data")
+
         if isinstance(data, dict):
             return {
-                (k.decode("utf-8") if isinstance(k, bytes) else str(k)): RedisStorage._normalize_unpacked(v)
+                (k.decode("utf-8") if isinstance(k, bytes) else str(k)): RedisStorage._normalize_unpacked(v, _depth + 1)
                 for k, v in data.items()
             }
         elif isinstance(data, list):
-            return [RedisStorage._normalize_unpacked(i) for i in data]
+            return [RedisStorage._normalize_unpacked(i, _depth + 1) for i in data]
         elif isinstance(data, bytes):
             try:
                 if len(data) > 0 and (data[0] & 0xF0 in (0x80, 0x90, 0xD0, 0xDE, 0xDF)):
                     unpacked = msgpack_decode(data)
-                    return RedisStorage._normalize_unpacked(unpacked)
+                    return RedisStorage._normalize_unpacked(unpacked, _depth + 1)
             except Exception:
                 pass
 
@@ -309,7 +312,7 @@ class RedisStorage(StorageBackend):
             state = cast(dict[str, Any], unpacked)
             if isinstance(state, dict):
                 signature = state.get("_signature")
-                secret = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
+                secret = getenv("ORCHESTRATOR_SECRET_KEY", "")
                 if (
                     signature
                     and secret
@@ -354,7 +357,7 @@ class RedisStorage(StorageBackend):
     async def save_job_state(self, job_id: str, state: dict[str, Any]) -> None:
         """Save the job state to Redis."""
         key = self._get_key(job_id)
-        secret = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
+        secret = getenv("ORCHESTRATOR_SECRET_KEY", "")
         if secret and isinstance(state, dict):
             normalized = RedisStorage._normalize_unpacked(state)
             state["_signature"] = sign_payload(normalized, secret, ignore_fields=["_signature"])
@@ -399,7 +402,7 @@ class RedisStorage(StorageBackend):
                     else:
                         updated_state = update_callback(current_state)
 
-                    secret = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
+                    secret = getenv("ORCHESTRATOR_SECRET_KEY", "")
                     if secret and isinstance(updated_state, dict):
                         normalized = RedisStorage._normalize_unpacked(updated_state)
                         updated_state["_signature"] = sign_payload(normalized, secret, ignore_fields=["_signature"])
@@ -444,15 +447,9 @@ class RedisStorage(StorageBackend):
                 skill_names_to_index = []
                 for skill in supported_skills:
                     name = skill.get("name")
-                    skill_type = skill.get("type")
-
                     if name:
                         skill_names_to_index.append(name)
                         pipe.zadd(f"orchestrator:index:workers:skill:{name}", {worker_id: expires_at})
-
-                    if skill_type and skill_type != name:
-                        skill_names_to_index.append(skill_type)
-                        pipe.zadd(f"orchestrator:index:workers:skill:{skill_type}", {worker_id: expires_at})
                 if skill_names_to_index:
                     pipe.delete(skills_key)
                     pipe.sadd(skills_key, *skill_names_to_index)
@@ -555,16 +552,9 @@ class RedisStorage(StorageBackend):
                             skill_names_to_index = []
                             for skill in supported_skills:
                                 name = skill.get("name")
-                                skill_type = skill.get("type")
                                 if name:
                                     skill_names_to_index.append(name)
                                     pipe.zadd(f"orchestrator:index:workers:skill:{name}", {worker_id: expires_at})
-                                    if skill_type and skill_type != name:
-                                        skill_names_to_index.append(skill_type)
-                                        pipe.zadd(
-                                            f"orchestrator:index:workers:skill:{skill_type}",
-                                            {worker_id: expires_at},
-                                        )
                             if skill_names_to_index:
                                 pipe.delete(skills_key)
                                 pipe.sadd(skills_key, *skill_names_to_index)

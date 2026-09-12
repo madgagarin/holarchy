@@ -4,9 +4,12 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
+from logging import getLogger
 from os import getenv
 from secrets import token_hex
 from socket import gethostname
+
+logger = getLogger(__name__)
 
 
 class Config:
@@ -31,17 +34,42 @@ class Config:
         self.CLIENT_API_PREFIX: str = getenv("CLIENT_API_PREFIX", "api").strip("/")
         self.ENABLE_CLIENT_API: bool = getenv("ENABLE_CLIENT_API", "true").lower() == "true"
 
-        self.CLIENT_TOKEN: str = getenv(
-            "CLIENT_TOKEN",
-            "secure-orchestrator-token",
-        )
-        self.GLOBAL_WORKER_TOKEN: str = getenv("GLOBAL_WORKER_TOKEN", "secure-worker-token")
+        env_mode = (getenv("ENVIRONMENT") or getenv("ENV") or "development").lower()
+        self.ENVIRONMENT: str = env_mode
 
-        secret_key = getenv("ORCHESTRATOR_SECRET_KEY", "") or getenv("ORCHESTRATOR_INTERNAL_KEY", "")
-        if not secret_key:
-            secret_key = token_hex(32)
+        client_token = getenv("CLIENT_TOKEN")
+        worker_token = getenv("GLOBAL_WORKER_TOKEN")
+        secret_key = getenv("ORCHESTRATOR_SECRET_KEY", "")
+
+        if env_mode in ("production", "prod"):
+            if not client_token or client_token == "secure-orchestrator-token":
+                raise ValueError(
+                    "Insecure production configuration: CLIENT_TOKEN must be set explicitly and not use defaults."
+                )
+            if not worker_token or worker_token == "secure-worker-token":
+                raise ValueError(
+                    "Insecure production configuration: "
+                    "GLOBAL_WORKER_TOKEN must be set explicitly and not use defaults."
+                )
+            if not secret_key:
+                raise ValueError(
+                    "Insecure production configuration: ORCHESTRATOR_SECRET_KEY must be set explicitly in production."
+                )
+        else:
+            if not client_token:
+                logger.warning("Using default CLIENT_TOKEN. Set CLIENT_TOKEN environment variable in production.")
+                client_token = "secure-orchestrator-token"
+            if not worker_token:
+                logger.warning(
+                    "Using default GLOBAL_WORKER_TOKEN. Set GLOBAL_WORKER_TOKEN environment variable in production."
+                )
+                worker_token = "secure-worker-token"
+            if not secret_key:
+                secret_key = token_hex(32)
+
+        self.CLIENT_TOKEN: str = client_token
+        self.GLOBAL_WORKER_TOKEN: str = worker_token
         self.ORCHESTRATOR_SECRET_KEY: str = secret_key
-        self.ORCHESTRATOR_INTERNAL_KEY: str = secret_key
 
         self.AUDIT_SALT: str = getenv("AUDIT_SALT", "default_audit_salt")
 

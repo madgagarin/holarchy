@@ -86,7 +86,6 @@ class ActionFactory:
     def dispatch_parallel(self, tasks: list[dict[str, Any]], aggregate_into: str) -> None:
         """
         Dispatches multiple tasks for parallel execution.
-        Sets a default 'skill_version' if missing for backward compatibility.
         """
         self._check_for_existing_action()
 
@@ -98,10 +97,6 @@ class ActionFactory:
                     raise PermissionError(
                         f"Task type '{t_type}' is not permitted by job policy. Allowed skills: {allowed_skills}"
                     )
-
-        for task in tasks:
-            if "skill_version" not in task:
-                task["skill_version"] = "1.0.0"
 
         logger.debug(
             f"Job {self._job_id}: Dispatching {len(tasks)} tasks in parallel, aggregating into '{aggregate_into}'"

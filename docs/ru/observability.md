@@ -116,6 +116,7 @@ from holarchy.telemetry import trace
 
 tracer = trace.get_tracer("my_blueprint")
 
+
 @bp.handler
 async def process_data(initial_data, actions):
     # 1. Создаем кастомный спан внутри шага

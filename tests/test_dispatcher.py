@@ -9,11 +9,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 from pytest import fixture, mark, raises
 from rxon.models import InstalledArtifact, Resources
+from rxon.security import verify_signature
 from rxon.utils import from_dict
-from src.holarchy.config import Config
-from src.holarchy.context import ActionFactory
-from src.holarchy.dispatcher import Dispatcher
-from src.holarchy.storage.base import StorageBackend
+
+from holarchy.config import Config
+from holarchy.context import ActionFactory
+from holarchy.dispatcher import Dispatcher
+from holarchy.storage.base import StorageBackend
 
 # --- Sample Worker Data ---
 GPU_WORKER = {
@@ -410,3 +412,115 @@ async def test_dispatcher_candidates_limit(mock_storage, mock_config):
 
     # Should be called exactly 2 times because limit is 2 and they all comply
     assert dispatcher._check_worker_compliance.call_count == 2
+
+
+@mark.asyncio
+async def test_dispatcher_skill_cost_edge_cases(mock_storage, mock_config):
+    """Checks that Dispatcher safely handles None, list, int, and zero costs without crashing."""
+    dispatcher = Dispatcher(mock_storage, mock_config, metrics=MagicMock())
+    workers = [
+        {"worker_id": "w1", "capabilities": {"cost_per_skill": []}},
+        {"worker_id": "w2", "capabilities": {"cost_per_skill": None}},
+        {"worker_id": "w3", "capabilities": None},
+        {"worker_id": "w4", "capabilities": {"cost_per_skill": {"t1": 10.0}}},
+    ]
+    selected = dispatcher._select_default(workers, "t1")
+    assert selected["worker_id"] == "w4"
+
+    cheapest = dispatcher._select_cheapest(workers, "t1")
+    assert cheapest["worker_id"] == "w4"
+
+    best = dispatcher._select_best_value(workers, "t1")
+    assert best["worker_id"] == "w4"
+
+    assert Dispatcher._get_worker_skill_cost({"capabilities": None}, "t1") == float("inf")
+    assert Dispatcher._get_worker_skill_cost({"capabilities": {"cost_per_skill": []}}, "t1") == float("inf")
+    assert Dispatcher._get_worker_skill_cost({"capabilities": {"cost_per_skill": {"t1": 0.0}}}, "t1") == 0.0
+    assert Dispatcher._get_worker_skill_cost({"capabilities": {"cost_per_skill": {"t1": 5}}}, "t1") == 5.0
+
+
+@mark.asyncio
+async def test_dispatcher_task_hmac_signing():
+    """Verifies that Dispatcher cryptographically signs outgoing TaskPayload when secret is set."""
+    storage = AsyncMock()
+    config = MagicMock()
+    config.ORCHESTRATOR_SECRET_KEY = "secret_sign_key_999"
+
+    worker = {
+        "worker_id": "w1",
+        "supported_skills": [{"name": "test_task"}],
+        "capabilities": {"cost_per_skill": {"test_task": 1.0}},
+    }
+    storage.find_workers_by_hot_skill.return_value = []
+    storage.find_workers_for_skill.return_value = ["w1"]
+    storage.get_workers.return_value = [worker]
+    storage.get_worker_queue_length.return_value = 0
+
+    dispatcher = Dispatcher(storage, config, metrics=MagicMock())
+    job_state = {
+        "id": "job-100",
+        "blueprint_name": "bp1",
+        "current_task": "step1",
+        "step": 1,
+        "metadata": {"user": "alice"},
+    }
+    task_info = {"type": "test_task", "params": {"param": 1}}
+
+    await dispatcher.dispatch(job_state, task_info)
+    assert storage.enqueue_task_for_worker.called
+    task = storage.enqueue_task_for_worker.call_args[0][1]
+    assert task is not None
+    assert "sig" in task
+    assert isinstance(task["sig"], str)
+    assert task["timestamp"] is not None
+    assert isinstance(task["timestamp"], int)
+    assert task["metadata"] == {"user": "alice"}
+
+    assert verify_signature(task, task["sig"], "secret_sign_key_999", ignore_fields=["sig", "orchestrator_signature"])
+
+
+@mark.asyncio
+async def test_dispatcher_task_tampered_signature_rejected():
+    """Verifies that tampering with TaskPayload or verifying with wrong secret fails."""
+    storage = AsyncMock()
+    config = MagicMock()
+    config.ORCHESTRATOR_SECRET_KEY = "genuine_secret_key"
+
+    worker = {
+        "worker_id": "w1",
+        "supported_skills": [{"name": "secure_task"}],
+    }
+    storage.find_workers_by_hot_skill.return_value = []
+    storage.find_workers_for_skill.return_value = ["w1"]
+    storage.get_workers.return_value = [worker]
+    storage.get_worker_queue_length.return_value = 0
+
+    dispatcher = Dispatcher(storage, config, metrics=MagicMock())
+    job_state = {"id": "job-tamper-1", "metadata": {"role": "admin"}}
+    task_info = {"type": "secure_task", "params": {"cmd": "run_safely"}}
+
+    await dispatcher.dispatch(job_state, task_info)
+    task = storage.enqueue_task_for_worker.call_args[0][1]
+    original_sig = task["sig"]
+
+    assert verify_signature(task, original_sig, "genuine_secret_key", ignore_fields=["sig", "orchestrator_signature"])
+
+    tampered_task = dict(task)
+    tampered_task["params"] = {"cmd": "run_maliciously"}
+    assert not verify_signature(
+        tampered_task, original_sig, "genuine_secret_key", ignore_fields=["sig", "orchestrator_signature"]
+    )
+
+    tampered_ts = dict(task)
+    tampered_ts["timestamp"] = int(task["timestamp"]) + 100
+    assert not verify_signature(
+        tampered_ts, original_sig, "genuine_secret_key", ignore_fields=["sig", "orchestrator_signature"]
+    )
+
+    assert not verify_signature(
+        task, original_sig, "wrong_attacker_secret", ignore_fields=["sig", "orchestrator_signature"]
+    )
+
+    assert not verify_signature(
+        task, "corrupted_sig_hex_12345", "genuine_secret_key", ignore_fields=["sig", "orchestrator_signature"]
+    )

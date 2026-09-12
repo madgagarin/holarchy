@@ -34,10 +34,12 @@ from rxon.constants import (
     COMMAND_CANCEL_TASK,
     JOB_STATUS_CANCELLED,
     JOB_STATUS_FAILED,
+    JOB_STATUS_FINISHED,
     JOB_STATUS_QUARANTINED,
     JOB_STATUS_WAITING_FOR_PARALLEL,
     JOB_STATUS_WAITING_FOR_WORKER,
     PROTOCOL_VERSION,
+    TERMINAL_STATES,
 )
 from rxon.schema import extract_skill_contract
 from rxon.security import create_server_ssl_context
@@ -73,7 +75,7 @@ from .client_config_loader import load_client_configs_to_redis
 from .compression import compression_middleware
 from .config import Config
 from .dispatcher import Dispatcher
-from .executor import TERMINAL_STATES, JobExecutor
+from .executor import JobExecutor
 from .health_checker import HealthChecker
 from .history.base import HistoryStorageBase
 from .history.noop import NoOpHistoryStorage
@@ -709,10 +711,17 @@ class OrchestratorEngine:
             if not task_info:
                 logger.error(f"Cannot retry task {task_id} for job {job_id}: missing task info in job state.")
                 if not is_parallel:
-                    job_state["status"] = JOB_STATUS_FAILED
-                    job_state["error_message"] = f"Cannot retry {task_id}: original task info not found."
-                    await self.storage.save_job_state(job_id, job_state)
-                    await self.send_job_webhook(job_state, "job_failed")
+
+                    async def _apply_missing_fail(state: dict[str, Any]) -> dict[str, Any]:
+                        if state.get("status") in (JOB_STATUS_FINISHED, JOB_STATUS_FAILED, JOB_STATUS_QUARANTINED):
+                            return state
+                        state["status"] = JOB_STATUS_FAILED
+                        state["error_message"] = f"Cannot retry {task_id}: original task info not found."
+                        return state
+
+                    updated_state = await self.storage.update_job_state_atomic(job_id, _apply_missing_fail)
+                    if updated_state.get("status") == JOB_STATUS_FAILED:
+                        await self.send_job_webhook(updated_state, "job_failed")
                 return
 
             now_mono = get_running_loop().time()
@@ -735,11 +744,29 @@ class OrchestratorEngine:
             logger.critical(
                 f"Task {task_id} for job {job_id} has failed {max_retries + 1} times. Moving to quarantine."
             )
-            job_state["status"] = JOB_STATUS_QUARANTINED
-            job_state["error_message"] = f"Task {task_id} failed after {max_retries + 1} attempts: {error_message}"
-            await self.storage.save_job_state(job_id, job_state)
-            await self.storage.quarantine_job(job_id)
-            await self.send_job_webhook(job_state, "job_quarantined")
+            err_msg = f"Task {task_id} failed after {max_retries + 1} attempts: {error_message}"
+
+            async def _apply_quarantine(state: dict[str, Any]) -> dict[str, Any]:
+                if state.get("status") in TERMINAL_STATES:
+                    return state
+                state["status"] = JOB_STATUS_QUARANTINED
+                state["error_message"] = err_msg
+                return state
+
+            if hasattr(self.storage, "update_job_state_atomic"):
+                res = self.storage.update_job_state_atomic(job_id, _apply_quarantine)
+                if hasattr(res, "__await__"):
+                    updated_state = await res
+                else:
+                    updated_state = await _apply_quarantine(job_state)
+                    await self.storage.save_job_state(job_id, updated_state)
+            else:
+                updated_state = await _apply_quarantine(job_state)
+                await self.storage.save_job_state(job_id, updated_state)
+
+            if updated_state and updated_state.get("status") == JOB_STATUS_QUARANTINED:
+                await self.storage.quarantine_job(job_id)
+                await self.send_job_webhook(updated_state, "job_quarantined")
 
     async def send_job_webhook(self, job_state: dict[str, Any], event: str) -> None:
         """Sends a webhook notification for a job event."""
@@ -824,11 +851,28 @@ class OrchestratorEngine:
             task_id = str(job_state.get("current_task_id") or job_id)
             await self.handle_task_failure(job_state, task_id, error_message)
         else:
-            job_state["status"] = JOB_STATUS_FAILED
-            job_state["error_message"] = error_message
-            await self.storage.save_job_state(job_id, job_state)
-            await self.send_job_webhook(job_state, "job_failed")
-            self.metrics.jobs_failed_total.add(1, {LABEL_BLUEPRINT: blueprint_name})
+
+            async def _apply_timeout(state: dict[str, Any]) -> dict[str, Any]:
+                if state.get("status") in TERMINAL_STATES:
+                    return state
+                state["status"] = JOB_STATUS_FAILED
+                state["error_message"] = error_message
+                return state
+
+            if hasattr(self.storage, "update_job_state_atomic"):
+                res = self.storage.update_job_state_atomic(job_id, _apply_timeout)
+                if hasattr(res, "__await__"):
+                    updated_state = await res
+                else:
+                    updated_state = await _apply_timeout(job_state)
+                    await self.storage.save_job_state(job_id, updated_state)
+            else:
+                updated_state = await _apply_timeout(job_state)
+                await self.storage.save_job_state(job_id, updated_state)
+
+            if updated_state and updated_state.get("status") == JOB_STATUS_FAILED:
+                await self.send_job_webhook(updated_state, "job_failed")
+                self.metrics.jobs_failed_total.add(1, {LABEL_BLUEPRINT: blueprint_name})
 
     async def cancel_job(self, job_id: str) -> bool:
         """Cancels a job and its active tasks."""

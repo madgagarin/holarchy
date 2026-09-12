@@ -226,3 +226,16 @@ Para minimizar la sobrecarga de CPU durante los heartbeats frecuentes, el Orques
 | `S3_MAX_CONCURRENCY` | Máximo de conexiones concurrentes a S3 para todo el clúster.             | `100`                      |
 | `S3_AUTO_CLEANUP`    | Si es `true`, borra automáticamente archivos S3 al finalizar el trabajo. | `true`                     |
 | `TASK_FILES_DIR`     | Directorio local para almacenamiento temporal de archivos.               | `/tmp/holarchy-payloads` |
+
+---
+
+## 4. Control Estricto de Seguridad en Producción
+
+Al ejecutarse en un entorno de producción (`ENVIRONMENT=production` o `ENV=production`), el Orquestador aplica políticas estrictas de **Zero Trust & Fail-Safe** durante el inicio:
+
+1. **`CLIENT_TOKEN`**: Debe establecerse explícitamente en una cadena personalizada segura. El valor predeterminado inseguro (`"secure-orchestrator-token"`) es rechazado.
+2. **`GLOBAL_WORKER_TOKEN`**: Debe establecerse explícitamente en una cadena personalizada segura. El valor predeterminado inseguro (`"secure-worker-token"`) es rechazado.
+3. **`ORCHESTRATOR_SECRET_KEY`**: Debe establecerse explícitamente. Los tokens efímeros generados automáticamente están prohibidos en producción porque invalidan las firmas al reiniciar el servidor e impiden el escalado horizontal entre múltiples instancias del orquestador.
+
+Si no se cumple alguno de estos requisitos, `Config()` lanza un `ValueError` inmediatamente al iniciar, evitando la ejecución en un estado desprotegido.
+

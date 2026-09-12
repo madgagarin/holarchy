@@ -2,7 +2,7 @@
 
 Este documento describe la arquitectura de alto nivel del sistema de orquestación, sus componentes clave y su interacción.
 
-> **Nota:** Este documento describe la **implementación en Python** del estándar HLN. Para la especificación arquitectónica de alto nivel, consulte el paquete `hln`.
+> **Nota:** Este documento describe la **implementación en Python** del estándar HLN. Para la especificación arquitectónica de alto nivel, consulte el paquete [`hln`](https://github.com/madgagarin/hln).
 
 [EN](https://github.com/madgagarin/holarchy/blob/main/docs/architecture.md) | **ES** | [RU](https://github.com/madgagarin/holarchy/blob/main/docs/ru/architecture.md)
 

@@ -13,6 +13,7 @@ dist/
 wheels/
 *.egg
 *.whl
+uv.lock
 
 # Environments
 .env

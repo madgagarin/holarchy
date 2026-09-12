@@ -13,32 +13,31 @@
 ```python
 from holarchy import Blueprint
 
-simple_pipeline = Blueprint(
-    name="simple_linear_flow",
-    api_version="v1",
-    api_endpoint="jobs/simple_flow"
-)
+simple_pipeline = Blueprint(name="simple_linear_flow", api_version="v1", api_endpoint="jobs/simple_flow")
+
 
 @simple_pipeline.handler(is_start=True)
 async def start(initial_data: dict, actions: ActionFactory):
     """Используем внедрение зависимостей для чистого кода."""
     actions.go_to("step_A")
 
+
 @simple_pipeline.handler("step_A")
 async def handler_A(initial_data: dict, actions: ActionFactory):
     actions.dispatch_task(
-        task_type="simple_task",
-        params=initial_data,
-        transitions={"success": "step_B", "failure": "failed"}
+        task_type="simple_task", params=initial_data, transitions={"success": "step_B", "failure": "failed"}
     )
+
 
 @simple_pipeline.handler("step_B")
 async def handler_B(context, actions):
     actions.go_to("finished")
 
+
 @simple_pipeline.handler(is_end=True)
 async def finished(context, actions):
     print(f"Пайплайн {context.job_id} успешно завершен.")
+
 
 @simple_pipeline.handler(is_end=True)
 async def failed(context, actions):
@@ -52,18 +51,15 @@ async def failed(context, actions):
 ```python
 from holarchy import Blueprint
 
-moderation_pipeline = Blueprint(
-    name="moderation_flow",
-    api_version="v1",
-    api_endpoint="jobs/moderation_flow"
-)
+moderation_pipeline = Blueprint(name="moderation_flow", api_version="v1", api_endpoint="jobs/moderation_flow")
+
 
 @moderation_pipeline.handler(is_start=True)
 async def generate_data(context, actions):
     actions.dispatch_task(
         task_type="data_generation",
         params=context.initial_data,
-        transitions={"success": "awaiting_approval", "failure": "failed"}
+        transitions={"success": "awaiting_approval", "failure": "failed"},
     )
 
 
@@ -71,24 +67,25 @@ async def generate_data(context, actions):
 async def process_approved_data(context, actions):
     actions.go_to("finished")
 
+
 @moderation_pipeline.handler(is_end=True)
 async def rejected_by_moderator(context, actions):
     print(f"Job {context.job_id} был отклонен модератором.")
 
+
 @moderation_pipeline.handler(is_end=True)
 async def failed(context, actions):
     print(f"Job {context.job_id} завершился с ошибкой.")
+
 
 @moderation_pipeline.handler
 async def awaiting_approval(context, actions):
     actions.await_human_approval(
         integration="telegram",
         message=f"Требуется утверждение для Job {context.job_id}",
-        transitions={
-            "approved": "process_approved_data",
-            "rejected": "rejected_by_moderator"
-        }
+        transitions={"approved": "process_approved_data", "rejected": "rejected_by_moderator"},
     )
+
 
 @moderation_pipeline.handler
 async def process_approved_data(context, actions):
@@ -111,11 +108,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-parallel_bp = Blueprint(
-    name="parallel_flow_example",
-    api_version="v1",
-    api_endpoint="/jobs/parallel_example"
-)
+parallel_bp = Blueprint(name="parallel_flow_example", api_version="v1", api_endpoint="/jobs/parallel_example")
+
 
 @parallel_bp.handler(is_start=True)
 async def start_parallel_tasks(context, actions):
@@ -129,15 +123,16 @@ async def start_parallel_tasks(context, actions):
     actions.dispatch_task(
         task_type="task_A",
         params={"input": "data_for_A"},
-        transitions={"success": "aggregate_results", "failure": "failed"}
+        transitions={"success": "aggregate_results", "failure": "failed"},
     )
 
     # Запускаем задачу B
     actions.dispatch_task(
         task_type="task_B",
         params={"input": "data_for_B"},
-        transitions={"success": "aggregate_results", "failure": "failed"}
+        transitions={"success": "aggregate_results", "failure": "failed"},
     )
+
 
 @parallel_bp.aggregator
 async def aggregate_results(context, actions):
@@ -156,16 +151,17 @@ async def aggregate_results(context, actions):
     logger.info(f"Job {context.job_id}: Агрегированные данные: {processed_results}")
     actions.go_to("end")
 
+
 @parallel_bp.handler(is_end=True)
 async def end_flow(context, actions):
     final_data = context.state_history.get("aggregated_data")
     logger.info(f"Job {context.job_id}: Процесс завершен. Финальные данные: {final_data}")
 
+
 @parallel_bp.handler(is_end=True)
 async def failed(context, actions):
     logger.error(f"Job {context.job_id} завершился с ошибкой.")
-
-````
+```
 
 _Примечание: Если хотя бы одна из параллельных задач завершится с ошибкой (перейдет в состояние `failed`), то хендлер-агрегатор не будет вызван, и весь `Job` сразу перейдет в состояние `failed`._
 
@@ -222,24 +218,24 @@ _Примечание: Эта конфигурация выполняется и
 ```python
 from holarchy import Blueprint, F
 
-multilingual_pipeline = Blueprint(
-    name="multilingual_flow",
-    api_version="v1",
-    api_endpoint="jobs/multilingual_flow"
-)
+multilingual_pipeline = Blueprint(name="multilingual_flow", api_version="v1", api_endpoint="jobs/multilingual_flow")
+
 
 @multilingual_pipeline.handler(is_start=True)
 async def start_multilingual(context, actions):
     # Этот шаг просто передает управление дальше, где сработает условная логика
     actions.go_to("process_text")
 
+
 @multilingual_pipeline.handler("process_text", F.initial_data["language"] == "en")
 async def process_english_text(context, actions):
     actions.dispatch_task(task_type="process_en", params=context.initial_data, transitions={"success": "finished"})
 
+
 @multilingual_pipeline.handler("process_text", F.initial_data["language"] == "de")
 async def process_german_text(context, actions):
     actions.dispatch_task(task_type="process_de", params=context.initial_data, transitions={"success": "finished"})
+
 
 @multilingual_pipeline.handler("finished", is_end=True)
 async def multilingual_finished(context, actions):
@@ -253,11 +249,8 @@ async def multilingual_finished(context, actions):
 ```python
 from holarchy import Blueprint
 
-critical_pipeline = Blueprint(
-    name="critical_flow",
-    api_version="v1",
-    api_endpoint="jobs/critical_flow"
-)
+critical_pipeline = Blueprint(name="critical_flow", api_version="v1", api_endpoint="jobs/critical_flow")
+
 
 @critical_pipeline.handler(is_start=True)
 async def start_critical_task(context, actions):
@@ -266,8 +259,9 @@ async def start_critical_task(context, actions):
         params=context.initial_data,
         # Указываем стратегию выбора воркера
         dispatch_strategy="least_connections",
-        transitions={"success": "finished"}
+        transitions={"success": "finished"},
     )
+
 
 @critical_pipeline.handler("finished", is_end=True)
 async def critical_finished(context, actions):
@@ -285,11 +279,8 @@ _Примечание: Доступные стратегии: `default`, `round_
 ```python
 from holarchy import Blueprint
 
-priority_pipeline = Blueprint(
-    name="priority_flow",
-    api_version="v1",
-    api_endpoint="jobs/priority_flow"
-)
+priority_pipeline = Blueprint(name="priority_flow", api_version="v1", api_endpoint="jobs/priority_flow")
+
 
 @priority_pipeline.handler(is_start=True)
 async def start_priority_task(context, actions):
@@ -301,13 +292,13 @@ async def start_priority_task(context, actions):
         params=context.initial_data,
         # Срочные задачи получают приоритет 10, остальные - 0
         priority=10.0 if is_urgent else 0.0,
-        transitions={"success": "finished"}
+        transitions={"success": "finished"},
     )
+
 
 @priority_pipeline.handler("finished", is_end=True)
 async def priority_finished(context, actions):
     print(f"Task {context.job_id} finished.")
-
 ```
 
 _Примечание: Если несколько задач имеют одинаковый приоритет, они будут выполняться в порядке поступления (FIFO) в рамках этого приоритета._
@@ -320,10 +311,9 @@ _Примечание: Если несколько задач имеют оди�
 from holarchy import Blueprint
 
 cost_optimized_pipeline = Blueprint(
-    name="cost_optimized_flow",
-    api_version="v1",
-    api_endpoint="jobs/cost_optimized_flow"
+    name="cost_optimized_flow", api_version="v1", api_endpoint="jobs/cost_optimized_flow"
 )
+
 
 @cost_optimized_pipeline.handler(is_start=True)
 async def start_cost_optimized_task(context, actions):
@@ -334,12 +324,14 @@ async def start_cost_optimized_task(context, actions):
         dispatch_strategy="cheapest",
         # Но только если его стоимость ($/сек) не более 0.05
         max_cost=0.05,
-        transitions={"success": "finished", "failure": "too_expensive"}
+        transitions={"success": "finished", "failure": "too_expensive"},
     )
+
 
 @cost_optimized_pipeline.handler("finished", is_end=True)
 async def cost_optimized_finished(context, actions):
     print("Job finished with cost optimization.")
+
 
 @cost_optimized_pipeline.handler("too_expensive", is_end=True)
 async def cost_optimized_failed(context, actions):
@@ -363,11 +355,7 @@ from holarchy import Blueprint
 
 # 1. Создаем блупринт и добавляем к нему data_store с именем 'request_counter'.
 #    Мы также можем задать начальные значения.
-analytics_bp = Blueprint(
-    name="analytics_flow",
-    api_version="v1",
-    api_endpoint="jobs/analytics"
-)
+analytics_bp = Blueprint(name="analytics_flow", api_version="v1", api_endpoint="jobs/analytics")
 analytics_bp.add_data_store("request_counter", {"total_requests": 0})
 
 
@@ -384,11 +372,11 @@ async def count_request(context, actions):
 
     actions.go_to("finished")
 
+
 @analytics_bp.handler("finished", is_end=True)
 async def show_result(context, actions):
     request_num = context.state_history.get("request_number")
     print(f"Job {context.job_id} был обработан. Это был запрос номер {request_num}.")
-
 ```
 
 **Как это работает:**
@@ -422,7 +410,7 @@ async def process_video(params: dict, task_id: str, job_id: str) -> dict:
     total_frames = 1000
     for frame in range(total_frames):
         # ... логика обработки кадра ...
-        await asyncio.sleep(0.1) # Имитация работы
+        await asyncio.sleep(0.1)  # Имитация работы
 
         # Каждые 100 кадров проверяем, не пора ли остановиться
         if frame % 100 == 0:
@@ -440,11 +428,8 @@ async def process_video(params: dict, task_id: str, job_id: str) -> dict:
 ```python
 from holarchy import Blueprint
 
-cancellable_pipeline = Blueprint(
-    name="cancellable_flow",
-    api_version="v1",
-    api_endpoint="jobs/cancellable"
-)
+cancellable_pipeline = Blueprint(name="cancellable_flow", api_version="v1", api_endpoint="jobs/cancellable")
+
 
 @cancellable_pipeline.handler(is_start=True)
 async def start_long_task(context, actions):
@@ -454,17 +439,20 @@ async def start_long_task(context, actions):
         transitions={
             "success": "finished_successfully",
             "failure": "task_failed",
-            "cancelled": "task_cancelled" # Новый переход
-        }
+            "cancelled": "task_cancelled",  # Новый переход
+        },
     )
+
 
 @cancellable_pipeline.handler(is_end=True)
 async def finished_successfully(context, actions):
     print(f"Job {context.job_id} успешно завершен.")
 
+
 @cancellable_pipeline.handler(is_end=True)
 async def task_failed(context, actions):
     print(f"Job {context.job_id} завершился с ошибкой.")
+
 
 @cancellable_pipeline.handler(is_end=True)
 async def task_cancelled(context, actions):
@@ -512,10 +500,7 @@ async def train_model_handler(params: dict, task_id: str, job_id: str) -> dict:
         await asyncio.sleep(5)
         # Отправляем прогресс после каждой эпохи
         await worker.send_progress(
-            task_id=task_id,
-            job_id=job_id,
-            progress=(epoch + 1) / 10,
-            message=f"Epoch {epoch + 1} completed"
+            task_id=task_id, job_id=job_id, progress=(epoch + 1) / 10, message=f"Epoch {epoch + 1} completed"
         )
     return {"status": "success"}
 ```
@@ -552,11 +537,8 @@ async def train_model_handler(params: dict, task_id: str, job_id: str) -> dict:
 ```python
 from holarchy import Blueprint
 
-s3_ops_bp = Blueprint(
-    name="s3_ops_flow",
-    api_version="v1",
-    api_endpoint="jobs/s3_ops"
-)
+s3_ops_bp = Blueprint(name="s3_ops_flow", api_version="v1", api_endpoint="jobs/s3_ops")
+
 
 @s3_ops_bp.handler(is_start=True)
 async def check_config(context, task_files, actions):
@@ -581,6 +563,7 @@ async def check_config(context, task_files, actions):
     else:
         actions.go_to("deep_processing")
 
+
 @s3_ops_bp.handler("fast_processing")
 async def fast_process(context, task_files, actions):
     # ... логика ...
@@ -593,7 +576,7 @@ async def fast_process(context, task_files, actions):
     # await task_files.upload("output_folder") # Загрузит локальную папку в s3://.../output_folder/
 
     actions.go_to("finished")
-````
+```
 
 ### **Рецепт 12b: Работа с большими файлами через S3 (Со стороны Воркера)**
 
@@ -621,6 +604,7 @@ SDK для Воркеров имеет встроенную поддержку S
 # my_video_worker.py
 import os
 from pathlib import Path
+
 
 @worker.skill("process_video_from_s3")
 async def process_video(params: dict, **kwargs) -> dict:
@@ -651,7 +635,7 @@ async def start_s3_task(context, actions):
         task_type="process_video_from_s3",
         # Мы передаем S3 URI
         params={"video_path": context.initial_data.get("s3_uri")},
-        transitions={"success": "finished"}
+        transitions={"success": "finished"},
     )
 ```
 
@@ -694,7 +678,6 @@ async def fetch_data(params: dict, **kwargs) -> dict:
     except APIAuthError:
         # Ключ API неверный, это постоянная проблема
         return {"status": "failure", "error_type": "PERMANENT_ERROR", "error": "Invalid API key"}
-
 ```
 
 #### **Шаг 2: Создание Блупринта**
@@ -709,9 +692,10 @@ async def start_api_call(context, actions):
         params=context.initial_data,
         transitions={
             "success": "finished_successfully",
-            "failure": "handle_failure" # Общий обработчик для всех ошибок
-        }
+            "failure": "handle_failure",  # Общий обработчик для всех ошибок
+        },
     )
+
 
 @error_handling_bp.handler(is_end=True)
 async def handle_failure(context, actions):
@@ -723,10 +707,6 @@ async def handle_failure(context, actions):
     else:
         print(f"Job {context.job_id} failed.")
 ```
-
-````
-
-`
 
 ### **Рецепт 14: Вложенные Блупринты (Sub-blueprints)**
 
@@ -742,6 +722,7 @@ from holarchy import Blueprint
 #    У него нет своего API-эндпоинта, он может быть запущен только из другого блупринта.
 text_processing_bp = Blueprint(name="text_processor")
 
+
 @text_processing_bp.handler("start", is_start=True)
 async def process(context, actions):
     # ... какая-то логика обработки текста ...
@@ -755,9 +736,11 @@ async def process(context, actions):
         context.state_history["processed_text"] = text.upper()
         actions.go_to("finished")
 
+
 @text_processing_bp.handler("finished", is_end=True)
 async def text_processing_finished(context, actions):
     pass
+
 
 @text_processing_bp.handler("failed", is_end=True)
 async def text_processing_failed(context, actions):
@@ -765,15 +748,13 @@ async def text_processing_failed(context, actions):
 
 
 # 2. Теперь создаем основной пайплайн, который будет его вызывать.
-main_pipeline = Blueprint(
-    name="main_flow",
-    api_version="v1",
-    api_endpoint="jobs/main_flow"
-)
+main_pipeline = Blueprint(name="main_flow", api_version="v1", api_endpoint="jobs/main_flow")
+
 
 @main_pipeline.handler("start", is_start=True)
 async def parent_start(context, actions):
     actions.go_to("process_user_text")
+
 
 @main_pipeline.handler
 async def process_user_text(context, actions):
@@ -781,8 +762,9 @@ async def process_user_text(context, actions):
     actions.run_blueprint(
         blueprint_name="text_processor",
         initial_data={"text": user_text},
-        transitions={"success": "final_step", "failure": "sub_job_failed"}
+        transitions={"success": "final_step", "failure": "sub_job_failed"},
     )
+
 
 @main_pipeline.handler
 async def final_step_handler(context, actions):
@@ -801,14 +783,17 @@ async def final_step_handler(context, actions):
 
     actions.go_to("finished")
 
+
 @main_pipeline.handler
 async def sub_job_failed_handler(context, actions):
     print("Sub-blueprint failed, handling failure in parent.")
     actions.go_to("failed")
 
+
 @main_pipeline.handler("finished", is_end=True)
 async def main_finished(context, actions):
     pass
+
 
 @main_pipeline.handler("failed", is_end=True)
 async def main_failed(context, actions):
@@ -836,25 +821,31 @@ from holarchy import Blueprint, F
 # Возьмем пайплайн с условной логикой из другого рецепта
 conditional_pipeline = Blueprint(name="conditional_flow")
 
+
 @conditional_pipeline.handler(is_start=True)
 async def start(context, actions):
     actions.go_to("process_data")
+
 
 @conditional_pipeline.handler("process_data", F.initial_data["type"] == "A")
 async def process_a(context, actions):
     actions.dispatch_task(task_type="task_a", transitions={"success": "finished", "failure": "failed"})
 
+
 @conditional_pipeline.handler("process_data", F.initial_data["type"] == "B")
 async def process_b(context, actions):
     actions.dispatch_task(task_type="task_b", transitions={"success": "finished", "failure": "failed"})
+
 
 @conditional_pipeline.handler(is_end=True)
 async def finished(context, actions):
     print("Finished.")
 
+
 @conditional_pipeline.handler(is_end=True)
 async def failed(context, actions):
     print("Failed.")
+
 
 # Теперь сгенерируем его диаграмму
 if __name__ == "__main__":
@@ -873,10 +864,7 @@ if __name__ == "__main__":
 ```python
 # Пример кода на стороне воркера, который отправляет только изменившиеся данные
 async def update_load(session, new_load):
-    await session.patch(
-        "http://orchestrator.host/_worker/workers/my-worker-id/status",
-        json={"load": new_load}
-    )
+    await session.patch("http://orchestrator.host/_worker/workers/my-worker-id/status", json={"load": new_load})
 ```
 
 ### **Рецепт 17: Управление квотами и конфигурацией клиентов**
@@ -911,11 +899,8 @@ languages = ["en"]
 ```python
 from holarchy import Blueprint
 
-premium_features_bp = Blueprint(
-    name="premium_flow",
-    api_version="v1",
-    api_endpoint="jobs/premium_flow"
-)
+premium_features_bp = Blueprint(name="premium_flow", api_version="v1", api_endpoint="jobs/premium_flow")
+
 
 @premium_features_bp.handler(is_start=True)
 async def start_premium_flow(context, actions):
@@ -926,24 +911,22 @@ async def start_premium_flow(context, actions):
     if client_config.get("plan") == "premium":
         # Для премиум-клиентов используем более мощный воркер
         actions.dispatch_task(
-            task_type="high_quality_generation",
-            params=context.initial_data,
-            transitions={"success": "finished"}
+            task_type="high_quality_generation", params=context.initial_data, transitions={"success": "finished"}
         )
     elif "en" in client_config.get("languages", []):
-         # Для бесплатных англоговорящих клиентов - стандартный воркер
+        # Для бесплатных англоговорящих клиентов - стандартный воркер
         actions.dispatch_task(
-            task_type="standard_quality_generation",
-            params=context.initial_data,
-            transitions={"success": "finished"}
+            task_type="standard_quality_generation", params=context.initial_data, transitions={"success": "finished"}
         )
     else:
         # Для остальных - ошибка
         actions.go_to("failed", error_message="Language not supported for your plan")
 
+
 @premium_features_bp.handler("finished", is_end=True)
 async def premium_finished(context, actions):
     pass
+
 
 @premium_features_bp.handler("failed", is_end=True)
 async def premium_failed(context, actions):
@@ -966,11 +949,8 @@ async def premium_failed(context, actions):
 ```python
 from holarchy import Blueprint
 
-validation_bp = Blueprint(
-    name="validation_example",
-    api_version="v1",
-    api_endpoint="jobs/validation"
-)
+validation_bp = Blueprint(name="validation_example", api_version="v1", api_endpoint="jobs/validation")
+
 
 @validation_bp.handler(is_start=True)
 async def validate_input(context, actions):
@@ -994,12 +974,13 @@ async def validate_input(context, actions):
     else:
         actions.go_to("process_other_document")
 
+
 # ... (другие хендлеры) ...
+
 
 @validation_bp.handler(is_end=True)
 async def invalid_input_failed(context, actions):
     print(f"Job {context.job_id} failed due to invalid input.")
-
 ```
 
 #### **Назначение `is_end=True` хендлеров**
@@ -1021,6 +1002,7 @@ import os
 finalization_bp = Blueprint(name="finalization_example")
 
 # ... (промежуточные шаги, которые могут привести к разным исходам) ...
+
 
 @finalization_bp.handler(is_end=True)
 async def cleanup_and_notify_success(context, actions):
@@ -1044,7 +1026,6 @@ async def handle_rejection(context, actions):
     rejection_reason = context.state_history.get("rejection_reason", "No reason provided")
     print(f"Job {context.job_id} was rejected. Reason: {rejection_reason}")
     # send_rejection_notification(context.initial_data.get("user_email"), rejection_reason)
-
 ```
 
 Использование `is_start` и `is_end` таким образом делает ваши пайплайны более структурированными, надежными и легкими для понимания.
@@ -1058,11 +1039,8 @@ async def handle_rejection(context, actions):
 ```python
 from holarchy.blueprint import Blueprint
 
-gpu_intensive_pipeline = Blueprint(
-    name="gpu_intensive_flow",
-    api_version="v1",
-    api_endpoint="jobs/gpu_flow"
-)
+gpu_intensive_pipeline = Blueprint(name="gpu_intensive_flow", api_version="v1", api_endpoint="jobs/gpu_flow")
+
 
 @gpu_intensive_pipeline.handler
 async def start_gpu_task(context, actions):
@@ -1072,16 +1050,10 @@ async def start_gpu_task(context, actions):
         # Диспетчер будет искать воркер, у которого в списке устройств (devices)
         # содержится подходящий GPU, а также есть нужный артефакт
         resource_requirements={
-            "resources": {
-                "devices": [
-                    {"type": "gpu", "model": "NVIDIA T4", "memory_gb": 16}
-                ]
-            },
-            "installed_artifacts": [
-                "stable-diffusion-1.5"
-            ]
+            "resources": {"devices": [{"type": "gpu", "model": "NVIDIA T4", "memory_gb": 16}]},
+            "installed_artifacts": ["stable-diffusion-1.5"],
         },
-        transitions={"success": "finished", "failure": "failed"}
+        transitions={"success": "finished", "failure": "failed"},
     )
 ```
 
@@ -1135,7 +1107,7 @@ event_data = {"status": "completed", "result": "ok"}
 # Вставляем запись, используя json.dumps для преобразования dict в строку
 cur.execute(
     "INSERT INTO job_history VALUES (?, ?, ?, ?)",
-    ("evt_123", "job_abc", "2024-01-01T12:00:00Z", json.dumps(event_data))
+    ("evt_123", "job_abc", "2024-01-01T12:00:00Z", json.dumps(event_data)),
 )
 
 # Сохраняем изменения
@@ -1164,10 +1136,10 @@ import asyncio
 import asyncpg
 import json
 
+
 async def main():
     # Подключаемся к PostgreSQL
-    conn = await asyncpg.connect(user='user', password='password',
-                                 database='db', host='127.0.0.1')
+    conn = await asyncpg.connect(user="user", password="password", database="db", host="127.0.0.1")
 
     # Создаем таблицу, используя нативный тип JSONB для эффективности
     await conn.execute("""
@@ -1185,18 +1157,18 @@ async def main():
     # Вставляем запись. asyncpg автоматически кодирует dict в JSONB.
     await conn.execute(
         "INSERT INTO job_history (event_id, job_id, timestamp, data) VALUES ($1, $2, NOW(), $3)",
-        "evt_456", "job_xyz", event_data
+        "evt_456",
+        "job_xyz",
+        event_data,
     )
 
     # Читаем данные. asyncpg автоматически декодирует JSONB в dict.
-    row = await conn.fetchrow(
-        "SELECT job_id, data FROM job_history WHERE event_id = $1",
-        "evt_456"
-    )
+    row = await conn.fetchrow("SELECT job_id, data FROM job_history WHERE event_id = $1", "evt_456")
     print(f"Job ID: {row['job_id']}, Data: {row['data']}")
 
     # Закрываем соединение
     await conn.close()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -1299,7 +1271,7 @@ _Примечание: Все события и прогресс из внутр
 **Задача:** Повысить безопасность за счет настройки уникального токена аутентификации для каждого воркера вместо использования единого общего секрета.
 
 **Концепция:**
-Система поддерживает гибридную модель аутентификации. Приоритет отдается индивидуальному токену, привязанному к `worker_id`. Если он не найден, система проверяет общий `WORKER_TOKEN` для обратной совместимости.
+Система поддерживает гибридную модель аутентификации: приоритет отдаётся индивидуальным токенам, привязанным к `worker_id` (через `workers.toml` или хранилище). Если индивидуальный токен не настроен, система проверяет общий кластерный секрет `GLOBAL_WORKER_TOKEN`.
 
 #### **Шаг 1: Конфигурация Оркестратора**
 

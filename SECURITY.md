@@ -8,7 +8,7 @@ We take security seriously and will respond to your report as soon as possible.
 
 ## Security Model
 
-This package adheres to the **HLN (Hierarchical Logic Network) Security Model**, which emphasizes:
+This package adheres to the **HLN (Holarchical Logic Network) Security Model**, which emphasizes:
 
 - **Zero Trust Architecture**
 - **Mutual TLS (mTLS)** for all connections.
