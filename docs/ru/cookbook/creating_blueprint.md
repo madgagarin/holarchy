@@ -1,173 +1,174 @@
 [EN](https://github.com/madgagarin/holarchy/blob/main/docs/cookbook/creating_blueprint.md) | [ES](https://github.com/madgagarin/holarchy/blob/main/docs/es/cookbook/creating_blueprint.md) | **RU**
 
-# Cookbook: Создание Блупринта (Пайплайна)
+# Рецепт: Создание современного Blueprint (Конвейера)
 
-Блупринты (`Blueprint`) — это основа для определения бизнес-логики в системе. Каждый блупринт представляет собой конечный автомат ("сценарий"), который Оркестратор будет выполнять.
+`Blueprint` в Holarchy описывает бизнес-процесс в виде конечного автомата (Finite State Machine, FSM). Каждый блупринт определяет состояния, переходы, политики безопасности, правила маршрутизации и контракты данных.
 
-Это руководство покажет, как создать простой, но полноценный пайплайн.
+В этом руководстве показано, как создать надежный, строго типизированный конвейер с использованием современных возможностей Holarchy.
 
-## Шаг 1: Создайте файл для блупринта
+---
 
-Рекомендуется хранить блупринты в отдельном файле, например, `my_service/blueprints.py`.
+## 1. Определение состояний через `StatesGroup`
 
-## Шаг 2: Определите блупринт
-
-Импортируйте `Blueprint` и создайте его экземпляр.
-
-- `name`: Уникальное имя блупринта.
-- `api_version`: Версия API (например, "v1").
-- `api_endpoint`: URL, по которому клиенты будут создавать задачи для этого пайплайна.
+Объединяйте состояния конвейера в именованный класс `StatesGroup`:
 
 ```python
-from holarchy import Blueprint
+from holarchy import State, StatesGroup
 
-# Создаем экземпляр блупринта
-order_pipeline = Blueprint(
+
+class OrderFlow(StatesGroup):
+    init = State()
+    validate = State()
+    fraud_check = State()
+    payment = State()
+    fulfill = State()
+    finalize = State()
+    failed = State()
+```
+
+Каждое состояние автоматически наследует строковый идентификатор без накладных расходов (`"OrderFlow:init"`), гарантируя прозрачную сериализацию в JSON/Redis и исключая ошибки в именах состояний.
+
+---
+
+## 2. Модели предметной области и инициализация Blueprint
+
+Holarchy нативно валидирует входящие запросы и выходы шагов через модели **Pydantic**:
+
+```python
+from pydantic import BaseModel, Field
+from holarchy import Blueprint, Context, Next, Skill
+
+
+class OrderInput(BaseModel):
+    order_id: int
+    customer_id: str
+    amount: float = Field(..., gt=0)
+    items: list[str]
+
+
+class OrderOutput(BaseModel):
+    order_id: int
+    receipt_id: str
+    status: str
+    amount: float
+
+
+# Создание экземпляра блупринта с привязкой к API
+order_bp = Blueprint(
     name="order_processing_flow",
     api_version="v1",
-    api_endpoint="/jobs/process_order",  # URL для создания задач
+    api_endpoint="/jobs/orders",
 )
 ```
 
-## Шаг 3: Определите состояния и обработчики
+---
 
-Каждый шаг в вашем процессе — это "состояние" с привязанной к нему функцией-"обработчиком".
+## 3. Определение шагов и 5 чистых зон хранения
 
-- Декоратор `@blueprint.handler` связывает функцию с состоянием.
-- **Начальное состояние** должно быть ровно одно, оно помечается флагом `is_start=True`.
-- **Конечных состояний** может быть несколько, они помечаются `is_end=True`.
+Holarchy разделяет состояние задачи на **5 изолированных зон**:
+- `input`: Исходные данные запроса (`OrderInput`).
+- `steps`: Результаты выполнения отдельных шагов (`steps["validate"]`).
+- `history`: Хронологическая последовательность переходов с таймстемпами.
+- `meta`: Метаданные задачи, приоритеты, тайм-ауты и заголовки (`meta["priority"]`).
+- `output`: Финальный результат терминального шага (`OrderOutput`).
 
-> **Совет:** Имя состояния теперь необязательно; если оно не указано, будет использовано имя функции.
-
-Обработчик получает аргументы через **внедрение зависимостей (Dependency Injection)**. Вы можете запрашивать:
-
-- `initial_data`: Исходные данные задачи.
-- `actions`: Объект `ActionFactory` для управления процессом.
-- `state_history`: Полная история состояний задачи.
-- `job_id`: Уникальный ID задачи.
+### Точка входа (`@bp.start`)
 
 ```python
-from holarchy import ActionFactory
+@order_bp.start(OrderFlow.init)
+async def init_step(order: OrderInput, ctx: Context) -> State:
+    """Точка входа автоматически получает валидированную модель OrderInput."""
+    print(f"Запуск заказа {order.order_id} для клиента {order.customer_id}")
+    return OrderFlow.validate
+```
+
+### Промежуточный шаг с автопереходом (`@bp.step`)
+
+```python
+@order_bp.step(
+    OrderFlow.validate,
+    on_success=OrderFlow.fraud_check,
+    risk="low",
+    permissions=["orders:read"],
+)
+async def validate_order(order: OrderInput):
+    """Выполняет валидацию. При успехе автоматически переходит в on_success."""
+    if not order.items:
+        raise ValueError("В заказе должен присутствовать хотя бы один товар")
+    return {"valid": True, "item_count": len(order.items)}
+```
+
+### Консультативная AI-маршрутизация (`@bp.decide`)
+
+```python
+@order_bp.decide(
+    OrderFlow.fraud_check,
+    candidates=[OrderFlow.payment, OrderFlow.failed],
+    fallback=OrderFlow.payment,
+    timeout_seconds=2.0,
+    risk="medium",
+)
+async def check_fraud(order: OrderInput, steps: dict) -> State:
+    """Консультативная проверка: выбор ограничен списком кандидатов candidates."""
+    if order.amount > 50_000:
+        return OrderFlow.failed
+    return OrderFlow.payment
+```
+
+### Распределение задач на воркеры через навыки (Skills)
+
+```python
+# Объявление навыка с тайм-аутом и fallback
+charge_skill = Skill("stripe_charge", timeout=10.0, fallback=OrderFlow.failed)
 
 
-@order_pipeline.handler(is_start=True)
-async def start(initial_data: dict, actions: ActionFactory, job_id: str):
-    """
-    Начальный обработчик. Вызывается при создании Job.
-    """
-    print(f"Job {job_id}: обработка заказа начата.")
-    print(f"Входные данные: {initial_data}")
+@order_bp.step(OrderFlow.payment, risk="high", permissions=["billing:charge"])
+async def process_payment(order: OrderInput):
+    """Отправляет задачу на исполнение зарегистрированному воркеру."""
+    return charge_skill(
+        amount=order.amount,
+        customer_id=order.customer_id,
+        next=OrderFlow.fulfill,
+        on_failure=OrderFlow.failed,
+    )
+```
 
-    # Переходим к следующему шагу
-    actions.go_to("dispatch_to_worker")
+### Терминальное состояние (`@bp.end`)
 
-
-@order_pipeline.handler
-async def dispatch_to_worker(initial_data: dict, actions: ActionFactory):
-    """
-    Этот обработчик отправляет задачу на выполнение воркеру.
-    """
-    # Приостанавливаем пайплайн и ждем результат от воркера
-    actions.dispatch_task(
-        task_type="check_inventory",  # Тип задачи, который поймет воркер
-        params={"items": initial_data.get("items")},
-        # Определяем, куда пойдет процесс в зависимости от ответа воркера
-        transitions={
-            "success": "inventory_ok",  # Если воркер вернет status="success"
-            "out_of_stock": "inventory_failed",  # Если воркер вернет кастомный статус
-            "failure": "generic_failure",  # Если воркер вернет status="failure"
-        },
+```python
+@order_bp.end(OrderFlow.fulfill, status="finished")
+async def fulfill_order(order: OrderInput, steps: dict) -> OrderOutput:
+    """Терминальный обработчик, возвращающий финализированную схему."""
+    payment_res = steps.get("OrderFlow:payment", {})
+    return OrderOutput(
+        order_id=order.order_id,
+        receipt_id=payment_res.get("receipt_id", f"rcpt_{order.order_id}"),
+        status="paid",
+        amount=order.amount,
     )
 
 
-@order_pipeline.handler
-async def inventory_ok(actions: ActionFactory, state_history: dict):
-    """
-    Вызывается, если воркер подтвердил наличие товара.
-    """
-    # Данные, возвращенные воркером, доступны в истории
-    print("Товар в наличии. Завершаем успешно.")
-    actions.go_to("finished_successfully")
-
-
-@order_pipeline.handler(is_end=True)
-async def inventory_failed(context):
-    """
-    Конечное состояние, если товара нет в наличии.
-    """
-    print(f"Job {context.job_id}: не удалось обработать заказ, товара нет на складе.")
-
-
-@order_pipeline.handler(is_end=True)
-async def generic_failure(context):
-    """
-    Конечное состояние для обработки общих сбоев.
-    """
-    print(f"Job {context.job_id}: произошла ошибка при обработке.")
-
-
-@order_pipeline.handler(is_end=True)
-async def finished_successfully(context):
-    """
-    Конечное состояние при успешном выполнении.
-    """
-    print(f"Job {context.job_id}: заказ успешно обработан!")
+@order_bp.end(OrderFlow.failed, status="failed")
+async def on_failed_order(order: OrderInput):
+    return {"status": "rejected", "order_id": order.order_id}
 ```
 
-## Шаг 4: Регистрация Блупринта
+---
 
-В главном файле вашего приложения, где вы запускаете `OrchestratorEngine`, зарегистрируйте созданный блупринт.
+## 4. Проверка целостности графа (Validate Integrity)
 
-Когда вы вызываете `register_blueprint()`, движок автоматически выполняет **проверку целостности**. Он гарантирует, что:
-
-1.  У блупринта есть ровно одно начальное состояние.
-2.  Все переходы ведут к существующим состояниям (нет "висячих" ссылок).
-3.  Все состояния достижимы из начального состояния (нет "мертвого кода").
-
-Если любая из этих проверок не пройдет, будет выброшено исключение `ValueError`, предотвращающее запуск приложения со сломанной конфигурацией.
+Проверяйте отсутствие изолированных состояний и висячих переходов:
 
 ```python
-# main.py
-from holarchy import OrchestratorEngine
-from my_service.blueprints import order_pipeline  # Импортируем наш блупринт
-
-# ... (настройка storage и config)
-
-engine = OrchestratorEngine(storage, config)
-
-# Регистрация блупринта в движке (Запускает валидацию!)
-engine.register_blueprint(order_pipeline)
-
-# Запуск движка
-engine.run()
+# Проверка графа при старте приложения или в юнит-тестах
+order_bp.validate()
 ```
 
-После этого вы сможете создавать задачи, отправляя POST-запросы на `/api/v1/jobs/process_order`.
+---
 
-## Шаг 5: Условные переходы с помощью `F`
+## 5. Автоматическая генерация OpenAPI 3.1 и интерактивная документация
 
-Чтобы маршрутизировать выполнение на основе контекста во время выполнения, передавайте выражение `FastF` из `fast-filter` напрямую в `@bp.handler()`. Условия компилируются на лету (JIT) для нулевых накладных расходов на горячих путях.
-
-```python
-from holarchy import F  # Автоматически реэкспортируется из fast-filter
-
-
-# Маршрутизация на основе initial_data во время выполнения
-@order_pipeline.handler("decide_priority", F.initial_data["priority"] == "express")
-async def handle_express(actions: ActionFactory):
-    actions.go_to("express_lane")
-
-
-# Резервный обработчик по умолчанию, если ни одно условие не совпало
-@order_pipeline.handler("decide_priority")
-async def handle_standard(actions: ActionFactory):
-    actions.go_to("standard_lane")
-```
-
-**Основные правила:**
-
-- Импортируйте `F` из `holarchy` (он реэкспортируется автоматически).
-- Передавайте любое выражение `FastF` напрямую в декоратор хендлера — а не строку.
-- Если ни одно условие не совпало **и** обработчик по умолчанию не зарегистрирован, будет вызвано исключение `ValueError`.
-- Отсутствующие атрибуты безопасно возвращают `False` и никогда не вызывают исключений.
-- Несколько условий для одного и того же состояния оцениваются в **порядке регистрации** — побеждает первое совпадение.
+После регистрации блупринта в оркестраторе документация формируется на лету:
+- **Интерактивный UI**: `http://localhost:8080/docs` отображает схему запроса, бейджи рисков, права доступа и интерактивную панель тестирования.
+- **Спецификация OpenAPI 3.1 JSON**: `http://localhost:8080/openapi.json` для Swagger UI, Scalar, Postman и кодогенераторов.
+- **Топология DAG**: `GET /api/v1/blueprints/{blueprint_name}/dag` для визуализации графа состояний.

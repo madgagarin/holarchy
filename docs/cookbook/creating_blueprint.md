@@ -1,171 +1,174 @@
 **EN** | [ES](https://github.com/madgagarin/holarchy/blob/main/docs/es/cookbook/creating_blueprint.md) | [RU](https://github.com/madgagarin/holarchy/blob/main/docs/ru/cookbook/creating_blueprint.md)
 
-# Cookbook: Creating a Blueprint (Pipeline)
+# Cookbook: Creating a Modern Blueprint (Pipeline)
 
-Blueprints (`Blueprint`) are the foundation for defining business logic in the system. Each blueprint represents a state machine ("script") that the Orchestrator will execute.
+A `Blueprint` in Holarchy defines the business process as a Finite State Machine (FSM). Each blueprint specifies states, transitions, security policies, advisory routing, and data contracts.
 
-This guide will show how to create a simple yet complete pipeline.
+This guide demonstrates creating a robust, type-safe, production-ready pipeline using modern Holarchy constructs.
 
-## Step 1: Create a Blueprint File
+---
 
-It is recommended to store blueprints in a separate file, e.g., `my_service/blueprints.py`.
+## 1. Defining FSM States with `StatesGroup`
 
-## Step 2: Define the Blueprint
-
-Import `Blueprint` and create an instance.
-
-- `name`: Unique blueprint name.
-- `api_version`: API version (e.g., "v1").
-- `api_endpoint`: URL where clients will create tasks for this pipeline.
+Group your pipeline states into an enumerated `StatesGroup`:
 
 ```python
-from holarchy import Blueprint
+from holarchy import State, StatesGroup
 
-# Create blueprint instance
-order_pipeline = Blueprint(
+
+class OrderFlow(StatesGroup):
+    init = State()
+    validate = State()
+    fraud_check = State()
+    payment = State()
+    fulfill = State()
+    finalize = State()
+    failed = State()
+```
+
+Each state automatically inherits zero-overhead string identity (`"OrderFlow:init"`) for transparent serialization while preventing typo bugs.
+
+---
+
+## 2. Setting Up Domain Models & Blueprint
+
+Holarchy natively validates incoming requests and step outputs against **Pydantic** models:
+
+```python
+from pydantic import BaseModel, Field
+from holarchy import Blueprint, Context, Next, Skill
+
+
+class OrderInput(BaseModel):
+    order_id: int
+    customer_id: str
+    amount: float = Field(..., gt=0)
+    items: list[str]
+
+
+class OrderOutput(BaseModel):
+    order_id: int
+    receipt_id: str
+    status: str
+    amount: float
+
+
+# Initialize blueprint with API endpoint
+order_bp = Blueprint(
     name="order_processing_flow",
     api_version="v1",
-    api_endpoint="/jobs/process_order",  # URL for task creation
+    api_endpoint="/jobs/orders",
 )
 ```
 
-## Step 3: Define States and Handlers
+---
 
-Each step in your process is a "state" with an attached "handler" function.
+## 3. Defining Steps with Clean Storage Zones & Dependency Injection
 
-- Decorator `@blueprint.handler("state_name")` binds function to state.
-- **Initial State** must be exactly one, marked with `is_start=True`.
-- **Final States** can be multiple, marked with `is_end=True`.
+Holarchy segments job state into **5 clean zones**:
+- `input`: The original client payload (`OrderInput`).
+- `steps`: Dictionary of individual step results (`steps["validate"]`).
+- `history`: Sequential list of state transitions with execution timestamps.
+- `meta`: Job metadata, priorities, timeouts, and headers (`meta["priority"]`).
+- `output`: Final result of the terminal step (`OrderOutput`).
 
-The handler receives arguments via **Dependency Injection**. You can request:
-
-- `initial_data`: Original job input.
-- `actions`: `ActionFactory` object to control the process.
-- `state_history`: Full job history.
-- `job_id`: Unique job ID.
+### Entry Point (`@bp.start`)
 
 ```python
-from holarchy import ActionFactory
+@order_bp.start(OrderFlow.init)
+async def init_step(order: OrderInput, ctx: Context) -> State:
+    """The entry point receives the validated OrderInput model automatically."""
+    print(f"Starting order {order.order_id} for customer {order.customer_id}")
+    return OrderFlow.validate
+```
+
+### Intermediate Step with Auto-Transition (`@bp.step`)
+
+```python
+@order_bp.step(
+    OrderFlow.validate,
+    on_success=OrderFlow.fraud_check,
+    risk="low",
+    permissions=["orders:read"],
+)
+async def validate_order(order: OrderInput):
+    """Executes validation. On completion, automatically transitions to on_success."""
+    if not order.items:
+        raise ValueError("Order must contain at least one item")
+    return {"valid": True, "item_count": len(order.items)}
+```
+
+### Advisory Decision Routing (`@bp.decide`)
+
+```python
+@order_bp.decide(
+    OrderFlow.fraud_check,
+    candidates=[OrderFlow.payment, OrderFlow.failed],
+    fallback=OrderFlow.payment,
+    timeout_seconds=2.0,
+    risk="medium",
+)
+async def check_fraud(order: OrderInput, steps: dict) -> State:
+    """Advisory check: host restricts transition strictly to candidate states."""
+    if order.amount > 50_000:
+        return OrderFlow.failed
+    return OrderFlow.payment
+```
+
+### Distributing Work to Workers via Skills
+
+```python
+# Declare skill with timeout and fallback
+charge_skill = Skill("stripe_charge", timeout=10.0, fallback=OrderFlow.failed)
 
 
-@order_pipeline.handler(is_start=True)
-async def start_handler(initial_data: dict, actions: ActionFactory, job_id: str):
-    """
-    Initial handler. Called when Job is created.
-    """
-    print(f"Job {job_id}: order processing started.")
-    print(f"Input data: {initial_data}")
+@order_bp.step(OrderFlow.payment, risk="high", permissions=["billing:charge"])
+async def process_payment(order: OrderInput):
+    """Dispatches a task to a registered remote worker skill."""
+    return charge_skill(
+        amount=order.amount,
+        customer_id=order.customer_id,
+        next=OrderFlow.fulfill,
+        on_failure=OrderFlow.failed,
+    )
+```
 
-    # Transition to next step
-    actions.go_to("dispatch_to_worker")
+### Terminal State (`@bp.end`)
 
-
-@order_pipeline.handler
-async def dispatch_to_worker(initial_data: dict, actions: ActionFactory):
-    """
-    This handler dispatches task to worker.
-    """
-    # Pause pipeline and wait for worker result
-    actions.dispatch_task(
-        task_type="check_inventory",  # Task type worker understands
-        params={"items": initial_data.get("items")},
-        # Define where process goes depending on worker response
-        transitions={
-            "success": "inventory_ok",  # If worker returns status="success"
-            "out_of_stock": "inventory_failed",  # If worker returns custom status
-            "failure": "generic_failure",  # If worker returns status="failure"
-        },
+```python
+@order_bp.end(OrderFlow.fulfill, status="finished")
+async def fulfill_order(order: OrderInput, steps: dict) -> OrderOutput:
+    """Terminal handler returning the finalized schema."""
+    payment_res = steps.get("OrderFlow:payment", {})
+    return OrderOutput(
+        order_id=order.order_id,
+        receipt_id=payment_res.get("receipt_id", f"rcpt_{order.order_id}"),
+        status="paid",
+        amount=order.amount,
     )
 
 
-@order_pipeline.handler
-async def inventory_ok(actions: ActionFactory, state_history: dict):
-    """
-    Called if worker confirmed item availability.
-    """
-    # Data returned by worker is available in the history
-    print("Items are in stock. Finishing successfully.")
-    actions.go_to("finished_successfully")
-
-
-@order_pipeline.handler(is_end=True)
-async def inventory_failed(actions: ActionFactory):
-    """
-    Final state if items out of stock.
-    """
-    print("Cannot process order, items out of stock.")
-
-
-@order_pipeline.handler(is_end=True)
-async def generic_failure(actions: ActionFactory):
-    """
-    Final state for generic failures.
-    """
-    print("Processing error occurred.")
-
-
-@order_pipeline.handler(is_end=True)
-async def finished_successfully(actions: ActionFactory):
-    """
-    Final state on success.
-    """
-    print("Order processed successfully!")
+@order_bp.end(OrderFlow.failed, status="failed")
+async def on_failed_order(order: OrderInput):
+    return {"status": "rejected", "order_id": order.order_id}
 ```
 
-## Step 4: Register the Blueprint
+---
 
-In your application's main file where you run `OrchestratorEngine`, register the created blueprint.
+## 4. Validating Graph Integrity
 
-When you call `register_blueprint()`, the engine automatically performs a **integrity validation check**. It ensures that:
-
-1.  The blueprint has exactly one start state.
-2.  All transitions lead to existing states (no "dangling" transitions).
-3.  All states are reachable from the start state (no "dead code").
-
-If any of these checks fail, a `ValueError` will be raised, preventing the application from starting with a broken configuration.
+Verify that all states are reachable and that there are no dangling transitions:
 
 ```python
-# main.py
-from holarchy import OrchestratorEngine
-from my_service.blueprints import order_pipeline  # Import our blueprint
-
-# ... (storage and config setup)
-
-engine = OrchestratorEngine(storage, config)
-
-# Register blueprint in engine (Triggers validation!)
-engine.register_blueprint(order_pipeline)
-
-# Run engine
-engine.run()
+# Validates state graph at initialization or in unit tests
+order_bp.validate()
 ```
 
-After this, you can create tasks by sending POST requests to `/api/v1/jobs/process_order`.
+---
 
-## Step 5: Conditional Transitions with `F`
+## 5. Automatic OpenAPI 3.1 & Interactive Docs
 
-To route the flow based on runtime context, pass a `FastF` expression from `fast-filter` directly into `@bp.handler()`. Conditions are JIT-compiled for zero overhead on hot paths.
-
-```python
-from holarchy import F  # Re-exported from fast-filter
-
-
-# Route based on initial_data at runtime
-@order_pipeline.handler("decide_priority", F.initial_data["priority"] == "express")
-async def handle_express(actions: ActionFactory):
-    actions.go_to("express_lane")
-
-
-# Default fallback when no condition matches
-@order_pipeline.handler("decide_priority")
-async def handle_standard(actions: ActionFactory):
-    actions.go_to("standard_lane")
-```
-
-**Key rules:**
-
-- Import `F` from `holarchy` (it is re-exported automatically).
-- Pass any `FastF` expression directly to the handler decorator — not a string.
-- If no condition matches **and** no default handler is registered, a `ValueError` is raised.
-- Missing attributes safely return `False`, never raise.
-- Multiple conditions for the same state are evaluated in **registration order** — first match wins.
+Once registered in the orchestrator, your blueprint is automatically documented:
+- **Interactive UI**: `http://localhost:8080/docs` displays the input schema, risk level badges, permissions, and test harness.
+- **OpenAPI 3.1 JSON**: `http://localhost:8080/openapi.json` exports machine-readable API specifications.
+- **DAG Topology**: `GET /api/v1/blueprints/{blueprint_name}/dag` provides the spatial graph for visual monitoring.

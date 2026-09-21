@@ -70,7 +70,7 @@ WORKERS_CONFIG_PATH="workers.toml"
 ```dotenv
 # В .env файле Воркера
 WORKER_ID="worker-video-1"
-HOLARCHY_WORKER_TOKEN="unique-secret-token-for-video-1"
+HOLONODE_TOKEN="unique-secret-token-for-video-1"
 ```
 
 Оркестратор всегда будет в первую очередь пытаться аутентифицировать воркер по его индивидуальному токену.

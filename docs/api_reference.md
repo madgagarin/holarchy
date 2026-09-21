@@ -51,9 +51,15 @@ These endpoints do not require authentication and always use the fixed `/_public
 
 ### Interactive API Documentation
 
-- **Endpoint:** `GET /_public/docs`
-- **Description:** Returns an interactive HTML page with API documentation (Swagger UI style).
-- **Response (`200 OK`):** HTML page.
+- **Endpoint:** `GET /docs` (or `GET /_public/docs`)
+- **Description:** Returns an interactive branded HTML page with API documentation, live test harness runner, 5 storage zones inspector, and security risk/permission badges.
+- **Response (`200 OK`):** HTML page (`text/html`).
+
+### Dynamic OpenAPI 3.1.0 Specification
+
+- **Endpoint:** `GET /openapi.json` (or `GET /_public/openapi.json`)
+- **Description:** Dynamically generates the complete OpenAPI 3.1.0 specification including all registered blueprints, spatial DAGs, skill marketplace endpoints, and orchestrator headers.
+- **Response (`200 OK`):** JSON object (`application/json`) with OpenAPI 3.1.0 schema.
 
 ---
 
@@ -62,33 +68,59 @@ These endpoints do not require authentication and always use the fixed `/_public
 These endpoints are designed for external systems that initiate and monitor workflows. Requires `X-Client-Token` header.
 The base path for these endpoints is configurable via the `CLIENT_API_PREFIX` environment variable (default is `api`). If set to an empty string, these endpoints will be available at the root (e.g. `/v1/...`).
 
-### Create New Job
+### Orchestrator Request Headers
+
+When creating jobs, orchestrator execution parameters are supplied via standard HTTP headers to maintain pure domain payloads:
+
+- `X-Client-Token` (string, required): Client authentication token.
+- `X-Job-Priority` (string, optional): Job priority (`critical`, `high`, `normal` [default], `low`, `background`).
+- `X-Job-Timeout` (integer, optional): Maximum execution timeout in seconds.
+- `X-Correlation-ID` (string, optional): Tracing correlation ID propagated across all distributed steps and workers.
+- `Idempotency-Key` (string, optional): Deduplication key preventing accidental duplicate job executions on network retries.
+- `X-Webhook-URL` (string, optional): Callback URL notified asynchronously when the job reaches a terminal state.
+
+### Create New Job (Custom Blueprint Endpoint)
 
 - **Endpoint:** `POST /{CLIENT_API_PREFIX}/v1/{blueprint_api_endpoint}`
-- **Example:** `POST /api/v1/jobs/simple_flow`
-- **Description:** Creates and starts a new instance (Job) of the specified blueprint.
-- **Request Body:**
-
+- **Example:** `POST /api/v1/jobs/orders`
+- **Description:** Creates and starts a new instance (Job) using the custom route configured on the blueprint.
+- **Headers:** See Orchestrator Request Headers above.
+- **Request Body:** Clean domain input payload matching the blueprint's start step schema:
   ```json
   {
-    "initial_data": { ... },
-    "webhook_url": "https://callback.url/webhook",
-    "dispatch_timeout": 60,
-    "result_timeout": 300
+    "order_id": 42,
+    "amount": 150.0,
+    "is_vip": true
+  }
+  ```
+- **Response (`202 Accepted`):**
+  ```json
+  {
+    "status": "accepted",
+    "job_id": "123e4567-e89b-12d3-a456-426614174000"
   }
   ```
 
-  - `initial_data` (object, optional): Initial data for the job.
-  - `webhook_url` (string, optional): URL to receive asynchronous notifications.
-  - `dispatch_timeout` (integer, optional): Maximum time in seconds a task can wait in queue.
-  - `result_timeout` (integer, optional): Absolute deadline for the job.
+### Create New Job (Generic Blueprint Starter)
 
-- **Response (`202 Accepted`):** `{"status": "accepted", "job_id": "..."}`
+- **Endpoint:** `POST /{CLIENT_API_PREFIX}/v1/jobs/start/{blueprint_name}`
+- **Example:** `POST /api/v1/jobs/start/ecommerce_orders`
+- **Description:** Generic endpoint to start any registered blueprint by its name, even without a custom endpoint assigned.
+- **Headers:** See Orchestrator Request Headers above.
+- **Request Body:** Clean domain input payload matching the blueprint's start step schema.
+- **Response (`202 Accepted`):**
+  ```json
+  {
+    "status": "accepted",
+    "job_id": "123e4567-e89b-12d3-a456-426614174000"
+  }
+  ```
+- **Response (`404 Not Found`):** Blueprint name is not registered in the orchestrator.
 
 ### Get Job Status
 
 - **Endpoint:** `GET /api/v1/jobs/{job_id}`
-- **Description:** Returns the current state of the specified job. The amount of detail depends on the server's `DETAILED_API_RESPONSES` setting.
+- **Description:** Returns the current state of the specified job structured across 5 clean storage zones (`input`, `output`, `meta`, `artifacts`, `receipts`).
 
 #### Job Statuses
 
@@ -104,16 +136,16 @@ The system uses the following statuses to manage the job lifecycle:
 
 **Terminal States:**
 
-- `finished`: Job completed successfully. Final result is available.
-- `failed`: Logic or worker error. Error details are available in the result.
+- `finished`: Job completed successfully. Final output is available in the `output` zone.
+- `failed`: Logic or worker error. Error details are available in the error fields.
 - `cancelled`: Job was cancelled by a user or the system.
 - `error`: Critical system error during execution.
-- `quarantined`: Job placed in quarantine for manual review (e.g., due to contract violation).
+- `quarantined`: Job placed in quarantine for manual review (e.g., contract violation or unhandled worker error).
 
 * **Query Parameters:**
   - `fields` (string, optional): Comma-separated list of fields to return. In compact mode, only essential fields can be requested.
 
-**Security Note:** The `result` field is only populated and visible when the job reaches a terminal state (`finished` or `failed`). For jobs in intermediate states (`running`, `waiting`), the result is hidden to protect sensitive in-progress data.
+**Security Note:** The `output` field is only populated and visible when the job reaches a terminal state (`finished`). For jobs in intermediate states (`running`, `waiting`), the output is hidden to protect sensitive in-progress data.
 
 **Data Isolation:** Access is strictly limited to the client who created the job. You must provide the same `X-Client-Token` that was used to start the job. Any attempt to access a job ID belonging to another client will return a `404 Not Found` for security reasons (to avoid job ID enumeration).
 
@@ -123,24 +155,75 @@ The system uses the following statuses to manage the job lifecycle:
 {
   "id": "123e4567-e89b-12d3-a456-426614174000",
   "status": "finished",
-  "result": { "output": "success" },
-  "blueprint_name": "my_flow"
+  "blueprint_name": "ecommerce_orders",
+  "current_state": "FlowStates:finalize"
 }
 ```
 
-**Detailed Response (when DETAILED_API_RESPONSES=true):**
+**Detailed Response (with 5 Storage Zones):**
 
 ```json
 {
-  "id": "...",
+  "id": "123e4567-e89b-12d3-a456-426614174000",
   "status": "finished",
-  "result": { ... },
-  "blueprint_name": "...",
-  "state_history": { ... },
-  "initial_data": { ... },
-  "timestamp": 1715280000.0
+  "blueprint_name": "ecommerce_orders",
+  "current_state": "FlowStates:finalize",
+  "input": {
+    "order_id": 42,
+    "amount": 150.0,
+    "is_vip": true
+  },
+  "output": {
+    "receipt_id": "rcpt_42",
+    "status": "paid",
+    "amount": 150.0
+  },
+  "meta": {
+    "priority": "normal",
+    "timeout": 300,
+    "correlation_id": "corr-order-42",
+    "created_at": 1715280000.0,
+    "finished_at": 1715280004.2
+  },
+  "artifacts": {
+    "invoice_pdf": "s3://bucket/invoices/inv_42.pdf"
+  },
+  "receipts": [
+    {
+      "step": "FlowStates:init",
+      "timestamp": 1715280001.0,
+      "status": "success",
+      "chosen": "FlowStates:decide_step"
+    },
+    {
+      "step": "FlowStates:decide_step",
+      "timestamp": 1715280002.0,
+      "status": "success",
+      "chosen": "FlowStates:vip_process"
+    }
+  ]
 }
 ```
+
+### Incident Evidence Card
+
+- **Endpoint:** `GET /api/v1/jobs/{job_id}/evidence`
+- **Description:** Generates a comprehensive forensic diagnostic card for jobs in `failed` or `quarantined` state. Essential for post-mortem analysis and incident remediation.
+- **Query Parameters:**
+  - `format` (string, optional): Response format, either `json` (default) or `md` (Markdown).
+- **JSON Response (`200 OK`):**
+  ```json
+  {
+    "job_id": "123e4567-e89b-12d3-a456-426614174000",
+    "blueprint_name": "ecommerce_orders",
+    "status": "quarantined",
+    "failed_step": "FlowStates:charge_card",
+    "error_message": "Payment gateway timeout after 3 retries",
+    "remediation": "Check gateway API availability or replay job via /jobs/start/ecommerce_orders.",
+    "receipts": [...]
+  }
+  ```
+- **Markdown Response (`200 OK` when `?format=md`):** Formatted text document (`text/markdown; charset=utf-8`) ready for Slack, Jira, or GitHub issue reporting.
 
 ### Get S3 Upload URL
 
@@ -186,29 +269,85 @@ The system uses the following statuses to manage the job lifecycle:
 - **Description:** Returns a list of jobs currently in quarantine for manual review. Requires client authentication.
 - **Response (`200 OK`):** Array of quarantined job state objects.
 
-### Get Blueprint Graph
+### Get Blueprint Graph (DOT)
 
 - **Endpoint:** `GET /api/v1/blueprints/{blueprint_name}/graph`
-- **Description:** Returns the blueprint structure in DOT format.
+- **Description:** Returns the blueprint structure in Graphviz DOT format for structural visualization.
 - **Response (`200 OK`):** Text response in `text/vnd.graphviz` format.
+
+### Get Blueprint Spatial DAG
+
+- **Endpoint:** `GET /api/v1/blueprints/{blueprint_name}/dag`
+- **Description:** Returns the 2D spatial layout and topological graph of the blueprint, including node coordinates, step kinds (`start`, `step`, `decide`, `parallel`, `human`, `end`), candidate branches, transition edges, and aggregated security metadata (`risk` level and `permissions`).
+- **Response (`200 OK`):** JSON object:
+  ```json
+  {
+    "blueprint_name": "ecommerce_orders",
+    "nodes": [
+      {
+        "id": "FlowStates:init",
+        "label": "init",
+        "kind": "start",
+        "x": 0.0,
+        "y": 0.0,
+        "risk": "low",
+        "permissions": []
+      },
+      {
+        "id": "FlowStates:decide_step",
+        "label": "decide_route",
+        "kind": "decide",
+        "x": 240.0,
+        "y": 0.0,
+        "risk": "high",
+        "permissions": ["billing:vip"],
+        "candidates": ["FlowStates:vip_process", "FlowStates:std_process"]
+      }
+    ],
+    "edges": [
+      {"from": "FlowStates:init", "to": "FlowStates:decide_step", "label": "next"}
+    ],
+    "security": {
+      "risk": "high",
+      "permissions": ["billing:charge", "billing:vip"]
+    }
+  }
+  ```
 
 ### Get Active Workers List
 
 - **Endpoint:** `GET /api/v1/workers`
-- **Description:** Returns a list of all currently active workers.
+- **Description:** Returns a list of all currently active workers connected to the orchestrator.
 - **Response (`200 OK`):** Array of worker objects.
 
 ### Get Dashboard Data
 
 - **Endpoint:** `GET /api/v1/dashboard`
-- **Description:** Returns aggregated statistics about the system state.
+- **Description:** Returns aggregated statistics about the system state, job counts, and worker health.
 - **Response (`200 OK`):** JSON object with statistics.
 
 ### Get Skill Catalog (Marketplace)
 
-- **Endpoint:** `GET /api/v1/workers/catalog`
-- **Description:** Returns an aggregated catalog of unique skills. Result is cached for 10 seconds.
-- **Response (`200 OK`):** JSON object with skills.
+- **Endpoint:** `GET /api/v1/skills` (also legacy `GET /api/v1/workers/catalog`)
+- **Description:** Returns an aggregated catalog of unique worker skills across the cluster, including input/output contracts, risk levels, and permissions. Cached for high throughput.
+- **Response (`200 OK`):** JSON object with registered skill definitions.
+
+### Get Skill Contract Detail
+
+- **Endpoint:** `GET /api/v1/skills/{skill_name}`
+- **Description:** Returns the full specification and schema contract for a specific worker skill.
+- **Response (`200 OK`):**
+  ```json
+  {
+    "name": "billing:charge",
+    "version": "1.0.0",
+    "risk": "medium",
+    "permissions": ["billing:charge"],
+    "input_schema": { ... },
+    "output_schema": { ... }
+  }
+  ```
+- **Response (`404 Not Found`):** Skill is not registered in the cluster catalog.
 
 ---
 

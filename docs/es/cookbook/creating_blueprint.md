@@ -1,171 +1,154 @@
 [EN](https://github.com/madgagarin/holarchy/blob/main/docs/cookbook/creating_blueprint.md) | **ES** | [RU](https://github.com/madgagarin/holarchy/blob/main/docs/ru/cookbook/creating_blueprint.md)
 
-# Recetario: Creación de un Blueprint (Pipeline)
+# Libro de recetas: Creación de un Blueprint (Pipeline) moderno
 
-Los Blueprints (`Blueprint`) son la base para definir la lógica comercial en el sistema. Cada blueprint representa una máquina de estados ("guion") que el Orquestador ejecutará.
+Un `Blueprint` en Holarchy define la lógica del proceso de negocio como una máquina de estados finitos (Finite State Machine, FSM). Cada blueprint especifica estados, transiciones, políticas de seguridad, enrutamiento consultivo y contratos de datos.
 
-Esta guía mostrará cómo crear un pipeline simple pero completo.
+---
 
-## Paso 1: Crear un Archivo Blueprint
-
-Se recomienda almacenar los blueprints en un archivo separado, por ejemplo, `mi_servicio/blueprints.py`.
-
-## Paso 2: Definir el Blueprint
-
-Importar `Blueprint` y crear una instancia.
-
-- `name`: Nombre único del blueprint.
-- `api_version`: Versión de la API (por ejemplo, "v1").
-- `api_endpoint`: URL donde los clientes crearán tareas para este pipeline.
+## 1. Definición de estados con `StatesGroup`
 
 ```python
-from holarchy import Blueprint
+from holarchy import State, StatesGroup
 
-# Crear instancia de blueprint
-order_pipeline = Blueprint(
+
+class OrderFlow(StatesGroup):
+    init = State()
+    validate = State()
+    fraud_check = State()
+    payment = State()
+    fulfill = State()
+    finalize = State()
+    failed = State()
+```
+
+---
+
+## 2. Modelos de dominio e inicialización de Blueprint
+
+```python
+from pydantic import BaseModel, Field
+from holarchy import Blueprint, Context, Next, Skill
+
+
+class OrderInput(BaseModel):
+    order_id: int
+    customer_id: str
+    amount: float = Field(..., gt=0)
+    items: list[str]
+
+
+class OrderOutput(BaseModel):
+    order_id: int
+    receipt_id: str
+    status: str
+    amount: float
+
+
+order_bp = Blueprint(
     name="order_processing_flow",
     api_version="v1",
-    api_endpoint="/jobs/process_order",  # URL para creación de tareas
+    api_endpoint="/jobs/orders",
 )
 ```
 
-## Paso 3: Definir Estados и Manejadores
+---
 
-Cada paso en tu proceso es un "estado" con una función "manejadora" adjunta.
+## 3. Definición de pasos y las 5 zonas de almacenamiento
 
-- El decorador `@blueprint.handler` vincula la función al estado.
-- **Estado Inicial** debe haber exactamente uno, marcado con `is_start=True`.
-- **Estados Finales** pueden ser múltiples, marcados con `is_end=True`.
+Holarchy segmenta el estado del trabajo en **5 zonas limpias**:
+- `input`: Datos de la petición del cliente (`OrderInput`).
+- `steps`: Resultados intermedios de cada paso (`steps["validate"]`).
+- `history`: Registro cronológico de transiciones de estado.
+- `meta`: Metadatos, prioridades, tiempos límite y cabeceras (`meta["priority"]`).
+- `output`: Resultado devuelto por el paso terminal (`OrderOutput`).
 
-El manejador recibe argumentos a través de **Inyección de Dependencias**. Puede solicitar:
-
-- `initial_data`: Datos originales del trabajo.
-- `actions`: Objeto `ActionFactory` para controlar el proceso.
-- `state_history`: Historial completo del trabajo.
-- `job_id`: ID único del trabajo.
+### Punto de entrada (`@bp.start`)
 
 ```python
-from holarchy import ActionFactory
+@order_bp.start(OrderFlow.init)
+async def init_step(order: OrderInput, ctx: Context) -> State:
+    return OrderFlow.validate
+```
+
+### Paso intermedio con transición automática (`@bp.step`)
+
+```python
+@order_bp.step(
+    OrderFlow.validate,
+    on_success=OrderFlow.fraud_check,
+    risk="low",
+    permissions=["orders:read"],
+)
+async def validate_order(order: OrderInput):
+    if not order.items:
+        raise ValueError("El pedido debe contener al menos un elemento")
+    return {"valid": True, "item_count": len(order.items)}
+```
+
+### Enrutamiento consultivo con IA (`@bp.decide`)
+
+```python
+@order_bp.decide(
+    OrderFlow.fraud_check,
+    candidates=[OrderFlow.payment, OrderFlow.failed],
+    fallback=OrderFlow.payment,
+    timeout_seconds=2.0,
+    risk="medium",
+)
+async def check_fraud(order: OrderInput, steps: dict) -> State:
+    if order.amount > 50_000:
+        return OrderFlow.failed
+    return OrderFlow.payment
+```
+
+### Distribución de tareas a workers mediante Skills
+
+```python
+charge_skill = Skill("stripe_charge", timeout=10.0, fallback=OrderFlow.failed)
 
 
-@order_pipeline.handler(is_start=True)
-async def start(initial_data: dict, actions: ActionFactory, job_id: str):
-    """
-    Manejador inicial. Llamado cuando se crea el Job.
-    """
-    print(f"Trabajo {job_id}: procesamiento de pedido iniciado.")
-    print(f"Datos de entrada: {initial_data}")
+@order_bp.step(OrderFlow.payment, risk="high", permissions=["billing:charge"])
+async def process_payment(order: OrderInput):
+    return charge_skill(
+        amount=order.amount,
+        customer_id=order.customer_id,
+        next=OrderFlow.fulfill,
+        on_failure=OrderFlow.failed,
+    )
+```
 
-    # Transición al siguiente paso
-    actions.go_to("dispatch_to_worker")
+### Estados terminales (`@bp.end`)
 
-
-@order_pipeline.handler
-async def dispatch_to_worker(initial_data: dict, actions: ActionFactory):
-    """
-    Este manejador despacha la tarea al worker.
-    """
-    # Pausar pipeline y esperar resultado del worker
-    actions.dispatch_task(
-        task_type="check_inventory",  # Tipo de tarea que entiende el worker
-        params={"items": initial_data.get("items")},
-        # Definir a dónde va el proceso dependiendo de la respuesta del worker
-        transitions={
-            "success": "inventory_ok",  # Si el worker devuelve status="success"
-            "out_of_stock": "inventory_failed",  # Si el worker devuelve estado personalizado
-            "failure": "generic_failure",  # Si el worker devuelve status="failure"
-        },
+```python
+@order_bp.end(OrderFlow.fulfill, status="finished")
+async def fulfill_order(order: OrderInput, steps: dict) -> OrderOutput:
+    payment_res = steps.get("OrderFlow:payment", {})
+    return OrderOutput(
+        order_id=order.order_id,
+        receipt_id=payment_res.get("receipt_id", f"rcpt_{order.order_id}"),
+        status="paid",
+        amount=order.amount,
     )
 
 
-@order_pipeline.handler
-async def inventory_ok(actions: ActionFactory, state_history: dict):
-    """
-    Llamado si el worker confirmó la disponibilidad de artículos.
-    """
-    # Los datos devueltos por el worker están disponibles en el historial
-    print("Artículos disponibles. Finalizando con éxito.")
-    actions.go_to("finished_successfully")
-
-
-@order_pipeline.handler(is_end=True)
-async def inventory_failed(actions: ActionFactory):
-    """
-    Estado final si los artículos están agotados.
-    """
-    print("No se puede procesar el pedido, artículos agotados.")
-
-
-@order_pipeline.handler(is_end=True)
-async def generic_failure(actions: ActionFactory):
-    """
-    Estado final para fallos genéricos.
-    """
-    print("Ocurrió un error de procesamiento.")
-
-
-@order_pipeline.handler(is_end=True)
-async def finished_successfully(actions: ActionFactory):
-    """
-    Estado final en caso de éxito.
-    """
-    print("¡Pedido procesado exitosamente!")
+@order_bp.end(OrderFlow.failed, status="failed")
+async def on_failed_order(order: OrderInput):
+    return {"status": "rejected", "order_id": order.order_id}
 ```
 
-## Paso 4: Registrar el Blueprint
+---
 
-En el archivo principal de tu aplicación donde ejecutas `OrchestratorEngine`, registra el blueprint creado.
-
-Cuando llamas a `register_blueprint()`, el motor realiza automáticamente una **verificación de integridad**. Asegura que:
-
-1.  El blueprint tiene exactamente un estado inicial.
-2.  Todas las transiciones conducen a estados existentes (sin transiciones "colgantes").
-3.  Todos los estados son alcanzables desde el estado inicial (sin "código muerto").
-
-Si alguna de estas verificaciones falla, se generará un `ValueError`, evitando que la aplicación se inicie con una configuración rota.
+## 4. Validación de integridad
 
 ```python
-# main.py
-from holarchy import OrchestratorEngine
-from mi_servicio.blueprints import order_pipeline  # Importar nuestro blueprint
-
-# ... (configuración de almacenamiento y config)
-
-engine = OrchestratorEngine(storage, config)
-
-# Registrar blueprint в motor (¡Activa la validación!)
-engine.register_blueprint(order_pipeline)
-
-# Ejecutar motor
-engine.run()
+order_bp.validate()
 ```
 
-Después de esto, puedes crear tareas enviando solicitudes POST a `/api/v1/jobs/process_order`.
+---
 
-## Paso 5: Transiciones Condicionales con `F`
+## 5. Documentación interactiva y OpenAPI 3.1
 
-Para enrutar el flujo basado en el contexto de tiempo de ejecución, pasa una expresión `FastF` de `fast-filter` directamente en `@bp.handler()`. Las condiciones se compilan JIT para cero sobrecosto en rutas críticas.
-
-```python
-from holarchy import F  # Se reexporta automáticamente desde fast-filter
-
-
-# Enrutar basado en initial_data en tiempo de ejecución
-@order_pipeline.handler("decide_priority", F.initial_data["priority"] == "express")
-async def handle_express(actions: ActionFactory):
-    actions.go_to("express_lane")
-
-
-# Fallback por defecto cuando ninguna condición coincide
-@order_pipeline.handler("decide_priority")
-async def handle_standard(actions: ActionFactory):
-    actions.go_to("standard_lane")
-```
-
-**Reglas clave:**
-
-- Importa `F` desde `holarchy` (se reexporta automáticamente).
-- Pasa cualquier expresión `FastF` directamente al decorador del manejador — no una cadena.
-- Si ninguna condición coincide **y** no hay un manejador por defecto registrado, se genera un `ValueError`.
-- Los atributos faltantes devuelven de forma segura `False`, nunca lanzan excepciones.
-- Varias condiciones para el mismo estado se evalúan en **orden de registro**: la primera coincidencia gana.
+- **UI interactiva**: `http://localhost:8080/docs`
+- **OpenAPI 3.1 JSON**: `http://localhost:8080/openapi.json`
+- **Topología DAG**: `GET /api/v1/blueprints/{blueprint_name}/dag`

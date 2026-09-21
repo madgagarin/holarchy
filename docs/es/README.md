@@ -10,7 +10,11 @@
 
 ## 🚀 Características Principales
 
-- **State-Machine Driven**: Blueprints declarativos en Python para lógica compleja.
+- **FSM moderno fuertemente tipado**: Decoradores declarativos `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end`, clases `StatesGroup`, `State` y validación nativa de esquemas con Pydantic.
+- **5 Zonas limpias de almacenamiento**: Separación estricta de dominios entre `input`, `steps`, `history`, `meta` y `output`.
+- **Enrutamiento consultivo de IA y Replay determinista**: Principio Host-Owned Choice, fallback seguro, comprobantes `ExecutionReceipt` y pruebas offline de deriva de modelos.
+- **Autogeneración de OpenAPI 3.1 y documentación interactiva**: Especificación en `/openapi.json` e interfaz UI de pruebas en `/docs`.
+- **Tarjetas de evidencia de incidentes (Zero-Trust Evidence Cards)**: Diagnóstico post-mortem instantáneo en `GET /jobs/{id}/evidence?format=md` con clasificación de causas raíz.
 - **Alto Rendimiento**: Indexación de colas vía **ZSET**, mecanismo de **Work Stealing** (robo de tareas) en Lua y transiciones de estado atómicas.
 - **Seguridad Zero Trust y Capa de Políticas**: Implementación completa de `SecurityContext`, firma criptográfica de tareas HMAC-SHA256 (`sig`) mediante `ORCHESTRATOR_SECRET_KEY`, verificación de cadenas de identidad (Identity Chains) y políticas granulares para habilidades (`allowed_skills`).
 - **Aprobación Scoped Human-in-the-Loop**: Tokens de confirmación seguros de un solo uso (`approval_token`) para webhooks externos (Email, Slack, Telegram) sin exponer tokens maestros de clientes.
@@ -21,8 +25,7 @@
 - **Criptoauditoría D-DNA**: Herramientas CLI de verificación (`holarchy.cli.audit`) que garantizan la integridad de la cadena de historial de eventos.
 - **Protección de Datos**: **Envelope Encryption** (cifrado de sobres) para tokens en Redis, aislamiento estricto de clientes y protección contra reenvío (Replay Protection).
 - **Gestión de Archivos**: Streaming Async S3 de alto rendimiento mediante la librería `obstore`.
-- **Automatización**: Descubrimiento automático de transiciones mediante **análisis AST** del código de los manejadores.
-- **Observabilidad**: Seguimiento distribuido **Orquestador ↔ Worker** con **OpenTelemetry** y métricas en tiempo real.
+- **Observabilidad**: Seguimiento distribuido **Orquestador ↔ Worker** con **OpenTelemetry**, topología espacial DAG (`/dag`) y métricas en tiempo real.
 
 Este documento sirve como una guía completa para desarrolladores que buscan construir pipelines (blueprints) e integrar el Orquestador en sus aplicaciones.
 

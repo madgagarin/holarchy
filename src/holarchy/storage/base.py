@@ -456,3 +456,11 @@ class StorageBackend(ABC):
     async def get_blueprint_contract(self, name: str) -> dict[str, Any] | None:
         """Retrieves the interface contract of a blueprint."""
         raise NotImplementedError
+
+    async def get_idempotent_job_id(self, client_token: str, key: str) -> str | None:
+        """Retrieves an existing job_id associated with an Idempotency-Key."""
+        return None
+
+    async def set_idempotent_job_id(self, client_token: str, key: str, job_id: str, ttl: int = 86400) -> None:
+        """Associates an Idempotency-Key with a job_id."""
+        return None

@@ -11,6 +11,7 @@ from inspect import iscoroutinefunction
 from time import monotonic
 from typing import Any, cast
 
+from ..data_types import ensure_storage_zones
 from .base import StorageBackend
 
 
@@ -40,7 +41,10 @@ class MemoryStorage(StorageBackend):
 
     async def get_job_state(self, job_id: str) -> dict[str, Any] | None:
         async with self._lock:
-            return self._jobs.get(job_id)
+            state = self._jobs.get(job_id)
+            if state is not None:
+                ensure_storage_zones(state)
+            return state
 
     async def _clean_expired(self) -> None:
         now = monotonic()
@@ -57,6 +61,7 @@ class MemoryStorage(StorageBackend):
 
     async def save_job_state(self, job_id: str, state: dict[str, Any]) -> None:
         async with self._lock:
+            ensure_storage_zones(state)
             self._jobs[job_id] = state
 
     async def update_job_state(
@@ -68,6 +73,7 @@ class MemoryStorage(StorageBackend):
             if job_id not in self._jobs:
                 self._jobs[job_id] = {}
             self._jobs[job_id].update(update_data)
+            ensure_storage_zones(self._jobs[job_id])
             return self._jobs[job_id]
 
     async def update_job_state_atomic(
@@ -82,6 +88,7 @@ class MemoryStorage(StorageBackend):
                 updated_state = await update_callback(current_state)
             else:
                 updated_state = update_callback(current_state)
+            ensure_storage_zones(updated_state)
             self._jobs[job_id] = updated_state
             return cast(dict[str, Any], updated_state)
 
@@ -550,3 +557,15 @@ class MemoryStorage(StorageBackend):
     async def get_blueprint_contract(self, name: str) -> dict[str, Any] | None:
         async with self._lock:
             return self._generic_keys.get(f"blueprint:contract:{name}")
+
+    async def get_idempotent_job_id(self, client_token: str, key: str) -> str | None:
+        cache_key = f"idempotency:{client_token}:{key}"
+        async with self._lock:
+            await self._clean_expired()
+            return self._generic_keys.get(cache_key)
+
+    async def set_idempotent_job_id(self, client_token: str, key: str, job_id: str, ttl: int = 86400) -> None:
+        cache_key = f"idempotency:{client_token}:{key}"
+        async with self._lock:
+            self._generic_keys[cache_key] = job_id
+            self._generic_key_ttls[cache_key] = monotonic() + ttl

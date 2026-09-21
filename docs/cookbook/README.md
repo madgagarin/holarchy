@@ -6,6 +6,16 @@ This cookbook provides a collection of recipes for building workflows (blueprint
 
 > **Production Note:** The examples below use `print()` for simplicity and clarity. In a production environment, you should use the standard Python `logging` module. The Orchestrator automatically configures structured JSON logging, and using `logging.info(...)` ensures your logs are properly formatted and captured.
 
+## Featured Guides & Architecture
+
+- **[Creating a Modern Blueprint](creating_blueprint.md)**: Type-safe FSM pipelines, `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end`, Pydantic models, and 5 clean storage zones.
+- **[Creating a Worker](creating_worker.md)**: Developing distributed skill executors with `holonode`.
+- **[Local Worker Development & Testing](local_worker_development.md)**: Local testing, WebSocket modes, cooperative cancellation, and mocking.
+- **[Advisory AI Routing & Deterministic Replay](ai_routing_and_replay.md)**: Host-Owned Choice, fail-open routing, execution receipts, and offline replay testing.
+- **[Incident Investigation & Evidence Cards](incident_investigation.md)**: Zero-trust diagnostic cards, D-DNA audit hashing, and automated remediation.
+
+---
+
 ## Table of Contents
 
 ### **Recipe 1: Creating a Simple Linear Pipeline**

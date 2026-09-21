@@ -10,7 +10,11 @@
 
 ## 🚀 Key Features
 
-- **State-Machine Driven**: Declarative Python Blueprints for complex logic.
+- **Modern Type-Safe FSM**: Declarative `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end` decorators, `StatesGroup`, `State`, and native Pydantic schema validation.
+- **5 Clean Storage Zones**: Explicit domain boundaries separating `input`, `steps`, `history`, `meta`, and `output`.
+- **Advisory AI Routing & Deterministic Replay**: Host-Owned Choice and fail-open routing with auditable `ExecutionReceipt` and offline drift evaluation.
+- **Auto-Generated OpenAPI 3.1 & Branded Docs**: Machine-readable specification at `/openapi.json` and custom dark-mode test harness UI at `/docs`.
+- **Zero-Trust Incident Evidence Cards**: Instant diagnostic post-mortems via `GET /jobs/{id}/evidence?format=md` with automated root cause classification.
 - **High-Performance**: **ZSET-based** queue indexing, **Work Stealing** mechanism (Lua), and atomic state transitions.
 - **Zero Trust Security & Policy Enforcement**: Full `SecurityContext` implementation, cryptographic HMAC-SHA256 task signing (`sig`) via `ORCHESTRATOR_SECRET_KEY`, identity chain verification, and granular skill execution policies (`allowed_skills`).
 - **Human-in-the-Loop Scoped Approval**: Secure single-use approval tokens (`approval_token`) for external approval webhooks (Email, Slack, Telegram) without exposing master client tokens.
@@ -21,8 +25,7 @@
 - **D-DNA Crypto-Audit**: CLI verification tools (`holarchy.cli.audit`) ensuring tamper-proof event history integrity.
 - **Data Protection**: **Envelope Encryption** for tokens in Redis, strict client isolation, and Replay Protection.
 - **File Management**: High-performance Async S3 streaming via the `obstore` library.
-- **Automation**: Automatic transition discovery via **AST analysis** of handler code.
-- **Observability**: **End-to-End** distributed tracing with **OpenTelemetry** and real-time metrics.
+- **Observability**: **End-to-End** distributed tracing with **OpenTelemetry**, spatial DAG graph visualization (`/dag`), and real-time metrics.
 
 This document serves as a comprehensive guide for developers looking to build pipelines (blueprints) and embed the Orchestrator into their applications.
 
@@ -65,7 +68,7 @@ In the **HLN** architecture, the Orchestrator acts as a "Ghost" (Internal logic)
 Holarchy is part of a larger ecosystem:
 
 - **[RXON Protocol](https://github.com/madgagarin/rxon)**: Shared lightweight reverse-connection protocol powering inter-node communication across the HLN ecosystem.
-- **[Holarchy Worker SDK](https://github.com/madgagarin/holonode)**: The official Python SDK for building workers that connect to this engine.
+- **[Holonode SDK](https://github.com/madgagarin/holonode)**: The official Python SDK for building workers that connect to this engine.
 - **[HLN (Holarchical Logic Network)](https://github.com/madgagarin/hln)**: The architectural pattern, manifesto, and design specification for self-similar holarchies.
 - **[Full Example](https://github.com/madgagarin/holarchy-full-example)**: A complete reference project demonstrating the engine and workers in action.
 

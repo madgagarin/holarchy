@@ -1,120 +1,123 @@
 [EN](https://github.com/madgagarin/holarchy/blob/main/docs/cookbook/creating_worker.md) | [ES](https://github.com/madgagarin/holarchy/blob/main/docs/es/cookbook/creating_worker.md) | **RU**
 
-# Cookbook: Создание Воркера
+# Рецепт: Создание Воркера
 
-Воркеры — это независимые исполнители, которые выполняют реальную работу. Это руководство покажет, как создать воркер с помощью пакета `holonode`.
+Воркеры (Workers) — это независимые исполнители, выполняющие прикладные задачи, порученные Оркестратором. Данное руководство демонстрирует разработку воркера с использованием SDK `holonode`.
 
-## Шаг 1: Установка SDK
+---
 
-Вы можете установить базовую версию или версию с дополнительными возможностями:
+## 1. Установка
 
 ```bash
-# Минимальная версия (без S3 и Pydantic)
-pip install holonode
-
-# Полная версия (рекомендуется для авто-валидации и работы с файлами)
-pip install "holonode[s3,pydantic]"
+# Рекомендуется: включает валидацию схем Pydantic и потоковую работу с файлами S3
+pip install "holonode[pydantic,s3]"
 ```
 
-## Шаг 2: Создание файла Воркера
+---
 
-Создайте Python-файл (например, `my_worker.py`) и импортируйте класс `Worker`.
+## 2. Определение навыков (Skills) с валидацией Pydantic
+
+Объявляйте навыки через декоратор `@worker.skill` с указанием уровня риска и требуемых прав доступа:
 
 ```python
 import asyncio
+from pydantic import BaseModel, Field
 from holonode import Worker
-from pydantic import BaseModel
 
-# 1. Инициализируйте класс Worker
-worker = Worker(worker_type="inventory-checker")
+
+class InventoryCheckParams(BaseModel):
+    sku: str = Field(..., description="Артикул товара")
+    quantity: int = Field(..., gt=0, description="Запрашиваемое количество")
+
+
+class InventoryCheckResult(BaseModel):
+    in_stock: bool
+    available_quantity: int
+    warehouse_code: str
+
+
+worker = Worker(worker_type="inventory-service")
+
+
+@worker.skill(
+    "check_inventory",
+    risk="low",
+    permissions=["inventory:read"],
+)
+async def check_inventory(params: InventoryCheckParams, **kwargs) -> dict:
+    """SDK автоматически валидирует входные параметры в InventoryCheckParams."""
+    task_id = kwargs.get("task_id")
+    print(f"Проверка артикула {params.sku} для задачи {task_id}")
+
+    # Прикладная логика
+    available = 42
+    in_stock = available >= params.quantity
+
+    return {
+        "status": "success",
+        "data": InventoryCheckResult(
+            in_stock=in_stock,
+            available_quantity=available,
+            warehouse_code="WH-US-EAST",
+        ).model_dump(),
+    }
 ```
 
-### 2. Определите обработчик задач
+---
 
-Вы можете использовать **обычные словари** (без зависимостей) или **Pydantic модели** (для автоматической валидации).
+## 3. Кооперативная отмена длительных задач
 
-#### Вариант А: Простой словарь (без Pydantic)
-
-```python
-@worker.skill("check_inventory")
-async def check_inventory_handler(params: dict, **kwargs) -> dict:
-    items = params.get("items", [])
-    print(f"Проверка товаров: {items}")
-    return {"status": "success", "data": {"warehouse_info": "ok"}}
-```
-
-#### Вариант Б: Pydantic модель (с авто-валидацией)
+Если задача выполняется несколько секунд или минут, периодически опрашивайте метод `check_for_cancellation` для корректного освобождения ресурсов в случае отмены:
 
 ```python
-class CheckParams(BaseModel):
-    items: list[str]
-
-
-@worker.skill("check_inventory")
-async def check_inventory_handler(params: CheckParams, **kwargs) -> dict:
-    """SDK автоматически проверит входные данные по модели CheckParams."""
-    print(f"Проверка товаров: {params.items}")
-    return {"status": "success", "data": {"warehouse_info": "ok"}}
-```
-
-#### Вариант В: Долгая задача с кооперативной отменой
-
-```python
-@worker.skill("long_running_task")
-async def long_task_handler(params: dict, **kwargs) -> dict:
+@worker.skill("render_video", risk="high", permissions=["media:render"])
+async def render_video(params: dict, **kwargs) -> dict:
     task_id = kwargs["task_id"]
-    print(f"Запуск долгой задачи {task_id}...")
 
-    for i in range(10):
-        # Проверяем, не запросил ли Оркестратор отмену
+    for frame in range(1000):
         if await worker.check_for_cancellation(task_id):
-            print(f"Отмена задачи {task_id} обнаружена. Завершаем...")
-            return {"status": "cancelled", "message": "Task was cancelled by user."}
+            print(f"Поступил сигнал отмены для задачи {task_id}. Очистка ресурсов...")
+            return {"status": "cancelled", "message": "Рендеринг остановлен оркестратором"}
 
-        print(f"Шаг {i + 1}/10 выполнен...")
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.01)
 
-    return {"status": "success"}
+    return {"status": "success", "data": {"frames_rendered": 1000}}
+```
 
+---
 
-# 3. Запустите воркер
+## 4. Конфигурация воркера
+
+Задавайте параметры через переменные окружения или файл `.env`:
+
+```dotenv
+# Идентификация
+WORKER_ID=inventory-worker-01
+WORKER_TYPE=inventory-service
+
+# Адрес Оркестратора
+ORCHESTRATOR_URL=http://localhost:8080
+
+# Общий токен доступа
+WORKER_TOKEN=secure-worker-token
+
+# Мгновенная доставка сигналов отмены через WebSocket
+ENABLE_WEBSOCKET=true
+POLL_INTERVAL=1.0
+
+# Лимит параллельных задач
+MAX_CONCURRENT_TASKS=8
+```
+
+---
+
+## 5. Запуск воркера
+
+```python
 if __name__ == "__main__":
     worker.run()
 ```
 
-## Шаг 3: Настройка подключения и аутентификации
+При запуске воркер подключается к Оркестратору, объявляет список своих навыков и приступает к обработке поступающих задач.
 
-Создайте файл `.env` в той же директории, где находится ваш `my_worker.py`, или экспортируйте переменные в окружение.
-
-```dotenv
-# Уникальный ID этого экземпляра воркера
-WORKER_ID=inventory-worker-01
-
-# Адрес вашего Оркестратора
-ORCHESTRATOR_URL=http://localhost:8080
-
-# Токен для аутентификации воркера. Должен совпадать с токеном,
-# который ожидает Оркестратор (глобальным или индивидуальным).
-WORKER_TOKEN=your-secret-worker-token
-
-# (Опционально) Включить WebSocket для мгновенной отмены задач
-WORKER_ENABLE_WEBSOCKETS=true
-```
-
-## Шаг 4: Запуск
-
-Просто запустите ваш Python-файл:
-
-```bash
-python my_worker.py
-```
-
-Воркер автоматически подключится к Оркестратору, зарегистрируется и начнет опрашивать его на наличие новых задач.
-
-## Механизмы отмены задач
-
-SDK предоставляет два механизма отмены:
-
-1.  **WebSocket (Push-модель):** Если `WORKER_ENABLE_WEBSOCKETS=true`, Оркестратор может отправить команду на немедленную отмену. Это вызывает исключение `asyncio.CancelledError` в вашем обработчике. Этот способ обеспечивает самую быструю реакцию, и вам нужно лишь обернуть ваш код в `try...except asyncio.CancelledError` для корректной очистки ресурсов, если это необходимо.
-
-2.  **Redis (Pull-модель):** Даже без WebSocket, вы можете реализовать "кооперативную" отмену для очень долгих задач. Для этого SDK предоставляет асинхронную функцию `worker.check_for_cancellation(task_id)`. Вы должны периодически вызывать ее внутри вашего цикла обработки. Если функция вернет `True`, это значит, что Оркестратор запросил отмену. Ваш код должен корректно прервать выполнение и вернуть статус `cancelled`. (См. пример `long_running_task` выше).
+> Подробное руководство по изолированному тестированию см. в рецепте [Локальная разработка воркеров](local_worker_development.md).

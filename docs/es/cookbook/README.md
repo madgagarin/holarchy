@@ -6,6 +6,16 @@ Este recetario proporciona una colección de recetas para construir flujos de tr
 
 > **Nota de Producción:** Los ejemplos a continuación usan `print()` para simplificar y claridad. En un entorno de producción, debes usar el módulo estándar `logging` de Python. El Orquestador configura automáticamente el registro JSON estructurado, y el uso de `logging.info(...)` asegura que tus registros estén formateados y capturados correctamente.
 
+## Guías destacadas y arquitectura
+
+- **[Creación de un Blueprint moderno](creating_blueprint.md)**: Máquinas de estados finitos fuertemente tipadas, `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end`, modelos Pydantic y 5 zonas limpias de almacenamiento.
+- **[Creación de un Worker](creating_worker.md)**: Desarrollo de ejecutores distribuidos con `holonode`.
+- **[Desarrollo y pruebas locales de Workers](local_worker_development.md)**: Pruebas locales, WebSocket, cancelación cooperativa y mocks.
+- **[Enrutamiento consultivo de IA y pruebas de reproducción](ai_routing_and_replay.md)**: Principio Host-Owned Choice, fallback seguro, comprobantes de ejecución y pruebas de deriva offline.
+- **[Investigación de incidentes y tarjetas de evidencia](incident_investigation.md)**: Tarjetas Zero-Trust de evidencia, auditoría criptográfica D-DNA y clasificación de causas raíz.
+
+---
+
 ## Tabla de Contenidos
 
 ### **Receta 1: Creación de un Pipeline Lineal Simple**

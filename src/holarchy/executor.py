@@ -4,13 +4,15 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-from asyncio import CancelledError, Semaphore, Task, create_task, gather, sleep
+import dataclasses
+import inspect
+from asyncio import CancelledError, Semaphore, Task, create_task, gather, sleep, wait_for
 from contextlib import suppress
 from logging import getLogger
 from secrets import token_urlsafe
 from time import monotonic, time
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_type_hints
 from uuid import uuid4
 
 try:
@@ -35,9 +37,19 @@ from holarchy import telemetry
 
 from .app_keys import S3_SERVICE_KEY
 from .context import ActionFactory
-from .data_types import ClientConfig, JobContext
+from .data_types import ClientConfig, JobContext, ensure_storage_zones
+from .di import (
+    cast_header_value,
+    extract_header_marker,
+    find_header_in_dict,
+    is_header_annotation,
+)
+from .diagnostic import generate_evidence_card
+from .fsm import Next, State
 from .history.base import HistoryStorageBase
 from .metrics import LABEL_BLUEPRINT, Metrics
+from .skill import SkillInvocation
+from .testing.replay import record_execution_receipt
 
 if TYPE_CHECKING:
     from .engine import OrchestratorEngine
@@ -167,7 +179,7 @@ class JobExecutor:
                 if quarantine_reason := job_state.get("quarantine_reason"):
                     span.set_attribute("job.quarantine_reason", str(quarantine_reason))
 
-                tracing_context: dict[str, str] = {}
+                tracing_context: dict[str, str] = dict(job_state.get("tracing_context") or {})
                 telemetry.inject(tracing_context)
                 job_state["tracing_context"] = tracing_context
 
@@ -188,6 +200,7 @@ class JobExecutor:
                     default_dispatch_timeout=job_state.get("dispatch_timeout"),
                     default_result_timeout=job_state.get("result_timeout"),
                     policy=job_state.get("policy"),
+                    blueprint=blueprint,
                 )
                 client_config_dict = job_state.get("client_config", {})
                 client_config = ClientConfig(
@@ -203,6 +216,20 @@ class JobExecutor:
                 state_history = job_state.get("state_history") or {}
                 aggregation_results = job_state.get("aggregation_results") or {}
 
+                # Clean zones for JobContext:
+                input_data = job_state.get("input") if "input" in job_state else initial_data
+                steps_data = job_state.get("steps") if "steps" in job_state else state_history
+                if isinstance(input_data, dict) and isinstance(initial_data, dict):
+                    initial_data.update(input_data)
+                    input_data = initial_data
+                if isinstance(steps_data, dict) and isinstance(state_history, dict):
+                    state_history.update(steps_data)
+                    steps_data = state_history
+                history_data = job_state.get("history") if "history" in job_state else []
+                output_data = job_state.get("output") if "output" in job_state else job_state.get("result")
+                params_data = job_state.get("params") if "params" in job_state else client_config.params
+                meta_data = job_state.get("meta") if "meta" in job_state else job_state.get("metadata", {})
+
                 context = JobContext(
                     job_id=job_id,
                     current_state=job_state.get("current_state", "start"),
@@ -216,6 +243,12 @@ class JobExecutor:
                     webhook_url=job_state.get("webhook_url"),
                     task_files=task_files,
                     policy=job_state.get("policy"),
+                    input=input_data,
+                    steps=steps_data,
+                    history=history_data,
+                    output=output_data,
+                    params=params_data,
+                    meta=meta_data,
                 )
 
                 try:
@@ -229,20 +262,167 @@ class JobExecutor:
                     param_names = blueprint.get_handler_params(handler)
                     params_to_inject: dict[str, Any] = {}
 
+                    try:
+                        hints = get_type_hints(handler, include_extras=True)
+                    except Exception:
+                        hints = {}
+
+                    sig = blueprint.get_handler_signature(handler)
+                    if sig is None:
+                        with suppress(Exception):
+                            sig = inspect.signature(handler)
+
+                    def _coerce_type(tp: Any, raw_val: Any) -> Any:
+                        if not isinstance(tp, type):
+                            return raw_val
+                        if isinstance(raw_val, tp):
+                            return raw_val
+                        if not isinstance(raw_val, dict):
+                            return raw_val
+                        if hasattr(tp, "model_validate"):
+                            with suppress(Exception):
+                                return tp.model_validate(raw_val)
+                        elif hasattr(tp, "parse_obj"):
+                            with suppress(Exception):
+                                return tp.parse_obj(raw_val)
+                        elif hasattr(tp, "__dataclass_fields__"):
+                            with suppress(Exception):
+                                matched = {k: v for k, v in raw_val.items() if k in tp.__dataclass_fields__}
+                                return tp(**matched)
+                        return raw_val
+
+                    def _is_domain_model(tp: Any) -> bool:
+                        return isinstance(tp, type) and (
+                            hasattr(tp, "model_validate")
+                            or hasattr(tp, "parse_obj")
+                            or hasattr(tp, "__dataclass_fields__")
+                        )
+
+                    # Gather available headers for injection
+                    available_headers: dict[str, Any] = {}
+                    if isinstance(context.headers, dict):
+                        available_headers.update(context.headers)
+                    if isinstance(job_state.get("meta"), dict) and isinstance(job_state["meta"].get("headers"), dict):
+                        available_headers.update(job_state["meta"]["headers"])
+                    if isinstance(job_state.get("tracing_context"), dict):
+                        available_headers.update(job_state["tracing_context"])
+
                     context_as_dict = context._asdict()
                     for param_name in param_names:
+                        param_type = hints.get(param_name)
+                        param_sig = sig.parameters.get(param_name) if sig else None
+                        param_default = (
+                            param_sig.default
+                            if param_sig and param_sig.default is not inspect.Parameter.empty
+                            else ...
+                        )
+
+                        # 1. System parameters (actions, context/ctx)
                         if param_name == "actions":
                             params_to_inject["actions"] = action_factory
-                        elif param_name == "context":
-                            params_to_inject["context"] = context
+                        elif param_name in ("context", "ctx") or (
+                            isinstance(param_type, type) and issubclass(param_type, JobContext)
+                        ):
+                            params_to_inject[param_name] = context
                         elif param_name == "task_files":
                             params_to_inject[param_name] = task_files
+
+                        # 2. Header injection (via Annotated[T, Header(...)] or default Header(...))
+                        elif is_header_annotation(param_type) or (
+                            param_sig and is_header_annotation(param_sig.default)
+                        ):
+                            marker_info = extract_header_marker(param_type, default_name=param_name)
+                            if not marker_info and param_sig:
+                                marker_info = extract_header_marker(param_sig.default, default_name=param_name)
+
+                            if marker_info:
+                                header_name, target_type, marker_default = marker_info
+                                if marker_default is ... and param_default is not ...:
+                                    effective_default = param_default
+                                else:
+                                    effective_default = marker_default
+
+                                raw_header_val = find_header_in_dict(available_headers, header_name)
+                                params_to_inject[param_name] = cast_header_value(
+                                    raw_header_val, target_type, default=effective_default
+                                )
+                            elif param_default is not ...:
+                                params_to_inject[param_name] = param_default
+
+                        # 3. Context direct attribute matching (e.g. initial_data, state_history, etc.)
                         elif param_name in context_as_dict:
-                            params_to_inject[param_name] = context_as_dict[param_name]
-                        elif param_name in context.state_history:
-                            params_to_inject[param_name] = context.state_history[param_name]
-                        elif param_name in context.initial_data:
-                            params_to_inject[param_name] = context.initial_data[param_name]
+                            params_to_inject[param_name] = _coerce_type(param_type, context_as_dict[param_name])
+
+                        # 4. Direct step result match by parameter name
+                        elif context.steps and isinstance(context.steps, dict) and param_name in context.steps:
+                            params_to_inject[param_name] = _coerce_type(param_type, context.steps[param_name])
+                        elif (
+                            context.state_history
+                            and isinstance(context.state_history, dict)
+                            and param_name in context.state_history
+                        ):
+                            params_to_inject[param_name] = _coerce_type(
+                                param_type, context.state_history[param_name]
+                            )
+
+                        # 5. Direct input property match by parameter name
+                        elif context.input and isinstance(context.input, dict) and param_name in context.input:
+                            params_to_inject[param_name] = _coerce_type(param_type, context.input[param_name])
+                        elif (
+                            context.initial_data
+                            and isinstance(context.initial_data, dict)
+                            and param_name in context.initial_data
+                        ):
+                            params_to_inject[param_name] = _coerce_type(
+                                param_type, context.initial_data[param_name]
+                            )
+
+                        # 6. Fallback resolution:
+                        else:
+                            injected = False
+
+                            # a. Check if previous step result was a dict containing param_name
+                            if context.steps and isinstance(context.steps, dict):
+                                for prev_res in reversed(list(context.steps.values())):
+                                    if isinstance(prev_res, dict) and param_name in prev_res:
+                                        params_to_inject[param_name] = _coerce_type(
+                                            param_type, prev_res[param_name]
+                                        )
+                                        injected = True
+                                        break
+                            if injected:
+                                continue
+
+                            # b. Type-based matching from Blackboard (steps) for domain models
+                            if _is_domain_model(param_type) and context.steps and isinstance(context.steps, dict):
+                                for prev_res in reversed(list(context.steps.values())):
+                                    if isinstance(prev_res, param_type):
+                                        params_to_inject[param_name] = prev_res
+                                        injected = True
+                                        break
+                                    if isinstance(prev_res, dict):
+                                        coerced = _coerce_type(param_type, prev_res)
+                                        if coerced is not prev_res and isinstance(coerced, param_type):
+                                            params_to_inject[param_name] = coerced
+                                            injected = True
+                                            break
+                            if injected:
+                                continue
+
+                            # c. Flat input matching model
+                            if isinstance(param_type, type):
+                                source = context.input if context.input is not None else context.initial_data
+                                if isinstance(source, dict):
+                                    coerced = _coerce_type(param_type, source)
+                                    if coerced is not source:
+                                        params_to_inject[param_name] = coerced
+                                        injected = True
+                            if injected:
+                                continue
+
+                            # d. Signature default value
+                            if param_default is not ...:
+                                params_to_inject[param_name] = param_default
 
                     if hasattr(self.engine, "middleware_chain") and not hasattr(
                         self.engine.middleware_chain, "_mock_name"
@@ -251,20 +431,155 @@ class JobExecutor:
                             context, params_to_inject
                         )
 
-                    result = await handler(**params_to_inject)
+                    decider_info = None
+                    deciders_map = getattr(blueprint, "_deciders", None)
+                    if isinstance(deciders_map, dict):
+                        decider_info = deciders_map.get(context.current_state)
+                    if decider_info is None:
+                        meta = getattr(handler, "_decide_meta", None)
+                        if isinstance(meta, dict):
+                            decider_info = meta
+
+                    if isinstance(decider_info, dict) and "candidates" in decider_info and "fallback" in decider_info:
+                        candidates = decider_info["candidates"]
+                        fallback = decider_info["fallback"]
+                        timeout_sec = decider_info.get("timeout_seconds", 3.0)
+                        start_decide = monotonic()
+                        fallback_triggered = False
+                        error_msg = None
+                        try:
+                            raw_result = await wait_for(handler(**params_to_inject), timeout=timeout_sec)
+                            chosen_state = str(raw_result)
+                            if chosen_state in candidates:
+                                chosen = chosen_state
+                            else:
+                                chosen = fallback
+                                fallback_triggered = True
+                                error_msg = f"Decider returned non-candidate '{chosen_state}'"
+                        except Exception as e:
+                            chosen = fallback
+                            fallback_triggered = True
+                            error_msg = str(e)
+
+                        duration_decide_ms = int((monotonic() - start_decide) * 1000)
+                        receipt = {
+                            "correlation_id": str(job_state.get("meta", {}).get("correlation_id") or job_id),
+                            "step": context.current_state,
+                            "candidates": candidates,
+                            "chosen": chosen,
+                            "fallback_triggered": fallback_triggered,
+                            "duration_ms": duration_decide_ms,
+                            "error_message": error_msg,
+                        }
+                        if "receipts" not in job_state or not isinstance(job_state["receipts"], list):
+                            job_state["receipts"] = []
+                        job_state["receipts"].append(receipt)
+
+                        with suppress(Exception):
+                            record_execution_receipt(receipt)
+
+                        action_factory.go_to(chosen)
+                        result = {"chosen": chosen, "fallback_triggered": fallback_triggered}
+                    else:
+                        result = await handler(**params_to_inject)
+
+                    if action_factory.last_receipt:
+                        if "receipts" not in job_state or not isinstance(job_state["receipts"], list):
+                            job_state["receipts"] = []
+                        job_state["receipts"].append(action_factory.last_receipt)
+                        with suppress(Exception):
+                            record_execution_receipt(action_factory.last_receipt)
 
                     if hasattr(self.engine, "middleware_chain") and not hasattr(
                         self.engine.middleware_chain, "_mock_name"
                     ):
                         result = await self.engine.middleware_chain.run_process_handler_response(context, result)
 
+                    # Handle Next(...)
+                    if isinstance(result, Next):
+                        action_factory.go_to(str(result.state))
+                        result = result.data
+
+                    # Handle returning State directly
+                    elif isinstance(result, State):
+                        action_factory.go_to(str(result))
+                        result = None
+
+                    # Handle SkillInvocation
+                    elif isinstance(result, SkillInvocation):
+                        transitions: dict[str, str] = {}
+                        if result.next_state:
+                            transitions["success"] = str(result.next_state)
+                        if result.on_failure:
+                            transitions["failed"] = str(result.on_failure)
+                        action_factory.dispatch_task(
+                            task_type=result.skill_name,
+                            params=result.params,
+                            transitions=transitions,
+                            timeout_seconds=int(result.timeout) if result.timeout is not None else None,
+                        )
+                        result = None
+
+                    # If actions.save_result(...) was used
+                    if action_factory.step_result is not None and result is None:
+                        result = action_factory.step_result
+
+                    # Handle step(on_success=...) automatic transition if no other transition set
+                    if (
+                        action_factory.next_state is None
+                        and not action_factory.task_to_dispatch
+                        and not action_factory.parallel_tasks_to_dispatch
+                        and not action_factory.sub_blueprint_to_run
+                        and getattr(handler, "_on_success", None)
+                    ):
+                        action_factory.go_to(str(handler._on_success))
+
+                    def _serialize_val(val: Any) -> Any:
+                        if val is None:
+                            return None
+                        if hasattr(val, "model_dump"):
+                            return val.model_dump()
+                        if hasattr(val, "dict") and callable(val.dict):
+                            return val.dict()
+                        if hasattr(val, "__dataclass_fields__"):
+                            return dataclasses.asdict(val)
+                        return val
+
+                    serializable_result = _serialize_val(result)
+
+                    current_st = str(job_state["current_state"])
+                    if "state_history" not in job_state or job_state["state_history"] is None:
+                        job_state["state_history"] = {}
+                    if serializable_result is not None:
+                        job_state["state_history"][current_st] = serializable_result
+                        if "steps" in job_state and isinstance(job_state["steps"], dict):
+                            job_state["steps"][current_st] = serializable_result
+                        if isinstance(context.steps, dict):
+                            context.steps[current_st] = serializable_result
+                        if isinstance(context.state_history, dict):
+                            context.state_history[current_st] = serializable_result
+
+                    # If this is an end state, set output and result
+                    if current_st in blueprint.end_states:
+                        if serializable_result is not None:
+                            job_state["result"] = serializable_result
+                            job_state["output"] = serializable_result
+                        elif job_state.get("output") is not None:
+                            job_state["result"] = job_state["output"]
+                        elif job_state.get("result") is not None:
+                            job_state["output"] = job_state["result"]
+
                     # Sync context state back to job_state for persistence
                     if action_factory.context_updates:
                         if "initial_data" not in job_state or job_state["initial_data"] is None:
                             job_state["initial_data"] = {}
                         job_state["initial_data"].update(action_factory.context_updates)
+                        if "input" in job_state and isinstance(job_state["input"], dict):
+                            job_state["input"].update(action_factory.context_updates)
 
                     job_state["state_history"] = context.state_history
+                    if "steps" in job_state:
+                        job_state["steps"] = context.steps if context.steps is not None else job_state["steps"]
                     job_state["aggregation_results"] = context.aggregation_results
 
                     # Process events emitted by the blueprint
@@ -320,8 +635,14 @@ class JobExecutor:
                             duration_ms,
                         )
                     elif job_state["current_state"] in blueprint.end_states:
-                        logger.info(f"DEBUG: Job {job_id} end state detected: {job_state['current_state']}")
-                        status = JOB_STATUS_FINISHED if job_state["current_state"] == "finished" else JOB_STATUS_FAILED
+                        curr_state = str(job_state["current_state"])
+                        logger.info(f"DEBUG: Job {job_id} end state detected: {curr_state}")
+                        if curr_state in blueprint.terminal_statuses:
+                            status = blueprint.terminal_statuses[curr_state]
+                        elif curr_state == "failed" or "fail" in curr_state.lower():
+                            status = JOB_STATUS_FAILED
+                        else:
+                            status = JOB_STATUS_FINISHED
                         await self._handle_terminal_reached(job_state, status, duration_ms)
 
                 except Exception as e:
@@ -350,14 +671,34 @@ class JobExecutor:
         current_state = job_state["current_state"]
         logger.info(f"Job {job_id} reached terminal state '{current_state}' with status '{status}'")
 
-        # Automatically extract the final result into a top-level 'result' field
+        # Automatically extract the final result into a top-level 'result' and 'output' field
         # ONLY when the job reaches a terminal state.
         state_history = job_state.get("state_history", {})
-        if current_state in state_history:
-            job_state["result"] = state_history[current_state]
-        elif not job_state.get("result") and state_history:
+        steps = job_state.get("steps", {})
+        final_res = None
+        if job_state.get("output") is not None:
+            final_res = job_state["output"]
+        elif job_state.get("result") is not None:
+            final_res = job_state["result"]
+        elif current_state in steps:
+            final_res = steps[current_state]
+        elif current_state in state_history:
+            final_res = state_history[current_state]
+        elif state_history:
             latest_key = list(state_history.keys())[-1]
-            job_state["result"] = state_history[latest_key]
+            final_res = state_history[latest_key]
+
+        if final_res is not None:
+            job_state["result"] = final_res
+            job_state["output"] = final_res
+
+        if "history" in job_state and isinstance(job_state["history"], list):
+            job_state["history"].append({
+                "state": current_state,
+                "status": status,
+                "duration_ms": duration_ms,
+                "timestamp": time(),
+            })
 
         await self.history_storage.log_job_event(
             {
@@ -387,14 +728,33 @@ class JobExecutor:
             contract = self.engine.blueprint_contracts.get(job_state["blueprint_name"], {})
             output_schema = contract.get("output_schema")
             if output_schema:
-                is_valid, error_msg = validate_data(job_state.get("state_history"), output_schema)
+                output_val = job_state.get("output")
+                if hasattr(output_val, "model_dump"):
+                    output_val = output_val.model_dump()
+                elif hasattr(output_val, "dict") and callable(output_val.dict):
+                    output_val = output_val.dict()
+
+                is_valid, error_msg = validate_data(output_val, output_schema)
+                if not is_valid and job_state.get("state_history") != output_val:
+                    is_legacy_valid, _ = validate_data(job_state.get("state_history"), output_schema)
+                    if is_legacy_valid:
+                        is_valid = True
+
                 if not is_valid:
                     status = JOB_STATUS_FAILED
                     job_state["status"] = JOB_STATUS_FAILED
                     job_state["error_message"] = (
-                        f"Blueprint contract violation: final state_history does not match output_schema. {error_msg}"
+                        f"Blueprint contract violation: final output does not match output_schema. {error_msg}"
                     )
                     logger.error(f"Job {job_id} violated its own contract: {job_state['error_message']}")
+
+        if status in (JOB_STATUS_FAILED, JOB_STATUS_QUARANTINED) and "evidence" not in job_state:
+            with suppress(Exception):
+                evidence = generate_evidence_card(
+                    job_state, job_state.get("error_message"), current_state=current_state
+                )
+                job_state["evidence"] = evidence
+                job_state["evidence_card"] = evidence["markdown"]
 
         await self.storage.save_job_state(job_id, job_state)
 
@@ -437,6 +797,16 @@ class JobExecutor:
                 "context_snapshot": job_state,
             },
         )
+
+        if "history" in job_state and isinstance(job_state["history"], list):
+            job_state["history"].append({
+                "state": previous_state,
+                "from_state": previous_state,
+                "to_state": next_state,
+                "status": "success",
+                "duration_ms": duration_ms,
+                "timestamp": time(),
+            })
 
         job_state["retry_count"] = 0
         job_state["current_state"] = next_state
@@ -518,7 +888,9 @@ class JobExecutor:
     ) -> None:
         parent_job_id = parent_job_state["id"]
         blueprint_name = sub_blueprint_info["blueprint_name"]
-        initial_data = sub_blueprint_info["initial_data"]
+        initial_data = sub_blueprint_info.get("input")
+        if initial_data is None:
+            initial_data = sub_blueprint_info.get("initial_data") or {}
 
         # Check child blueprint input contract
         contract = self.engine.blueprint_contracts.get(blueprint_name, {})
@@ -538,6 +910,12 @@ class JobExecutor:
             logger.critical(f"Job {parent_job_id} quarantined: {error_msg}")
             parent_job_state["status"] = JOB_STATUS_QUARANTINED
             parent_job_state["error_message"] = error_msg
+            with suppress(Exception):
+                evidence = generate_evidence_card(
+                    parent_job_state, error_msg, current_state=parent_job_state.get("current_state")
+                )
+                parent_job_state["evidence"] = evidence
+                parent_job_state["evidence_card"] = evidence["markdown"]
             await self.storage.save_job_state(parent_job_id, parent_job_state)
             await self.storage.quarantine_job(parent_job_id)
             return
@@ -683,10 +1061,20 @@ class JobExecutor:
             },
         )
 
+        if "history" in job_state and isinstance(job_state["history"], list):
+            job_state["history"].append({
+                "state": current_state,
+                "status": "failed",
+                "error": str(error),
+                "duration_ms": duration_ms,
+                "timestamp": time(),
+            })
+
+        job_state["error_message"] = str(error)
+
         if current_retries < max_retries:
             job_state["retry_count"] = current_retries + 1
             job_state["status"] = "awaiting_retry"
-            job_state["error_message"] = str(error)
             await self.storage.save_job_state(job_id, job_state)
             await self.storage.enqueue_job(job_id)
             logger.warning(
@@ -735,17 +1123,41 @@ class JobExecutor:
                 )
                 return
 
-            child_outcome = "success" if child_job_state["current_state"] == JOB_STATUS_FINISHED else "failure"
+            ensure_storage_zones(parent_job_state)
+            child_outcome = (
+                "success"
+                if child_job_state.get("current_state") == JOB_STATUS_FINISHED
+                or child_job_state.get("status") == JOB_STATUS_FINISHED
+                else "failure"
+            )
             transitions = parent_job_state.get("current_task_transitions", {})
             next_state = transitions.get(child_outcome, "failed")
 
-            if "state_history" not in parent_job_state:
+            child_bp_name = child_job_state.get("blueprint_name")
+            child_output = child_job_state.get("output")
+            if child_output is None:
+                child_output = child_job_state.get("result")
+            if child_output is None:
+                child_output = {
+                    "outcome": child_outcome,
+                    "final_state": child_job_state.get("current_state"),
+                    "error_message": child_job_state.get("error_message"),
+                }
+
+            if "steps" not in parent_job_state or not isinstance(parent_job_state["steps"], dict):
+                parent_job_state["steps"] = {}
+            if "state_history" not in parent_job_state or not isinstance(parent_job_state["state_history"], dict):
                 parent_job_state["state_history"] = {}
-            parent_job_state["state_history"][f"sub_job_{child_job_id}_result"] = {
+
+            sub_job_key = f"sub_job_{child_job_id}"
+            parent_job_state["steps"][sub_job_key] = child_output
+            parent_job_state["state_history"][f"{sub_job_key}_result"] = {
                 "outcome": child_outcome,
                 "final_state": child_job_state.get("current_state"),
                 "error_message": child_job_state.get("error_message"),
             }
+            if child_bp_name:
+                parent_job_state["steps"][child_bp_name] = child_output
 
             parent_job_state["current_state"] = next_state
             parent_job_state["status"] = JOB_STATUS_RUNNING

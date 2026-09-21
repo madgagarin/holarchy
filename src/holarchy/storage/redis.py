@@ -21,6 +21,7 @@ from redis import Redis, WatchError
 from redis.exceptions import NoScriptError, ResponseError
 from rxon.security import sign_payload, verify_signature
 
+from ..data_types import ensure_storage_zones
 from .base import StorageBackend
 
 logger = getLogger(__name__)
@@ -320,6 +321,7 @@ class RedisStorage(StorageBackend):
                 ):
                     logger.critical(f"JOB STATE HMAC MISMATCH: Job state integrity corrupted for {job_id}")
                     raise PermissionError("Job state HMAC signature verification failed")
+                ensure_storage_zones(state)
             return state
         return None
 
@@ -357,6 +359,8 @@ class RedisStorage(StorageBackend):
     async def save_job_state(self, job_id: str, state: dict[str, Any]) -> None:
         """Save the job state to Redis."""
         key = self._get_key(job_id)
+        if isinstance(state, dict):
+            ensure_storage_zones(state)
         secret = getenv("ORCHESTRATOR_SECRET_KEY", "")
         if secret and isinstance(state, dict):
             normalized = RedisStorage._normalize_unpacked(state)
@@ -401,6 +405,9 @@ class RedisStorage(StorageBackend):
                         updated_state = await update_callback(current_state)
                     else:
                         updated_state = update_callback(current_state)
+
+                    if isinstance(updated_state, dict):
+                        ensure_storage_zones(updated_state)
 
                     secret = getenv("ORCHESTRATOR_SECRET_KEY", "")
                     if secret and isinstance(updated_state, dict):
@@ -1047,3 +1054,14 @@ class RedisStorage(StorageBackend):
             if raw:
                 info = self._unpack_worker(raw)
                 await self.register_worker(worker_id, info, int(await self._redis.ttl(key)))
+
+    async def get_idempotent_job_id(self, client_token: str, key: str) -> str | None:
+        redis_key = f"orchestrator:idempotency:{client_token}:{key}"
+        data = await self._redis.get(redis_key)
+        if data:
+            return data.decode("utf-8") if isinstance(data, bytes) else str(data)
+        return None
+
+    async def set_idempotent_job_id(self, client_token: str, key: str, job_id: str, ttl: int = 86400) -> None:
+        redis_key = f"orchestrator:idempotency:{client_token}:{key}"
+        await self._redis.set(redis_key, job_id, ex=ttl)

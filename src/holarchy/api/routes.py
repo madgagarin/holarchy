@@ -23,17 +23,23 @@ from .handlers import (
     cancel_job_handler,
     create_job_handler_factory,
     docs_handler,
+    get_blueprint_dag_handler,
     get_blueprint_graph_handler,
     get_dashboard_handler,
+    get_job_evidence_handler,
     get_job_file_download_handler,
     get_job_file_upload_handler,
     get_job_history_handler,
     get_job_status_handler,
     get_jobs_handler,
     get_quarantined_jobs_handler,
+    get_skill_detail_handler,
+    get_skills_catalog_handler,
     get_workers_handler,
     human_approval_webhook_handler,
+    openapi_json_handler,
     reload_worker_configs_handler,
+    start_job_by_name_handler,
     status_handler,
     stream_job_file_upload_handler,
 )
@@ -64,10 +70,13 @@ def setup_routes(app: web.Application, engine: "OrchestratorEngine") -> None:
         public_app[S3_SERVICE_KEY] = engine.s3_service
 
     public_app.router.add_get("/status", status_handler)
+    public_app.router.add_get("/openapi.json", openapi_json_handler)
     public_app.router.add_post("/webhooks/approval/{job_id}", human_approval_webhook_handler)
     public_app.router.add_get("/docs", docs_handler)
 
     app.add_subapp("/_public/", public_app)
+    app.router.add_get("/openapi.json", openapi_json_handler)
+    app.router.add_get("/docs", docs_handler)
 
     if engine.config.ENABLE_CLIENT_API:
         auth_middleware = client_auth_middleware_factory(engine.storage, engine.config)
@@ -149,7 +158,9 @@ def _register_common_routes(
             handler = wrap_func(handler)
         app.router.add_route(method, path, handler)
 
+    add("POST", "/jobs/start/{blueprint_name}", start_job_by_name_handler)
     add("GET", "/jobs/{job_id}", get_job_status_handler)
+    add("GET", "/jobs/{job_id}/evidence", get_job_evidence_handler)
     add("POST", "/jobs/{job_id}/cancel", cancel_job_handler)
     add("GET", "/jobs/{job_id}/files/upload", get_job_file_upload_handler)
     add("PUT", "/jobs/{job_id}/files/content/{filename}", stream_job_file_upload_handler)
@@ -159,9 +170,14 @@ def _register_common_routes(
     add("GET", "/jobs/{job_id}/history", get_job_history_handler)
 
     add("GET", "/blueprints/{blueprint_name}/graph", get_blueprint_graph_handler)
+    add("GET", "/blueprints/{blueprint_name}/dag", get_blueprint_dag_handler)
     add("GET", "/workers", get_workers_handler)
     add("GET", "/workers/catalog", get_dashboard_handler)  # Placeholder
+    add("GET", "/skills", get_skills_catalog_handler)
+    add("GET", "/skills/{skill_name}", get_skill_detail_handler)
     add("GET", "/jobs", get_jobs_handler)
     add("GET", "/jobs/quarantined", get_quarantined_jobs_handler)
     add("GET", "/dashboard", get_dashboard_handler)
     add("POST", "/admin/reload-workers", reload_worker_configs_handler)
+    add("GET", "/openapi.json", openapi_json_handler)
+    add("GET", "/docs", docs_handler)

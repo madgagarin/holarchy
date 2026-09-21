@@ -4,8 +4,19 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-from ast import Attribute, Call, Constant, Dict, parse, walk
+from ast import (
+    AsyncFunctionDef,
+    Attribute,
+    Call,
+    Constant,
+    Dict,
+    FunctionDef,
+    Name,
+    parse,
+    walk,
+)
 from collections.abc import Callable
+from contextlib import suppress
 from inspect import getsource, signature
 from logging import getLogger
 from textwrap import dedent
@@ -14,6 +25,8 @@ from typing import Any, cast
 from fast_filter import FastF
 from graphviz import Digraph
 from rxon.schema import extract_json_schema
+
+from holarchy.fsm import State, StepScope
 
 from .datastore import AsyncDictStore
 
@@ -32,10 +45,26 @@ class ConditionalHandler:
         self._filter = condition
 
     def evaluate(self, context: Any) -> bool:
+        if isinstance(context, StepScope):
+            try:
+                return bool(self._filter.resolve(context))
+            except Exception:
+                return False
+
+        if type(context).__name__.endswith("Mock"):
+            try:
+                return bool(self._filter.resolve(context))
+            except Exception:
+                return False
+
         try:
-            return bool(self._filter.resolve(context))
+            scope = StepScope(context)
+            return bool(self._filter.resolve(scope))
         except Exception:
-            return False
+            try:
+                return bool(self._filter.resolve(context))
+            except Exception:
+                return False
 
 
 class HandlerDecorator:
@@ -46,12 +75,16 @@ class HandlerDecorator:
         is_start: bool = False,
         is_end: bool = False,
         condition: FastF | None = None,
+        risk: str = "low",
+        permissions: list[str] | None = None,
     ):
         self._blueprint = blueprint
         self._state = state
         self._is_start = is_start
         self._is_end = is_end
         self._condition = condition
+        self._risk = risk
+        self._permissions = list(permissions or [])
 
     def __call__(self, func: Callable) -> Callable:
         state_name = self._state or func.__name__
@@ -79,6 +112,8 @@ class HandlerDecorator:
             self._blueprint.end_states.add(state_name)
 
         self._state = state_name
+        func._risk = getattr(func, "_risk", self._risk)
+        func._permissions = getattr(func, "_permissions", self._permissions)
         return func
 
 
@@ -117,7 +152,11 @@ class Blueprint:
         self.start_state: str | None = None
         self.end_states: set[str] = set()
         self._handler_params: dict[Callable, tuple[str, ...]] = {}
+        self._handler_signatures: dict[Callable, Any] = {}
         self.events_schema: dict[str, dict[str, Any]] = {}
+        self._explicit_transitions: dict[str, set[str]] = {}
+        self.terminal_statuses: dict[str, str] = {}
+        self._deciders: dict[str, dict[str, Any]] = {}
 
     def add_data_store(self, name: str, initial_data: dict[str, Any]) -> None:
         """Adds a named data store to the blueprint."""
@@ -131,6 +170,8 @@ class Blueprint:
         is_start: bool = False,
         is_end: bool = False,
         condition: FastF | None = None,
+        risk: str = "low",
+        permissions: list[str] | None = None,
     ) -> Any:
         """Decorator for registering a state handler.
 
@@ -142,6 +183,8 @@ class Blueprint:
             is_start: Whether this is the initial state of the blueprint.
             is_end: Whether this is a terminal state.
             condition: An optional FastF condition.
+            risk: Risk level ('low', 'medium', 'high').
+            permissions: Optional list of required permissions.
 
         Examples:
             @bp.handler("start_state", is_start=True)
@@ -175,6 +218,8 @@ class Blueprint:
                     is_start=is_start,
                     is_end=is_end,
                     condition=cond,
+                    risk=risk,
+                    permissions=permissions,
                 )
                 return decorator(arg)
             elif isinstance(arg, str):
@@ -198,7 +243,269 @@ class Blueprint:
             is_start=is_start,
             is_end=is_end,
             condition=cond,
+            risk=risk,
+            permissions=permissions,
         )
+
+    def add_transition(self, from_state: Any, to_state: Any) -> None:
+        """Explicitly registers a valid transition between states."""
+        src = str(from_state)
+        dst = str(to_state)
+        if src not in self._explicit_transitions:
+            self._explicit_transitions[src] = set()
+        self._explicit_transitions[src].add(dst)
+
+    def start(
+        self,
+        state: Any = None,
+        risk: str = "low",
+        permissions: list[str] | None = None,
+    ) -> Any:
+        """Decorator for registering the entry point (start step) of the blueprint.
+
+        Examples:
+            @bp.start(OrderFlow.init)
+            async def init(order: OrderDetails, ctx: Context): ...
+
+            @bp.start
+            async def init(order: OrderDetails): ...
+        """
+        if callable(state) and not isinstance(state, State):
+            return self.handler(state, is_start=True, risk=risk, permissions=permissions)
+        return self.handler(state, is_start=True, risk=risk, permissions=permissions)
+
+    def step(
+        self,
+        *args: Any,
+        condition: FastF | None = None,
+        on_success: Any = None,
+        on_error: Any = None,
+        risk: str = "low",
+        permissions: list[str] | None = None,
+    ) -> Any:
+        """Decorator for registering an intermediate step in the blueprint.
+
+        Args:
+            *args: State or state name, and optional condition.
+            condition: An optional FastF condition.
+            on_success: Target state upon successful completion.
+            on_error: Target state upon error.
+            risk: Risk level ('low', 'medium', 'high').
+            permissions: Required permissions list.
+
+        Examples:
+            @bp.step(OrderFlow.payment)
+            async def pay(order: OrderDetails): ...
+
+            @bp.step(OrderFlow.payment, F.amount > 50_000)
+            async def vip_pay(order: OrderDetails): ...
+        """
+        decorator = self.handler(
+            *args,
+            is_start=False,
+            is_end=False,
+            condition=condition,
+            risk=risk,
+            permissions=permissions,
+        )
+        if callable(decorator):
+            orig_call = decorator.__call__
+
+            def wrapped_decorator(func: Callable) -> Callable:
+                func._risk = risk
+                func._permissions = list(permissions or [])
+                if on_success:
+                    func._on_success = str(on_success)
+                if on_error:
+                    func._on_error = str(on_error)
+                res = orig_call(func)
+                st_name = getattr(decorator, "_state", None) or func.__name__
+                if on_success:
+                    self.add_transition(st_name, str(on_success))
+                if on_error:
+                    self.add_transition(st_name, str(on_error))
+                return res
+
+            return wrapped_decorator
+        return decorator
+
+    def end(
+        self,
+        state: Any = None,
+        status: str = "finished",
+        risk: str = "low",
+        permissions: list[str] | None = None,
+    ) -> Any:
+        """Decorator for registering a terminal step in the blueprint.
+
+        Args:
+            state: The terminal state.
+            status: Final status of the job (default 'finished').
+            risk: Risk level ('low', 'medium', 'high').
+            permissions: Required permissions list.
+
+        Examples:
+            @bp.end(OrderFlow.finalize)
+            async def finalize(payment: PaymentResult) -> OrderReceipt: ...
+
+            @bp.end(OrderFlow.failed, status="failed")
+            async def on_failure(error: dict): ...
+        """
+        if callable(state) and not isinstance(state, State):
+            st_name = state.__name__
+            self.terminal_statuses[st_name] = status
+            return self.handler(state, is_end=True, risk=risk, permissions=permissions)
+
+        decorator = self.handler(state, is_end=True, risk=risk, permissions=permissions)
+        orig_call = decorator.__call__
+
+        def wrapped_decorator(func: Callable) -> Callable:
+            res = orig_call(func)
+            st_name = getattr(decorator, "_state", None) or func.__name__
+            self.terminal_statuses[st_name] = status
+            return res
+
+        return wrapped_decorator
+
+    def decide(
+        self,
+        candidates_or_name: Any = None,
+        fallback: Any = None,
+        timeout_seconds: float = 3.0,
+        candidates: list[Any] | None = None,
+        name: Any = None,
+        risk: str = "low",
+        permissions: list[str] | None = None,
+    ) -> Any:
+        """Decorator for registering an advisory decision routing handler.
+
+        Principles (howdeploy/jev-layer):
+        - Host-Owned Choice: The router (e.g. LLM or heuristic) may only select from 'candidates'.
+        - Fail-Open Guarantee: If the handler times out, fails, or returns an invalid candidate,
+          the host automatically transitions to 'fallback'.
+        """
+        if isinstance(candidates_or_name, str):
+            decider_name = candidates_or_name
+            actual_cands = candidates or []
+            actual_fallback = fallback or (actual_cands[0] if actual_cands else "fallback")
+        elif isinstance(candidates_or_name, (list, tuple, set)):
+            decider_name = str(name) if name else None
+            actual_cands = list(candidates_or_name)
+            actual_fallback = fallback or (actual_cands[0] if actual_cands else "fallback")
+        else:
+            decider_name = str(name) if name else None
+            actual_cands = candidates or []
+            actual_fallback = fallback or (actual_cands[0] if actual_cands else "fallback")
+
+        candidates_str = [str(c) for c in actual_cands]
+        fallback_str = str(actual_fallback)
+
+        def decorator(func: Callable) -> Callable:
+            state_name = decider_name or func.__name__
+            func._risk = risk
+            func._permissions = list(permissions or [])
+            self._deciders[state_name] = {
+                "candidates": candidates_str,
+                "fallback": fallback_str,
+                "timeout_seconds": timeout_seconds,
+                "func": func,
+                "risk": risk,
+                "permissions": list(permissions or []),
+            }
+            func._is_decider = True
+            func._decide_meta = self._deciders[state_name]
+
+            # Only register as an FSM transition state if candidates and fallback are explicitly specified
+            if candidates_str and fallback is not None:
+                for c in candidates_str:
+                    self.add_transition(state_name, c)
+                self.add_transition(state_name, fallback_str)
+                dec = self.handler(state_name, is_start=False, is_end=False, risk=risk, permissions=permissions)
+                return dec(func)
+
+            return func
+
+        return decorator
+
+    def to_dag(self) -> dict[str, Any]:
+        """Exports the blueprint's state machine graph topology for spatial visualization."""
+        transitions, _ = self._get_all_transitions()
+        nodes = []
+        all_states = set(self.handlers.keys()) | set(self.end_states)
+        if self.start_state:
+            all_states.add(self.start_state)
+        for state_name in sorted(all_states):
+            h_func = self.handlers.get(state_name)
+            is_start = state_name == self.start_state
+            is_end = state_name in self.end_states
+            is_decider = state_name in self._deciders
+            risk = getattr(h_func, "_risk", "low") if h_func else "low"
+            dec_meta = self._deciders.get(state_name) or {}
+            node_type = "decider" if is_decider else ("subgraph" if getattr(h_func, "_is_subgraph", False) else "step")
+            node = {
+                "id": state_name,
+                "name": state_name,
+                "type": node_type,
+                "is_start": is_start,
+                "is_end": is_end,
+                "is_decider": is_decider,
+                "risk": risk,
+            }
+            if is_decider:
+                node["candidates"] = dec_meta.get("candidates", [])
+                node["fallback"] = dec_meta.get("fallback")
+                node["timeout_seconds"] = dec_meta.get("timeout_seconds", 3.0)
+            nodes.append(node)
+
+        edges = []
+        for src, dsts in sorted(transitions.items()):
+            dec_meta = self._deciders.get(src, {})
+            fallback_target = dec_meta.get("fallback")
+            for dst in sorted(dsts):
+                edge: dict[str, Any] = {
+                    "from": src,
+                    "to": dst,
+                }
+                if src in self._deciders and dst == fallback_target:
+                    edge["is_fallback"] = True
+                edges.append(edge)
+
+        return {
+            "blueprint_name": self.name,
+            "start_state": self.start_state,
+            "nodes": nodes,
+            "edges": edges,
+        }
+
+    def get_security_metadata(self) -> dict[str, Any]:
+        """Calculates aggregated risk and permissions across all steps and skills in the blueprint."""
+        risk_levels = {"low": 1, "medium": 2, "high": 3}
+        inv_risk = {1: "low", 2: "medium", 3: "high"}
+        max_risk_val = 1
+        all_permissions: set[str] = set()
+
+        for handler in self.handlers.values():
+            if not callable(handler):
+                continue
+            r = getattr(handler, "_risk", "low")
+            max_risk_val = max(max_risk_val, risk_levels.get(r, 1))
+            perms = getattr(handler, "_permissions", [])
+            if isinstance(perms, (list, tuple, set)):
+                all_permissions.update(perms)
+
+        for decider in self._deciders.values():
+            if not isinstance(decider, dict):
+                continue
+            r = decider.get("risk", "low")
+            max_risk_val = max(max_risk_val, risk_levels.get(r, 1))
+            perms = decider.get("permissions", [])
+            if isinstance(perms, (list, tuple, set)):
+                all_permissions.update(perms)
+
+        return {
+            "risk": inv_risk.get(max_risk_val, "low"),
+            "permissions": sorted(all_permissions),
+        }
 
     def aggregator(self, state_or_func: str | Callable | None = None) -> Any:
         """Decorator for registering an aggregator handler.
@@ -302,12 +609,47 @@ class Blueprint:
                     raise ValueError(msg)
 
     def _get_all_transitions(self) -> tuple[dict[str, set[str]], int]:
-        """
-        Parses handler source code to find all possible transitions.
+        """Parses handler source code and explicit annotations to find all possible transitions.
+
         Returns a tuple of (transitions_map, parse_error_count).
         """
-        transitions: dict[str, set[str]] = {}
+        transitions: dict[str, set[str]] = {k: set(v) for k, v in self._explicit_transitions.items()}
         parse_errors = 0
+
+        defined_states = (
+            set(self.handlers.keys())
+            | set(self.aggregator_handlers.keys())
+            | {ch.state for ch in self.conditional_handlers}
+        )
+
+        scope_vars: dict[str, Any] = {}
+
+        def _resolve_target(arg_node: Any) -> str | None:
+            if isinstance(arg_node, Call) and arg_node.args:
+                return _resolve_target(arg_node.args[0])
+            if isinstance(arg_node, Constant):
+                return str(arg_node.value)
+            if isinstance(arg_node, Attribute):
+                attr_name = arg_node.attr
+                for s in defined_states:
+                    if s == attr_name or s.endswith(f":{attr_name}"):
+                        return s
+                if isinstance(arg_node.value, Name):
+                    candidate = f"{arg_node.value.id}:{attr_name}"
+                    if candidate in defined_states:
+                        return candidate
+                return attr_name
+            if isinstance(arg_node, Name):
+                if scope_vars and arg_node.id in scope_vars:
+                    val = scope_vars[arg_node.id]
+                    val_str = str(val)
+                    if val_str in defined_states:
+                        return val_str
+                for s in defined_states:
+                    if s == arg_node.id or s.endswith(f":{arg_node.id}"):
+                        return s
+                return arg_node.id
+            return None
 
         all_handlers = (
             list(self.handlers.items())
@@ -323,24 +665,69 @@ class Blueprint:
             try:
                 source = dedent(getsource(func))
                 tree = parse(source)
-                for node in walk(tree):
-                    if not (isinstance(node, Call) and isinstance(node.func, Attribute)):
+                scope_vars.clear()
+                scope_vars.update(getattr(func, "__globals__", {}))
+                closure = getattr(func, "__closure__", None)
+                code = getattr(func, "__code__", None)
+                if closure and code and hasattr(code, "co_freevars"):
+                    for var_name, cell in zip(code.co_freevars, closure, strict=False):
+                        with suppress(ValueError):
+                            scope_vars[var_name] = cell.cell_contents
+
+                fn_nodes = []
+                for stmt in getattr(tree, "body", []):
+                    if isinstance(stmt, (FunctionDef, AsyncFunctionDef)):
+                        for body_stmt in stmt.body:
+                            fn_nodes.extend(walk(body_stmt))
+                    else:
+                        fn_nodes.extend(walk(stmt))
+
+                for node in fn_nodes:
+                    if not isinstance(node, Call):
                         continue
 
-                    if node.func.attr == "go_to" and node.args and isinstance(node.args[0], Constant):
-                        transitions[state].add(str(node.args[0].value))
+                    func_name = ""
+                    if isinstance(node.func, Attribute):
+                        func_name = node.func.attr
+                    elif isinstance(node.func, Name):
+                        func_name = node.func.id
 
-                    elif node.func.attr in ("dispatch_task", "await_human_approval", "run_blueprint"):
+                    # Check if calling a Skill object with defined fallback
+                    if func_name and func_name in scope_vars:
+                        obj = scope_vars[func_name]
+                        if type(obj).__name__ == "Skill" and getattr(obj, "fallback", None):
+                            for s in defined_states:
+                                if s == str(obj.fallback) or s.endswith(f":{obj.fallback}"):
+                                    transitions[state].add(s)
+                                    break
+                            else:
+                                transitions[state].add(str(obj.fallback))
+
+                    if func_name in ("go_to", "Next") and node.args:
+                        target = _resolve_target(node.args[0])
+                        if target:
+                            transitions[state].add(target)
+
+                    elif func_name in ("dispatch_task", "await_human_approval", "run_blueprint"):
                         for keyword in node.keywords:
                             if keyword.arg == "transitions" and isinstance(keyword.value, Dict):
-                                for value_node in keyword.value.values:
-                                    if isinstance(value_node, Constant):
-                                        transitions[state].add(str(value_node.value))
+                                for val_node in keyword.value.values:
+                                    target = _resolve_target(val_node)
+                                    if target:
+                                        transitions[state].add(target)
 
-                    elif node.func.attr == "dispatch_parallel":
+                    elif func_name == "dispatch_parallel":
                         for keyword in node.keywords:
-                            if keyword.arg == "aggregate_into" and isinstance(keyword.value, Constant):
-                                transitions[state].add(str(keyword.value.value))
+                            if keyword.arg == "aggregate_into":
+                                target = _resolve_target(keyword.value)
+                                if target:
+                                    transitions[state].add(target)
+
+                    for keyword in node.keywords:
+                        if keyword.arg in ("next", "next_state", "on_success", "on_error", "on_failure", "fallback"):
+                            target = _resolve_target(keyword.value)
+                            if target:
+                                transitions[state].add(target)
 
             except (TypeError, OSError, SyntaxError) as e:
                 logger.warning(f"Could not parse handler for state '{state}' in blueprint '{self.name}': {e}")
@@ -359,10 +746,15 @@ class Blueprint:
         for func in all_funcs:
             sig = signature(func)
             self._handler_params[func] = tuple(sig.parameters.keys())
+            self._handler_signatures[func] = sig
 
     def get_handler_params(self, func: Callable) -> tuple[str, ...]:
         """Returns the cached parameters for a handler function."""
         return self._handler_params.get(func, ())
+
+    def get_handler_signature(self, func: Callable) -> Any | None:
+        """Returns the cached signature for a handler function."""
+        return self._handler_signatures.get(func)
 
     def find_handler(self, state: str, context: Any) -> Callable:
         for handler in self.conditional_handlers:

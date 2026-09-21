@@ -639,6 +639,10 @@ class OrchestratorEngine:
             if not final_tracing_context:
                 telemetry.inject(final_tracing_context)
 
+            job_meta = dict(metadata or {})
+            if "headers" not in job_meta and final_tracing_context:
+                job_meta["headers"] = dict(final_tracing_context)
+
             job_state = {
                 "id": job_id,
                 "blueprint_name": blueprint_name,
@@ -656,6 +660,7 @@ class OrchestratorEngine:
                 "result_timeout": result_timeout,
                 "security": to_dict(security) if security else None,
                 "metadata": metadata or {},
+                "meta": job_meta,
                 "parent_job_id": parent_job_id,
                 "policy": policy or {},
                 "depth": depth,

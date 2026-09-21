@@ -41,34 +41,78 @@ Estos puntos finales no requieren autenticación y siempre utilizan el prefijo f
   - `200 OK`: `{"status": "approval_received", "job_id": "..."}`
   - `400 Bad Request`: Solicitud vacía, JSON no válido o falta de campo `decision`.
   - `401 Unauthorized`: Falta o es inválido el `approval_token` y falta el encabezado `X-Client-Token` válido.
-  - `409 Conflict`: El trabajo no está en estado `waiting_for_human` o hay conflicto en la transición.
+### Documentación Interactiva de la API
+
+- **Punto final:** `GET /docs` (o `GET /_public/docs`)
+- **Descripción:** Devuelve una página HTML interactiva y personalizada con documentación de la API, consola de pruebas en vivo, inspector de 5 zonas de almacenamiento e indicadores de riesgo y permisos.
+- **Respuesta (`200 OK`):** Página HTML (`text/html`).
+
+### Especificación Dinámica OpenAPI 3.1.0
+
+- **Punto final:** `GET /openapi.json` (o `GET /_public/openapi.json`)
+- **Descripción:** Genera dinámicamente la especificación OpenAPI 3.1.0 completa, incluyendo todos los blueprints registrados, DAG espaciales, catálogo de habilidades y encabezados del orquestador.
+- **Respuesta (`200 OK`):** Objeto JSON (`application/json`) según el estándar OpenAPI 3.1.0.
 
 ---
 
 ## 2. Puntos Finales de Cliente (`/{CLIENT_API_PREFIX}/v1`)
 
-Requieren encabezado `X-Client-Token`.
+Diseñados para sistemas externos que inician y supervisan flujos de trabajo. Requieren el encabezado `X-Client-Token`.
 La ruta base para estos puntos finales es configurable a través de la variable de entorno `CLIENT_API_PREFIX` (por defecto `api`). Si se establece como una cadena vacía, estos puntos finales estarán disponibles en la raíz (ej. `/v1/...`).
 
-### Crear Nuevo Trabajo
+### Encabezados de Solicitud del Orquestador
+
+Al crear trabajos, los parámetros de control de la orquestación se transmiten a través de encabezados HTTP estándar, manteniendo el cuerpo JSON limpio para los datos del dominio:
+
+- `X-Client-Token` (cadena, obligatorio): Token de autenticación del cliente.
+- `X-Job-Priority` (cadena, opcional): Prioridad del trabajo (`critical`, `high`, `normal` [por defecto], `low`, `background`).
+- `X-Job-Timeout` (entero, opcional): Tiempo límite máximo de ejecución en segundos.
+- `X-Correlation-ID` (cadena, opcional): Identificador de trazabilidad distribuida propagado a lo largo de pasos y workers.
+- `Idempotency-Key` (cadena, opcional): Clave de idempotencia para evitar la duplicación de trabajos ante reintentos de red.
+- `X-Webhook-URL` (cadena, opcional): URL de webhook notificada asíncronamente cuando el trabajo alcanza un estado terminal.
+
+### Crear Nuevo Trabajo (Punto Final Personalizado del Blueprint)
 
 - **Punto final:** `POST /{CLIENT_API_PREFIX}/v1/{blueprint_api_endpoint}`
-- **Descripción:** Inicia una nueva instancia (Job) de un blueprint.
-- **Cuerpo de la Solicitud:**
+- **Ejemplo:** `POST /api/v1/jobs/orders`
+- **Descripción:** Inicia una nueva instancia (Job) a través de la ruta personalizada configurada en el blueprint.
+- **Encabezados:** Ver «Encabezados de Solicitud del Orquestador» arriba.
+- **Cuerpo de la Solicitud:** Carga útil del dominio que coincide con el esquema del paso inicial:
   ```json
   {
-    "initial_data": { ... },
-    "webhook_url": "https://callback.url/webhook",
-    "dispatch_timeout": 60,
-    "result_timeout": 300
+    "order_id": 42,
+    "amount": 150.0,
+    "is_vip": true
   }
   ```
-- **Respuesta (`202 Accepted`):** `{"status": "accepted", "job_id": "..."}`
+- **Respuesta (`202 Accepted`):**
+  ```json
+  {
+    "status": "accepted",
+    "job_id": "123e4567-e89b-12d3-a456-426614174000"
+  }
+  ```
+
+### Crear Nuevo Trabajo (Iniciador Genérico de Blueprints)
+
+- **Punto final:** `POST /{CLIENT_API_PREFIX}/v1/jobs/start/{blueprint_name}`
+- **Ejemplo:** `POST /api/v1/jobs/start/ecommerce_orders`
+- **Descripción:** Punto final genérico para iniciar cualquier blueprint registrado por su nombre (incluso sin ruta personalizada).
+- **Encabezados:** Ver «Encabezados de Solicitud del Orquestador» arriba.
+- **Cuerpo de la Solicitud:** Carga útil del dominio para el blueprint.
+- **Respuesta (`202 Accepted`):**
+  ```json
+  {
+    "status": "accepted",
+    "job_id": "123e4567-e89b-12d3-a456-426614174000"
+  }
+  ```
+- **Respuesta (`404 Not Found`):** El blueprint especificado no está registrado en el orquestador.
 
 ### Obtener Estado del Trabajo
 
 - **Punto final:** `GET /api/v1/jobs/{job_id}`
-- **Descripción:** Devuelve el estado actual del trabajo. El nivel de detalle depende de la configuración `DETAILED_API_RESPONSES` del servidor.
+- **Descripción:** Devuelve el estado actual del trabajo estructurado en 5 zonas de almacenamiento limpias (`input`, `output`, `meta`, `artifacts`, `receipts`).
 
 #### Estados del Trabajo (Job Statuses)
 
@@ -84,15 +128,15 @@ El sistema utiliza los siguientes estados para gestionar el ciclo de vida del tr
 
 **Estados Terminales:**
 
-- `finished`: Trabajo completado con éxito. El resultado final está disponible.
-- `failed`: Error de lógica o del worker. Los detalles del error están disponibles.
+- `finished`: Trabajo completado con éxito. El resultado final está disponible en la zona `output`.
+- `failed`: Error de lógica o del worker. Los detalles del error están disponibles en la respuesta.
 - `cancelled`: El trabajo fue cancelado por un usuario o por el sistema.
 - `error`: Error crítico del sistema durante la ejecución.
-- `quarantined`: Trabajo puesto en cuarentena para revisión manual (por ejemplo, debido a una violación del contrato).
+- `quarantined`: Trabajo puesto en cuarentena para revisión manual (por ejemplo, debido a una violación de contrato o falla no recuperable).
 
-* **Parámetros:** `?fields=status,result` — filtrado de campos devueltos.
+* **Parámetros:** `?fields=status,output` — filtrado de campos devueltos.
 
-**Nota de seguridad:** El campo `result` solo se completa y es visible cuando el trabajo alcanza un estado terminal (`finished` o `failed`). Para trabajos en estados intermedios (`running`, `waiting`), el resultado se oculta para proteger los datos confidenciales en curso.
+**Nota de seguridad:** El campo `output` solo se completa y es visible cuando el trabajo alcanza el estado terminal exitoso (`finished`). Para trabajos en estados intermedios, la salida se oculta para proteger datos confidenciales en proceso.
 
 **Aislamiento de datos:** El acceso está estrictamente limitado al cliente que creó el trabajo. Debe proporcionar el mismo `X-Client-Token` que se utilizó para iniciar el trabajo. Cualquier intento de acceder a un ID de trabajo perteneciente a otro cliente devolverá un `404 Not Found` por razones de seguridad (para evitar la enumeración de ID de trabajo).
 
@@ -102,27 +146,94 @@ El sistema utiliza los siguientes estados para gestionar el ciclo de vida del tr
 {
   "id": "123e4567-e89b-12d3-a456-426614174000",
   "status": "finished",
-  "result": { "output": "success" },
-  "blueprint_name": "my_flow"
+  "blueprint_name": "ecommerce_orders",
+  "current_state": "FlowStates:finalize"
 }
 ```
 
+**Respuesta Detallada (Estructura de 5 Zonas de Almacenamiento):**
+
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "status": "finished",
+  "blueprint_name": "ecommerce_orders",
+  "current_state": "FlowStates:finalize",
+  "input": {
+    "order_id": 42,
+    "amount": 150.0,
+    "is_vip": true
+  },
+  "output": {
+    "receipt_id": "rcpt_42",
+    "status": "paid",
+    "amount": 150.0
+  },
+  "meta": {
+    "priority": "normal",
+    "timeout": 300,
+    "correlation_id": "corr-order-42",
+    "created_at": 1715280000.0,
+    "finished_at": 1715280004.2
+  },
+  "artifacts": {
+    "invoice_pdf": "s3://bucket/invoices/inv_42.pdf"
+  },
+  "receipts": [
+    {
+      "step": "FlowStates:init",
+      "timestamp": 1715280001.0,
+      "status": "success",
+      "chosen": "FlowStates:decide_step"
+    },
+    {
+      "step": "FlowStates:decide_step",
+      "timestamp": 1715280002.0,
+      "status": "success",
+      "chosen": "FlowStates:vip_process"
+    }
+  ]
+}
+```
+
+### Tarjeta de Evidencia de Incidentes (Evidence Card)
+
+- **Punto final:** `GET /api/v1/jobs/{job_id}/evidence`
+- **Descripción:** Genera una tarjeta de diagnóstico forense para trabajos en estado `failed` o `quarantined`. Esencial para análisis post-mortem y remediación automatizada.
+- **Parámetros:**
+  - `format` (cadena, opcional): Formato de respuesta, `json` (por defecto) o `md` (Markdown).
+- **Respuesta JSON (`200 OK`):**
+  ```json
+  {
+    "job_id": "123e4567-e89b-12d3-a456-426614174000",
+    "blueprint_name": "ecommerce_orders",
+    "status": "quarantined",
+    "failed_step": "FlowStates:charge_card",
+    "error_message": "Payment gateway timeout after 3 retries",
+    "remediation": "Check gateway API availability or replay job via /jobs/start/ecommerce_orders.",
+    "receipts": [...]
+  }
+  ```
+- **Respuesta Markdown (`200 OK` con `?format=md`):** Documento formateado (`text/markdown; charset=utf-8`) listo para compartir en Slack, Jira o GitHub Issues.
+
 ### Operaciones con S3
 
-- `GET /api/v1/jobs/{job_id}/files/upload` — obtener URL de subida.
-- `PUT /api/v1/jobs/{job_id}/files/content/{filename}` — streaming directo de archivos.
+- `GET /api/v1/jobs/{job_id}/files/upload` — obtener URL presigned de subida.
+- `PUT /api/v1/jobs/{job_id}/files/content/{filename}` — streaming directo de archivos mediante proxy del orquestador.
 - `GET /api/v1/jobs/{job_id}/files/download/{filename}` — enlace estable de descarga.
 
-### Gestión y Diagnóstico
+### Gestión, Visualización y Diagnóstico
 
 - `POST /api/v1/jobs/{job_id}/cancel` — cancela una tarea activa.
 - `GET /api/v1/jobs/{job_id}/history` — historial completo de eventos del trabajo. En modo compacto, los campos `context_snapshot` en los eventos se filtran.
-- `GET /api/v1/jobs` — lista de todos los trabajos. En modo compacto, el `context_snapshot` de cada trabajo se filtra.
-- `GET /api/v1/blueprints/{blueprint_name}/graph` — estructura del blueprint en formato DOT.
-- `GET /api/v1/workers` — lista de todos los workers activos.
-- `GET /api/v1/dashboard` — estadísticas agregadas del sistema.
-- `GET /api/v1/workers/catalog` — catálogo de habilidades (caché 10s).
-- `GET /api/v1/jobs/quarantined` — lista de identificadores de trabajos en cuarentena.
+- `GET /api/v1/blueprints/{blueprint_name}/graph` — estructura del blueprint en formato Graphviz DOT.
+- `GET /api/v1/blueprints/{blueprint_name}/dag` — topología 2D espacial del DAG con coordenadas de nodos, tipos de pasos (`start`, `step`, `decide`, `parallel`, `human`, `end`), ramas de transición, niveles de riesgo y permisos.
+- `GET /api/v1/workers` — lista de todos los workers activos conectados.
+- `GET /api/v1/dashboard` — estadísticas agregadas del sistema y colas.
+- `GET /api/v1/skills` — catálogo de habilidades de workers en el clúster (caché 10s).
+- `GET /api/v1/skills/{skill_name}` — especificación y contrato detallado de una habilidad (`input_schema`, `output_schema`, `risk`, `permissions`).
+- `GET /api/v1/jobs` — lista de todos los trabajos. En modo compacto, los snapshots se filtran.
+- `GET /api/v1/jobs/quarantined` — lista de identificadores de trabajos en cuarentena para revisión manual.
 
 ---
 

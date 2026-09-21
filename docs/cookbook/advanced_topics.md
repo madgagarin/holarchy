@@ -70,7 +70,7 @@ WORKERS_CONFIG_PATH="workers.toml"
 ```dotenv
 # In Worker .env file
 WORKER_ID="worker-video-1"
-HOLARCHY_WORKER_TOKEN="unique-secret-token-for-video-1"
+HOLONODE_TOKEN="unique-secret-token-for-video-1"
 ```
 
 Orchestrator will always first attempt to authenticate worker by its individual token.
