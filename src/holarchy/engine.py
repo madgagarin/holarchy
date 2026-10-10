@@ -172,6 +172,12 @@ class OrchestratorEngine:
         self._setup_done = False
         self.runner: web.AppRunner
 
+        # Caching layer for high-throughput OpenAPI 3.1 & documentation serving
+        self._openapi_spec_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self._openapi_json_bytes: bytes | None = None
+        self._docs_html_cache: str | None = None
+        self._blueprints_revision: int = 0
+
     def register_blueprint(self, blueprint: Blueprint) -> None:
         if self._setup_done:
             raise RuntimeError("Cannot register blueprints after engine setup.")
@@ -185,11 +191,23 @@ class OrchestratorEngine:
         contract = extract_skill_contract(blueprint, extractor=orchestrator_extract_json_schema)
         self.blueprint_contracts[blueprint.name] = contract
 
+        # Invalidate cached OpenAPI specs, pre-serialized JSON bytes, and HTML documentation
+        self.invalidate_openapi_spec_cache()
+
         try:
             get_running_loop()
             create_task(self.storage.save_blueprint_contract(blueprint.name, contract))
         except RuntimeError:
             pass
+
+    def invalidate_openapi_spec_cache(self) -> None:
+        """Invalidates all cached OpenAPI specifications, pre-serialized JSON bytes, and documentation HTML."""
+        if hasattr(self, "_openapi_spec_cache") and self._openapi_spec_cache is not None:
+            self._openapi_spec_cache.clear()
+        self._openapi_json_bytes = None
+        self._docs_html_cache = None
+        if hasattr(self, "_blueprints_revision"):
+            self._blueprints_revision += 1
 
     def setup(self) -> None:
         if self._setup_done:
@@ -597,7 +615,7 @@ class OrchestratorEngine:
     async def create_background_job(
         self,
         blueprint_name: str,
-        initial_data: dict[str, Any],
+        input: dict[str, Any] | None = None,
         source: str = "internal",
         tracing_context: dict[str, str] | None = None,
         data_metadata: dict[str, Any] | None = None,
@@ -643,13 +661,21 @@ class OrchestratorEngine:
             if "headers" not in job_meta and final_tracing_context:
                 job_meta["headers"] = dict(final_tracing_context)
 
+            job_input = input if input is not None else {}
+
             job_state = {
                 "id": job_id,
+                "job_id": job_id,
+                "blueprint": blueprint_name,
                 "blueprint_name": blueprint_name,
                 "status": "pending",
                 "current_state": blueprint.start_state,
-                "initial_data": initial_data,
-                "state_history": initial_data.copy(),
+                "input": job_input,
+                "output": None,
+                "steps": {},
+                "history": [],
+                "params": client_config.get("params", {}),
+                "meta": job_meta,
                 "created_at": now,
                 "updated_at": now,
                 "retry_count": 0,
@@ -660,7 +686,6 @@ class OrchestratorEngine:
                 "result_timeout": result_timeout,
                 "security": to_dict(security) if security else None,
                 "metadata": metadata or {},
-                "meta": job_meta,
                 "parent_job_id": parent_job_id,
                 "policy": policy or {},
                 "depth": depth,
@@ -690,6 +715,8 @@ class OrchestratorEngine:
 
             logger.info(f"Created background job {job_id} for blueprint '{blueprint_name}' (source: {source})")
             return job_id
+
+    create_job = create_background_job
 
     async def handle_task_failure(self, job_state: dict[str, Any], task_id: str, error_message: str | None) -> None:
         """Handles a transient task failure by retrying or quarantining."""
@@ -781,9 +808,11 @@ class OrchestratorEngine:
 
         detailed = self.config.DETAILED_API_RESPONSES
 
-        result = job_state.get("result")
+        result = job_state.get("output")
+        if result is None:
+            result = job_state.get("result")
         if not result and detailed:
-            result = job_state.get("state_history")
+            result = job_state.get("steps")
 
         payload = WebhookPayload(
             event=event,

@@ -124,7 +124,7 @@ async def test_result_hidden_in_detailed_mode_for_running_job(mock_engine, mock_
         "id": "test-job",
         "status": "running",
         "result": {"secret": "tracking"},
-        "state_history": {"step1": "done"},
+        "steps": {"step1": "done"},
         "client_config": {"token": token},
     }
 
@@ -132,7 +132,7 @@ async def test_result_hidden_in_detailed_mode_for_running_job(mock_engine, mock_
     data = orjson_loads(response.body)
 
     assert "result" not in data
-    assert "state_history" in data
+    assert "steps" in data
 
 
 @mark.asyncio

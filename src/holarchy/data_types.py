@@ -4,9 +4,10 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import dataclasses
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from msgspec import to_builtins
 from rxon.models import InstalledArtifact, Resources
 
 from .fsm import Next
@@ -28,8 +29,11 @@ class JobContext(NamedTuple):
 
     job_id: str
     current_state: str
-    initial_data: dict[str, Any]
-    state_history: dict[str, Any]
+    input: dict[str, Any]
+    steps: dict[str, Any]
+    output: Any | None
+    history: list[dict[str, Any]]
+    params: dict[str, Any]
     client: ClientConfig
     actions: "ActionFactory"
     data_stores: Any | None = None
@@ -38,11 +42,6 @@ class JobContext(NamedTuple):
     webhook_url: str | None = None
     task_files: Any | None = None
     policy: dict[str, Any] | None = None
-    input: dict[str, Any] | None = None
-    steps: dict[str, Any] | None = None
-    history: list[dict[str, Any]] | None = None
-    output: Any | None = None
-    params: dict[str, Any] | None = None
     meta: dict[str, Any] | None = None
 
     def go_to(self, state: Any, data: Any = None) -> Any:
@@ -61,7 +60,9 @@ class JobContext(NamedTuple):
     @property
     def headers(self) -> dict[str, Any]:
         if isinstance(self.meta, dict):
-            return self.meta.get("headers", {})
+            h = self.meta.get("headers")
+            if isinstance(h, dict):
+                return h
         return {}
 
     def run_blueprint(
@@ -77,12 +78,14 @@ class JobContext(NamedTuple):
             payload = payload.model_dump()
         elif hasattr(payload, "dict") and callable(payload.dict):
             payload = payload.dict()
+        elif hasattr(payload, "__struct_fields__"):
+            payload = to_builtins(payload)
         elif hasattr(payload, "__dataclass_fields__"):
-            payload = dataclasses.asdict(payload)
+            payload = asdict(payload)
 
         return self.actions.run_blueprint(
             blueprint_name=blueprint_name,
-            initial_data=payload if isinstance(payload, dict) else (payload or {}),
+            input=payload if isinstance(payload, dict) else (payload or {}),
             transitions=transitions or {},
             dispatch_timeout=dispatch_timeout,
             result_timeout=result_timeout,
@@ -114,70 +117,27 @@ Context = JobContext
 
 
 def ensure_storage_zones(state: dict[str, Any]) -> None:
-    """Ensures bidirectional synchronization between modern 5 zones and legacy aliases."""
+    """Ensures presence and structure of the 5 pure storage zones in job state."""
     if not isinstance(state, dict):
         return
 
-    # 1. input <-> initial_data
-    inp = state.get("input")
-    init = state.get("initial_data")
-    if isinstance(inp, dict) and isinstance(init, dict):
-        init.update({k: v for k, v in inp.items() if k not in init or init[k] is None})
-        inp.update({k: v for k, v in init.items() if k not in inp or inp[k] is None})
-        state["input"] = inp
-        state["initial_data"] = init
-    elif isinstance(inp, dict):
-        state["initial_data"] = inp
-    elif isinstance(init, dict):
-        state["input"] = init
-    else:
+    if not isinstance(state.get("input"), dict):
         state["input"] = {}
-        state["initial_data"] = {}
 
-    # 2. steps <-> state_history
-    steps = state.get("steps")
-    sh = state.get("state_history")
-    if isinstance(steps, dict) and isinstance(sh, dict):
-        sh.update({k: v for k, v in steps.items() if k not in sh or sh[k] is None})
-        steps.update({k: v for k, v in sh.items() if k not in steps or steps[k] is None})
-        state["steps"] = steps
-        state["state_history"] = sh
-    elif isinstance(steps, dict):
-        state["state_history"] = steps
-    elif isinstance(sh, dict):
-        state["steps"] = sh
-    else:
+    if not isinstance(state.get("steps"), dict):
         state["steps"] = {}
-        state["state_history"] = {}
 
-    # 3. output <-> result
-    if state.get("output") is not None:
-        state["result"] = state["output"]
-    elif state.get("result") is not None:
-        state["output"] = state["result"]
-    else:
-        if "output" not in state:
-            state["output"] = None
+    if "output" not in state:
+        state["output"] = None
 
-    # 4. history
     if not isinstance(state.get("history"), list):
         state["history"] = []
 
-    # 5. params <-> client_config["params"]
     if not isinstance(state.get("params"), dict):
-        cc = state.get("client_config")
-        if isinstance(cc, dict) and isinstance(cc.get("params"), dict):
-            state["params"] = cc["params"]
-        else:
-            state["params"] = {}
+        state["params"] = {}
 
-    # 6. meta <-> metadata
     if not isinstance(state.get("meta"), dict):
-        meta = state.get("metadata")
-        if isinstance(meta, dict):
-            state["meta"] = meta
-        else:
-            state["meta"] = {}
+        state["meta"] = {}
 
 
 class WorkerInfo(NamedTuple):

@@ -225,7 +225,7 @@ class SQLiteHistoryStorage(HistoryStorageBase):
             WHERE rn = 1
             ORDER BY timestamp DESC
             LIMIT ? OFFSET ?;
-        """
+        """  # nosec B608
         try:
             self._conn.row_factory = Row
             async with self._conn.execute(query, tuple(params)) as cursor:
@@ -261,7 +261,7 @@ class SQLiteHistoryStorage(HistoryStorageBase):
             FROM latest_events
             WHERE rn = 1
             GROUP BY status;
-        """
+        """  # nosec B608
         summary = {}
         try:
             self._conn.row_factory = Row

@@ -32,21 +32,23 @@ class OrderFlow(StatesGroup):
 
 ## 2. Модели предметной области и инициализация Blueprint
 
-Holarchy нативно валидирует входящие запросы и выходы шагов через модели **Pydantic**:
+Holarchy нативно валидирует входящие запросы и выходы шагов через стандартные `@dataclass`, `msgspec.Struct`, а также Pydantic-модели (через duck typing):
 
 ```python
-from pydantic import BaseModel, Field
+from dataclasses import dataclass
 from holarchy import Blueprint, Context, Next, Skill
 
 
-class OrderInput(BaseModel):
+@dataclass
+class OrderInput:
     order_id: int
     customer_id: str
-    amount: float = Field(..., gt=0)
+    amount: float
     items: list[str]
 
 
-class OrderOutput(BaseModel):
+@dataclass
+class OrderOutput:
     order_id: int
     receipt_id: str
     status: str

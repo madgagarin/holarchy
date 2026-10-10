@@ -5,13 +5,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from aiohttp import web
 from orjson import loads
-from pydantic import BaseModel
 from pytest import mark
+from rxon.schema import extract_input_schema_from_func, extract_json_schema
 
 from holarchy import Context
 from holarchy.api.handlers import (
@@ -39,13 +40,15 @@ class FlowStates(StatesGroup):
     failed = State()
 
 
-class OrderInput(BaseModel):
+@dataclass
+class OrderInput:
     order_id: int
     amount: float
     is_vip: bool = False
 
 
-class OrderOutput(BaseModel):
+@dataclass
+class OrderOutput:
     receipt_id: str
     status: str
     amount: float
@@ -625,3 +628,127 @@ async def test_executor_on_success_and_state_return_edge_cases():
     assert fail_state["current_state"] == "EdgeStates:s_error_step"
     assert "Simulated unhandled step failure" in fail_state.get("error_message", "")
 
+
+@mark.asyncio
+async def test_caching_and_invalidation_performance_optimizations() -> None:
+    """Verifies that all 4 caching layers operate correctly and invalidate upon mutations:
+
+    1. OpenAPI 3.1 dict memoization and force_refresh.
+    2. Handlers pre-serialized JSON bytes and HTML docs caching.
+    3. Engine registration invalidation of OpenAPI and Docs caches.
+    4. Blueprint DAG, transitions, and security metadata caching and invalidation.
+    5. rxon.schema type and function-level schema memoization.
+    """
+    storage = MemoryStorage()
+    config = Config()
+    engine = OrchestratorEngine(storage, config)
+
+    bp = Blueprint("cache_test_flow")
+    s1, s2 = State("s1"), State("s2")
+
+    @bp.start(s1, risk="medium", permissions=["read:cache"])
+    async def step_1(ctx: Context) -> State:
+        return s2
+
+    @bp.end(s2, risk="low")
+    async def step_2(ctx: Context) -> dict[str, str]:
+        return {"status": "done"}
+
+    bp.add_transition(s1, s2)
+    engine.register_blueprint(bp)
+
+    # 1. OpenAPI 3.1 Spec memoization on engine
+    spec1 = generate_openapi_spec(engine)
+    assert id(engine._openapi_spec_cache)
+    spec2 = generate_openapi_spec(engine)
+    # Object identity should match due to memoization
+    assert id(spec1) == id(spec2)
+
+    # Force refresh should bypass and update cache
+    spec_refreshed = generate_openapi_spec(engine, force_refresh=True)
+    assert spec_refreshed["openapi"] == "3.1.0"
+
+    # 2. openapi_json_handler pre-serialized bytes caching
+    req = MagicMock(spec=web.Request)
+    req.app = {ENGINE_KEY: engine}
+    resp1 = await openapi_json_handler(req)
+    assert resp1.status == 200
+    assert engine._openapi_json_bytes is not None
+    cached_bytes = engine._openapi_json_bytes
+
+    resp2 = await openapi_json_handler(req)
+    assert resp2.body == cached_bytes
+
+    # 3. docs_handler HTML template caching
+    resp_docs1 = await docs_handler(req)
+    assert resp_docs1.status == 200
+    assert engine._docs_html_cache is not None
+    cached_html = engine._docs_html_cache
+
+    resp_docs2 = await docs_handler(req)
+    assert resp_docs2.text == cached_html
+
+    # 4. Blueprint DAG and transitions caching & invalidation
+    dag1 = bp.to_dag()
+    assert bp._cached_dag is not None
+    dag2 = bp.to_dag()
+    assert id(dag1) == id(dag2)
+    assert len(dag1["edges"]) == 1
+
+    sec1 = bp.get_security_metadata()
+    assert sec1["risk"] == "medium"
+    assert sec1["permissions"] == ["read:cache"]
+    assert bp._cached_security_metadata is not None
+
+    # Invalidate via adding transition
+    s3 = State("s3")
+    bp.add_transition(s2, s3)
+    assert bp._cached_dag is None
+    assert bp._cached_transitions is None
+
+    dag3 = bp.to_dag()
+    assert len(dag3["edges"]) == 2
+
+    # Invalidate via adding handler
+    @bp.handler("s_extra", risk="high", permissions=["admin:extra"])
+    async def extra_handler(ctx: Context) -> None:
+        pass
+
+    assert bp._cached_security_metadata is None
+    sec2 = bp.get_security_metadata()
+    assert sec2["risk"] == "high"
+    assert "admin:extra" in sec2["permissions"]
+
+    # 5. Engine registration invalidation
+    bp2 = Blueprint("second_flow")
+    s_init = State("init")
+    bp2.start(s_init)(lambda: None)
+
+    # Registering bp2 must clear engine caches
+    engine.register_blueprint(bp2)
+    assert len(engine._openapi_spec_cache) == 0
+    assert engine._openapi_json_bytes is None
+    assert engine._docs_html_cache is None
+
+    spec3 = generate_openapi_spec(engine)
+    assert "/api/v1/jobs/start/second_flow" in spec3["paths"]
+
+    # 6. rxon.schema function and type memoization
+    @dataclass
+    class SampleModel:
+        sku: str
+        count: int
+
+    # Function-level schema memoization
+    def sample_func(ctx: Context, name: str) -> None:
+        pass
+
+    sch1 = extract_input_schema_from_func(sample_func)
+    assert hasattr(sample_func, "_rxon_input_schema")
+    sch2 = extract_input_schema_from_func(sample_func)
+    assert id(sch1) == id(sch2)
+
+    # Type-level schema memoization
+    type_sch1 = extract_json_schema(SampleModel)
+    type_sch2 = extract_json_schema(SampleModel)
+    assert id(type_sch1) == id(type_sch2)

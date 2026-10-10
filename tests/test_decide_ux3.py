@@ -5,18 +5,19 @@
 
 from __future__ import annotations
 
-import asyncio
-import sys
-import types
 from argparse import Namespace
+from asyncio import sleep
 from pathlib import Path
+from sys import modules
+from types import ModuleType
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from pytest import MonkeyPatch, fixture, mark, raises
 from rxon.models import ExecutionReceipt
 
 from holarchy.blueprint import Blueprint
+from holarchy.cli.__main__ import main as cli_main
 from holarchy.cli.replay import run_replay
 from holarchy.context import ActionFactory
 from holarchy.data_types import JobContext
@@ -24,7 +25,7 @@ from holarchy.executor import JobExecutor
 from holarchy.testing.replay import ReplayEvaluationReport, ReplayTestRunner, record_execution_receipt
 
 
-@pytest.fixture
+@fixture
 def mock_executor():
     engine = MagicMock()
     history = AsyncMock()
@@ -45,7 +46,7 @@ def mock_executor():
     return executor
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_decide_positive_selection(tmp_path: Path) -> None:
     cases_file = tmp_path / "cases.jsonl"
     bp = Blueprint("test_decide_pos")
@@ -73,13 +74,13 @@ async def test_decide_positive_selection(tmp_path: Path) -> None:
     assert "fast_lane" in lines[0]
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_decide_timeout_fail_open() -> None:
     bp = Blueprint("test_decide_timeout")
 
     @bp.decide("slow_decider", timeout_seconds=0.05)
     async def slow_decider(candidates: list[str], ctx: Any) -> str:
-        await asyncio.sleep(0.5)
+        await sleep(0.5)
         return "fast"
 
     af = ActionFactory(job_id="job-102", blueprint=bp)
@@ -93,7 +94,7 @@ async def test_decide_timeout_fail_open() -> None:
     assert receipt.chosen == "slow"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_decide_exception_fail_open() -> None:
     bp = Blueprint("test_decide_exc")
 
@@ -112,7 +113,7 @@ async def test_decide_exception_fail_open() -> None:
     assert "Model unavailable" in (receipt.error or "")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_decide_invalid_candidate_fail_open() -> None:
     bp = Blueprint("test_decide_invalid")
 
@@ -130,7 +131,7 @@ async def test_decide_invalid_candidate_fail_open() -> None:
     assert receipt.reason == "invalid_choice"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_decide_unregistered_decider_fail_open() -> None:
     bp = Blueprint("test_decide_unreg")
 
@@ -144,7 +145,7 @@ async def test_decide_unregistered_decider_fail_open() -> None:
     assert receipt.reason == "unregistered_decider"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_decide_via_job_executor(mock_executor) -> None:
     bp = Blueprint(name="executor_decide_bp")
 
@@ -181,9 +182,7 @@ async def test_decide_via_job_executor(mock_executor) -> None:
         "current_state": "step_a",
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
     }
     mock_executor.storage.get_job_state.return_value = job_state
     mock_executor.storage.ack_job = AsyncMock()
@@ -253,7 +252,7 @@ def test_replay_runner_evaluation(tmp_path: Path) -> None:
     assert report.fallback_cases == 0
 
 
-def test_replay_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_replay_cli_command(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     cases_file = tmp_path / "replay_cases.jsonl"
     receipt = ExecutionReceipt(
         correlation_id="j1",
@@ -268,7 +267,7 @@ def test_replay_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     )
     record_execution_receipt(receipt, str(cases_file))
 
-    mod = types.ModuleType("dummy_cli_test_mod")
+    mod = ModuleType("dummy_cli_test_mod")
     cli_bp = Blueprint("cli_test_bp")
 
     @cli_bp.decide("route_step")
@@ -276,7 +275,7 @@ def test_replay_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         return "main"
 
     mod.test_bp = cli_bp  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "dummy_cli_test_mod", mod)
+    monkeypatch.setitem(modules, "dummy_cli_test_mod", mod)
 
     args = Namespace(
         app="dummy_cli_test_mod:test_bp",
@@ -284,3 +283,115 @@ def test_replay_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         strict=False,
     )
     run_replay(args)
+
+
+def test_cli_main_help_on_empty_args(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr("sys.argv", ["holarchy"])
+    with raises(SystemExit) as exc_info:
+        cli_main()
+    assert exc_info.value.code == 0
+
+
+def test_cli_main_unknown_command(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr("sys.argv", ["holarchy", "unknown_subcmd"])
+    with raises(SystemExit) as exc_info:
+        cli_main()
+    assert exc_info.value.code == 2
+
+
+def test_cli_main_evaluate_success(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    cases_file = tmp_path / "cases.jsonl"
+    receipt = ExecutionReceipt(
+        correlation_id="c-main",
+        step="step_a",
+        decider_name="decide_a",
+        candidates=["opt1", "opt2"],
+        fallback="opt1",
+        chosen="opt1",
+        fallback_triggered=False,
+        reason="decider_selection",
+    )
+    record_execution_receipt(receipt, str(cases_file))
+
+    mod = ModuleType("test_main_pkg")
+    bp = Blueprint("main_test_bp")
+
+    @bp.decide("decide_a")
+    def dec_a(candidates: list[str], ctx: Any) -> str:
+        return "opt1"
+
+    mod.bp = bp  # type: ignore[attr-defined]
+    monkeypatch.setitem(modules, "test_main_pkg", mod)
+    argv = ["holarchy", "replay", "evaluate", "--app", "test_main_pkg:bp", "--cases", str(cases_file)]
+    monkeypatch.setattr("sys.argv", argv)
+
+    cli_main()
+
+
+def test_replay_cli_invalid_app_specifier_negative() -> None:
+    args = Namespace(app="invalid_no_colon", cases=None, strict=False)
+    with raises(SystemExit) as exc_info:
+        run_replay(args)
+    assert exc_info.value.code == 1
+
+
+def test_replay_cli_module_not_found() -> None:
+    args = Namespace(app="non_existent_module_999:bp", cases=None, strict=False)
+    with raises(SystemExit) as exc_info:
+        run_replay(args)
+    assert exc_info.value.code == 1
+
+
+def test_replay_cli_not_a_blueprint() -> None:
+    args = Namespace(app="sys:version", cases=None, strict=False)
+    with raises(SystemExit) as exc_info:
+        run_replay(args)
+    assert exc_info.value.code == 1
+
+
+def test_replay_cli_strict_flag_drift_exit_code(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    cases_file = tmp_path / "drift_cases.jsonl"
+    receipt = ExecutionReceipt(
+        correlation_id="j_drift",
+        step="step_drift",
+        decider_name="decider_drift",
+        candidates=["old_target", "new_target"],
+        fallback="old_target",
+        chosen="old_target",
+        fallback_triggered=False,
+        reason="decider_selection",
+    )
+    record_execution_receipt(receipt, str(cases_file))
+
+    mod = ModuleType("drift_test_mod")
+    bp = Blueprint("drift_bp")
+
+    @bp.decide("decider_drift")
+    def drift_fn(candidates: list[str], ctx: Any) -> str:
+        return "new_target"
+
+    mod.bp = bp  # type: ignore[attr-defined]
+    monkeypatch.setitem(modules, "drift_test_mod", mod)
+
+    args = Namespace(
+        app="drift_test_mod:bp",
+        cases=str(cases_file),
+        strict=True,
+    )
+    with raises(SystemExit) as exc_info:
+        run_replay(args)
+    assert exc_info.value.code == 1
+
+
+def test_replay_evaluation_missing_and_empty_file_edge_cases(tmp_path: Path) -> None:
+    bp = Blueprint("empty_bp")
+    runner = ReplayTestRunner(bp)
+
+    report1 = runner.evaluate(str(tmp_path / "missing.jsonl"))
+    assert report1.total_cases == 0
+    assert report1.matched_cases == 0
+
+    empty_file = tmp_path / "empty.jsonl"
+    empty_file.write_text("")
+    report2 = runner.evaluate(str(empty_file))
+    assert report2.total_cases == 0

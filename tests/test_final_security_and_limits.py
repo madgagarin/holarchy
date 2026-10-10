@@ -196,8 +196,8 @@ async def test_webhook_payload_filtering(mock_config):
         "id": "job-1",
         "status": "finished",
         "webhook_url": "http://example.com/webhook",
-        "result": {"final": "success"},
-        "state_history": {"step1": "secret_data"},
+        "output": {"final": "success"},
+        "steps": {"step1": "secret_data"},
         "security": {"token": "secret_token"},
         "timestamp": 12345.6,
     }
@@ -207,7 +207,7 @@ async def test_webhook_payload_filtering(mock_config):
     # Verify the payload sent to webhook_sender
     payload = engine.webhook_sender.send.call_args[0][1]
 
-    assert payload.result == {"final": "success"}  # Top-level result is allowed
+    assert payload.result == {"final": "success"}  # Top-level result/output is allowed
     assert payload.security is None  # Blocked in compact mode
 
 

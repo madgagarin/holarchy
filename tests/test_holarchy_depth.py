@@ -30,7 +30,7 @@ async def test_holarchy_depth_exceeded_quarantines():
     }
     sub_info = {
         "blueprint_name": "child_bp",
-        "initial_data": {},
+        "input": {},
     }
 
     await executor._handle_run_blueprint(parent_job_state, sub_info, 10)
@@ -62,7 +62,7 @@ async def test_holarchy_depth_at_limit_allowed():
     }
     sub_info = {
         "blueprint_name": "child_bp",
-        "initial_data": {"x": 1},
+        "input": {"x": 1},
     }
 
     await executor._handle_run_blueprint(parent_job_state, sub_info, 10)

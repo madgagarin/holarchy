@@ -105,9 +105,9 @@ Now all traces will be available in the Jaeger interface at `http://localhost:16
 
 If your blueprint logic contains complex calculations, work with external databases, or APIs, you can detail the tracing by creating custom sub-spans.
 
-### Why is this important?
+### Custom Sub-Span Profiling
 
-The automatic `JobExecutor` span shows the total execution time of a step. Custom spans allow you to see how much time a specific operation (e.g., `Data:Fetch` or `LLM:Preprocessing`) took, which is critical for optimizing pipelines.
+The automatic `JobExecutor` span records the total duration of each state handler. Custom sub-spans provide granular timing breakdown for internal operations (such as external queries or model invocations), which assists in profiling pipeline bottlenecks.
 
 ### Example in a Blueprint Handler:
 
@@ -117,11 +117,11 @@ from holarchy.telemetry import trace
 tracer = trace.get_tracer("my_blueprint")
 
 
-@bp.handler
-async def process_data(initial_data, actions):
+@bp.step
+async def process_data(input: dict, actions):
     # 1. Create a custom span within the step
     with tracer.start_as_current_span("Internal:Transform") as span:
-        span.set_attribute("data.size", len(initial_data))
+        span.set_attribute("data.size", len(input))
         # ... your heavy transformation logic ...
         result = {"status": "ok"}
 

@@ -194,7 +194,7 @@ El sistema admite dos niveles de detalle para el endpoint `GET /api/v1/jobs/{id}
    _Nota:_ El parámetro `?fields=...` en este modo está restringido solo a estos 4 campos.
 
 2. **Modo Detallado** (`DETAILED_API_RESPONSES=true`):
-   Devuelve el objeto completo del estado del trabajo, incluyendo `state_history`, `initial_data`, `client_config`, etc.
+   Devuelve el objeto completo del estado del trabajo, incluyendo `input`, `steps`, `output`, `history`, `params`, `client_config`, etc.
 
 ### Seguridad y TLS (mTLS)
 

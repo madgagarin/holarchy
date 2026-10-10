@@ -72,7 +72,7 @@ async def test_job_executor_enforces_policy_end_to_end():
     engine.on_job_finished = []
     bp = Blueprint("policy_bp")
 
-    @bp.handler("start", is_start=True)
+    @bp.start("start")
     async def start(actions):
         actions.dispatch_task("forbidden_skill", {}, {"success": "end"})
 
@@ -128,7 +128,7 @@ async def test_sub_blueprint_inherits_parent_policy():
 
     sub_info = {
         "blueprint_name": "child_bp",
-        "initial_data": {"input": 42},
+        "input": {"input": 42},
     }
 
     await executor._handle_run_blueprint(parent_job_state, sub_info, 100)

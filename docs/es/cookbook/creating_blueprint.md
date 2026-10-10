@@ -26,19 +26,23 @@ class OrderFlow(StatesGroup):
 
 ## 2. Modelos de dominio e inicialización de Blueprint
 
+Holarchy valida nativamente las solicitudes mediante `@dataclass`, `msgspec.Struct` o modelos Pydantic (duck typing):
+
 ```python
-from pydantic import BaseModel, Field
+from dataclasses import dataclass
 from holarchy import Blueprint, Context, Next, Skill
 
 
-class OrderInput(BaseModel):
+@dataclass
+class OrderInput:
     order_id: int
     customer_id: str
-    amount: float = Field(..., gt=0)
+    amount: float
     items: list[str]
 
 
-class OrderOutput(BaseModel):
+@dataclass
+class OrderOutput:
     order_id: int
     receipt_id: str
     status: str

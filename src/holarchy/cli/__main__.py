@@ -5,17 +5,16 @@
 
 from __future__ import annotations
 
-import argparse
-import sys
+from argparse import ArgumentParser
+from sys import exit as sys_exit
 
 from holarchy.cli.replay import run_replay
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="holarchy", description="Holarchy Orchestrator CLI")
+    parser = ArgumentParser(prog="holarchy", description="Holarchy Orchestrator CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # replay subcommand
     replay_parser = subparsers.add_parser("replay", help="Offline deterministic replay commands")
     replay_sub = replay_parser.add_subparsers(dest="subcommand", help="Replay subcommands")
 
@@ -30,7 +29,7 @@ def main() -> None:
         run_replay(args)
     else:
         parser.print_help()
-        sys.exit(0 if args.command is None else 1)
+        sys_exit(0 if args.command is None else 1)
 
 
 if __name__ == "__main__":

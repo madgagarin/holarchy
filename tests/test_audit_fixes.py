@@ -24,7 +24,7 @@ from holarchy.services.worker_service import WorkerService
 
 @mark.asyncio
 async def test_debug_flush_db_endpoint_removed():
-    """AVT-SEC-1: Verify that POST /_public/debug/flush_db does not exist."""
+    """SPIRIT-SEC-1: Verify that POST /_public/debug/flush_db does not exist."""
     app = web.Application()
     engine = MagicMock()
     engine.config.CLIENT_API_PREFIX = ""
@@ -44,7 +44,7 @@ async def test_debug_flush_db_endpoint_removed():
 
 @mark.asyncio
 async def test_quarantined_jobs_requires_auth():
-    """AVT-SEC-1: Verify quarantined jobs endpoint requires authentication."""
+    """SPIRIT-SEC-1: Verify quarantined jobs endpoint requires authentication."""
     engine = MagicMock()
     engine.config.DETAILED_API_RESPONSES = True
     app = {ENGINE_KEY: engine}
@@ -67,7 +67,7 @@ async def test_quarantined_jobs_requires_auth():
 
 @mark.asyncio
 async def test_worker_service_replay_attack_prevention():
-    """AVT-SEC-2: Replay attack prevention via timestamp and nonce cache."""
+    """SPIRIT-SEC-2: Replay attack prevention via timestamp and nonce cache."""
     engine = MagicMock()
     storage = MagicMock()
     history_storage = MagicMock()
@@ -139,7 +139,7 @@ async def test_worker_service_replay_attack_prevention():
 
 
 def test_task_files_path_traversal_prevention_server():
-    """AVT-SEC-S3: Server-side TaskFiles path traversal prevention."""
+    """SPIRIT-SEC-S3: Server-side TaskFiles path traversal prevention."""
     with TemporaryDirectory() as tmp_dir:
         provider = MagicMock()
         task_files = TaskFiles(provider=provider, bucket="test-bucket", job_id="job_456", base_local_dir=tmp_dir)
@@ -157,7 +157,7 @@ def test_task_files_path_traversal_prevention_server():
 
 @mark.asyncio
 async def test_token_not_leaked_in_logs(caplog):
-    """AVT-SEC-3: Secret token is never leaked in debug/info logs."""
+    """SPIRIT-SEC-3: Secret token is never leaked in debug/info logs."""
     # 1. Test worker service verify logging
     engine = MagicMock()
     storage = MagicMock()
@@ -197,7 +197,7 @@ async def test_token_not_leaked_in_logs(caplog):
 
 @mark.asyncio
 async def test_job_timeout_decrements_worker_load():
-    """AVT-CNC-1: Engine decrements worker load upon job timeout."""
+    """SPIRIT-CNC-1: Engine decrements worker load upon job timeout."""
     config = MagicMock()
     config.TZ = "UTC"
     config.LOG_LEVEL = "INFO"

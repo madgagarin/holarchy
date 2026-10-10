@@ -14,7 +14,7 @@ Holarchy реализует принципы **Host-Owned Choice** (выбор �
 Используйте декоратор `@bp.decide` для объявления шага интеллектуальной маршрутизации:
 
 ```python
-from pydantic import BaseModel
+from dataclasses import dataclass
 from holarchy import Blueprint, Context, State, StatesGroup
 
 
@@ -27,7 +27,8 @@ class OrderFlow(StatesGroup):
     finalize = State()
 
 
-class OrderInput(BaseModel):
+@dataclass
+class OrderInput:
     order_id: int
     amount: float
     user_tier: str
@@ -136,22 +137,23 @@ Replay-тестирование позволяет проверять модел
 
 ```python
 from pathlib import Path
+
 from holarchy.testing.replay import ReplayTestRunner, record_execution_receipt
 
 # 1. Запись кейсов из продакшена или синтетического датасета
 cases_file = Path("test_cases/order_routing.jsonl")
 
-# 2. Запуск реплей-тестов для обновленного блупринта
-runner = ReplayTestRunner(blueprint=order_bp, cases_file=str(cases_file))
-report = await runner.run()
+# 2. Синхронный запуск реплей-тестов в памяти
+runner = ReplayTestRunner(order_bp)
+report = runner.evaluate(str(cases_file))
 
 print(f"Всего кейсов: {report.total_cases}")
-print(f"Совпадение с эталоном: {report.accuracy_rate:.2%}")
-print(f"Срабатываний Fallback: {report.fallback_count}")
-print(f"Средняя задержка решения: {report.avg_latency_ms} мс")
+print(f"Совпадений решений: {report.matched_cases}")
+print(f"Коэффициент дрейфа: {report.drift_rate:.1%}")
+print(f"Срабатываний Fallback: {report.fallback_cases}")
 
-# Контроль регрессий
-assert report.accuracy_rate >= 0.98
+# Контроль регрессий: отсутствие непредвиденного дрейфа
+assert report.drift_cases == 0
 ```
 
 ### Использование CLI инструмента Replay
@@ -159,5 +161,9 @@ assert report.accuracy_rate >= 0.98
 Запуск replay-проверок в терминале или CI/CD пайплайне:
 
 ```bash
-holarchy replay --blueprint intelligent_orders --cases test_cases/order_routing.jsonl --tolerance 0.05
+# Оценка исторических решений против логики блупринта
+holarchy replay evaluate --app my_module:order_bp --cases test_cases/order_routing.jsonl
+
+# Строгий режим в CI (завершение с кодом 1 при любом обнаруженном дрейфе)
+holarchy replay evaluate --app my_module:order_bp --cases test_cases/order_routing.jsonl --strict
 ```

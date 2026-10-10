@@ -4,14 +4,15 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-import asyncio
-import dataclasses
-import inspect
+from asyncio import iscoroutine, wait_for
 from collections.abc import Callable
+from dataclasses import asdict, is_dataclass
+from inspect import signature
 from logging import getLogger
 from time import monotonic
 from typing import Any
 
+from msgspec import to_builtins
 from rxon.models import ExecutionReceipt
 
 logger = getLogger(__name__)
@@ -40,7 +41,7 @@ class ActionFactory:
         self._pending_events: list[tuple[str, dict[str, Any], Any, Any]] = []
         self._context_updates: dict[str, Any] = {}
         self._step_result: Any | None = None
-        self._last_receipt: dict[str, Any] | None = None
+        self._last_receipt: ExecutionReceipt | dict[str, Any] | None = None
 
     def _check_for_existing_action(self) -> None:
         """
@@ -207,27 +208,28 @@ class ActionFactory:
     def run_blueprint(
         self,
         blueprint_name: str,
-        initial_data: dict[str, Any] | None = None,
+        input: Any = None,  # noqa: A002
         transitions: dict[str, str] | None = None,
         dispatch_timeout: int | None = None,
         result_timeout: int | None = None,
-        input: Any = None,  # noqa: A002
     ) -> None:
         """Runs a child blueprint and waits for its result."""
         self._check_for_existing_action()
-        payload = input if input is not None else initial_data
-        if hasattr(payload, "model_dump"):
-            payload = payload.model_dump()
-        elif hasattr(payload, "dict") and callable(payload.dict):
-            payload = payload.dict()
-        elif hasattr(payload, "__dataclass_fields__"):
-            payload = dataclasses.asdict(payload)
+        payload = input
+        if payload is not None:
+            if hasattr(payload, "model_dump"):
+                payload = payload.model_dump()
+            elif hasattr(payload, "dict") and callable(getattr(payload, "dict", None)):
+                payload = payload.dict()
+            elif hasattr(payload, "__struct_fields__"):
+                payload = to_builtins(payload)
+            elif is_dataclass(payload) and not isinstance(payload, type):
+                payload = asdict(payload)
 
         data = payload if isinstance(payload, dict) else (payload or {})
         logger.debug(f"Job {self._job_id}: Running sub-blueprint '{blueprint_name}'")
         self._sub_blueprint_to_run_val = {
             "blueprint_name": blueprint_name,
-            "initial_data": data,
             "input": data,
             "transitions": transitions or {},
             "dispatch_timeout": dispatch_timeout,
@@ -235,7 +237,7 @@ class ActionFactory:
         }
 
     @property
-    def last_receipt(self) -> dict[str, Any] | None:
+    def last_receipt(self) -> ExecutionReceipt | dict[str, Any] | None:
         return self._last_receipt
 
     async def decide(
@@ -294,7 +296,7 @@ class ActionFactory:
         if not fallback_triggered:
             if eval_fn is not None:
                 try:
-                    sig = inspect.signature(eval_fn)
+                    sig = signature(eval_fn)
                     kwargs: dict[str, Any] = {}
                     if "candidates" in sig.parameters:
                         kwargs["candidates"] = candidates_str
@@ -311,8 +313,8 @@ class ActionFactory:
                         except TypeError:
                             res = eval_fn(context) if context is not None else eval_fn()
 
-                    if asyncio.iscoroutine(res):
-                        res = await asyncio.wait_for(res, timeout=eval_timeout)
+                    if iscoroutine(res):
+                        res = await wait_for(res, timeout=eval_timeout)
 
                     res_str = str(res)
                     if res_str in candidates_str:
@@ -356,10 +358,7 @@ class ActionFactory:
             duration_ms=duration_ms,
             error=err_msg,
             error_message=err_msg,
-            context_snapshot={
-                "input": getattr(context, "input", {}) or getattr(context, "initial_data", {}) or {}
-            } if context else {},
+            context_snapshot={"input": getattr(context, "input", {}) or {}} if context else {},
         )
         self._last_receipt = receipt
         return chosen
-

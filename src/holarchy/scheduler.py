@@ -160,7 +160,7 @@ class Scheduler:
                         return
                 await self.engine.create_background_job(
                     blueprint_name=job.blueprint,
-                    initial_data=job.input_data,
+                    input=job.input_data,
                     source=f"scheduler:{job.name}",
                     dispatch_timeout=job.dispatch_timeout,
                     result_timeout=job.result_timeout,

@@ -27,13 +27,13 @@ from holarchy.storage.redis import RedisStorage
 child_bp = Blueprint(name="child_flow")
 
 
-@child_bp.handler("start", is_start=True)
+@child_bp.start("start")
 async def child_start(context, actions):
     await sleep(0.1)
     actions.go_to("finished")
 
 
-@child_bp.handler("finished", is_end=True)
+@child_bp.end("finished")
 async def child_finished(context, actions):
     pass
 
@@ -41,31 +41,31 @@ async def child_finished(context, actions):
 parent_bp = Blueprint(name="parent_flow", api_endpoint="/jobs/parent_flow", api_version="v1")
 
 
-@parent_bp.handler("start", is_start=True)
+@parent_bp.start("start")
 async def parent_start(context, actions):
     actions.go_to("running_child")
 
 
-@parent_bp.handler("running_child")
+@parent_bp.step("running_child")
 async def run_child(context, actions):
     actions.run_blueprint(
         blueprint_name="child_flow",
-        initial_data={"from_parent": "hello"},
+        input={"from_parent": "hello"},
         transitions={"success": "child_finished", "failure": "child_failed"},
     )
 
 
-@parent_bp.handler("child_finished")
+@parent_bp.step("child_finished")
 async def parent_final_step(context, actions):
     actions.go_to("finished")
 
 
-@parent_bp.handler("finished", is_end=True)
+@parent_bp.end("finished")
 async def parent_finished(context, actions):
     pass
 
 
-@parent_bp.handler("child_failed", is_end=True)
+@parent_bp.end("child_failed", status="failed")
 async def parent_failed(context, actions):
     pass
 
@@ -73,12 +73,12 @@ async def parent_failed(context, actions):
 unversioned_bp = Blueprint(name="unversioned_flow", api_endpoint="/jobs/unversioned_flow")
 
 
-@unversioned_bp.handler("start", is_start=True)
+@unversioned_bp.start("start")
 async def unversioned_start(context, actions):
     actions.go_to("finished")
 
 
-@unversioned_bp.handler("finished", is_end=True)
+@unversioned_bp.end("finished")
 async def unversioned_finished(context, actions):
     pass
 
@@ -259,7 +259,7 @@ context_bp = Blueprint("context_test_bp", api_endpoint="/jobs/context_test", api
 async def context_start_handler(context, actions):
     client_plan = context.client.plan
     client_lang = context.client.params.get("languages", ["default"])[0]
-    context.state_history["test_output"] = f"{client_plan}:{client_lang}"
+    context.steps["test_output"] = f"{client_plan}:{client_lang}"
     actions.go_to("finished")
 
 
@@ -296,7 +296,7 @@ async def test_client_config_in_context(aiohttp_client, app):
             break
 
     assert final_state is not None
-    assert final_state["state_history"]["test_output"] == "premium:en"
+    assert final_state["steps"]["test_output"] == "premium:en"
 
 
 def make_valid_worker_payload(worker_id: str, **kwargs) -> dict[str, Any]:

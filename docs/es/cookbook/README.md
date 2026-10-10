@@ -8,7 +8,7 @@ Este recetario proporciona una colección de recetas para construir flujos de tr
 
 ## Guías destacadas y arquitectura
 
-- **[Creación de un Blueprint moderno](creating_blueprint.md)**: Máquinas de estados finitos fuertemente tipadas, `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end`, modelos Pydantic y 5 zonas limpias de almacenamiento.
+- **[Creación de un Blueprint moderno](creating_blueprint.md)**: Máquinas de estados finitos fuertemente tipadas, `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end`, modelos `@dataclass` / `msgspec.Struct` y 5 zonas limpias de almacenamiento.
 - **[Creación de un Worker](creating_worker.md)**: Desarrollo de ejecutores distribuidos con `holonode`.
 - **[Desarrollo y pruebas locales de Workers](local_worker_development.md)**: Pruebas locales, WebSocket, cancelación cooperativa y mocks.
 - **[Enrutamiento consultivo de IA y pruebas de reproducción](ai_routing_and_replay.md)**: Principio Host-Owned Choice, fallback seguro, comprobantes de ejecución y pruebas de deriva offline.
@@ -28,29 +28,27 @@ from holarchy import Blueprint
 simple_pipeline = Blueprint(name="simple_linear_flow", api_version="v1", api_endpoint="jobs/simple_flow")
 
 
-@simple_pipeline.handler(is_start=True)
+@simple_pipeline.start
 async def start(actions):
     actions.go_to("step_A")
 
 
-@simple_pipeline.handler
-async def step_A(initial_data, actions):
-    actions.dispatch_task(
-        task_type="simple_task", params=initial_data, transitions={"success": "step_B", "failure": "failed"}
-    )
+@simple_pipeline.step("step_A")
+async def step_A(input, actions):
+    actions.dispatch_task(task_type="simple_task", params=input, transitions={"success": "step_B", "failure": "failed"})
 
 
-@simple_pipeline.handler
+@simple_pipeline.step("step_B")
 async def step_B(actions):
     actions.go_to("finished")
 
 
-@simple_pipeline.handler(is_end=True)
+@simple_pipeline.end("finished")
 async def finished(job_id, actions):
     print(f"Pipeline {job_id} completado exitosamente.")
 
 
-@simple_pipeline.handler(is_end=True)
+@simple_pipeline.end("failed")
 async def failed(job_id, actions):
     print(f"Pipeline {job_id} falló.")
 ```
@@ -65,31 +63,16 @@ from holarchy import Blueprint
 moderation_pipeline = Blueprint(name="moderation_flow", api_version="v1", api_endpoint="jobs/moderation_flow")
 
 
-@moderation_pipeline.handler(is_start=True)
-async def generate_data(initial_data, actions):
+@moderation_pipeline.start
+async def generate_data(input, actions):
     actions.dispatch_task(
         task_type="data_generation",
-        params=initial_data,
+        params=input,
         transitions={"success": "awaiting_approval", "failure": "failed"},
     )
 
 
-@moderation_pipeline.handler(is_end=True)
-async def process_approved_data(actions):
-    actions.go_to("finished")
-
-
-@moderation_pipeline.handler(is_end=True)
-async def rejected_by_moderator(job_id, actions):
-    print(f"El trabajo {job_id} fue rechazado por el moderador.")
-
-
-@moderation_pipeline.handler(is_end=True)
-async def failed(job_id, actions):
-    print(f"El trabajo {job_id} falló.")
-
-
-@moderation_pipeline.handler("awaiting_approval")
+@moderation_pipeline.step("awaiting_approval")
 async def await_approval_handler(job_id, actions):
     actions.await_human_approval(
         integration="telegram",
@@ -98,9 +81,24 @@ async def await_approval_handler(job_id, actions):
     )
 
 
-@moderation_pipeline.handler("process_approved_data")
+@moderation_pipeline.step("process_approved_data")
 async def process_approved_handler(actions):
     actions.go_to("finished")
+
+
+@moderation_pipeline.end("finished")
+async def finished(job_id, actions):
+    print(f"Pipeline {job_id} completado exitosamente.")
+
+
+@moderation_pipeline.end("rejected_by_moderator")
+async def rejected_by_moderator(job_id, actions):
+    print(f"El trabajo {job_id} fue rechazado por el moderador.")
+
+
+@moderation_pipeline.end("failed")
+async def failed(job_id, actions):
+    print(f"El trabajo {job_id} falló.")
 ```
 
 ### **Receta 3: Ejecución Paralela y Agregación de Resultados**
@@ -115,15 +113,16 @@ El paralelismo se logra llamando a `actions.dispatch_task()` múltiples veces en
 3.  **Acceso a Resultados:** Dentro del manejador agregador, los resultados de todas las tareas paralelas están disponibles en `context.aggregation_results`. Este es un diccionario donde la clave es `task_id` y el valor es el resultado devuelto por el worker.
 
 ```python
-from holarchy import Blueprint
-import logging
+from logging import getLogger
 
-logger = logging.getLogger(__name__)
+from holarchy import Blueprint
+
+logger = getLogger(__name__)
 
 parallel_bp = Blueprint(name="parallel_flow_example", api_version="v1", api_endpoint="/jobs/parallel_example")
 
 
-@parallel_bp.handler(is_start=True)
+@parallel_bp.start
 async def start_parallel_tasks(job_id, actions):
     """
     Este manejador inicia dos tareas que se ejecutarán en paralelo.
@@ -147,7 +146,7 @@ async def start_parallel_tasks(job_id, actions):
 
 
 @parallel_bp.aggregator
-async def aggregate_results(job_id, context, state_history, actions):
+async def aggregate_results(job_id, context, steps, actions):
     """
     Este manejador se llamará solo después de que tanto task_A como task_B se completen exitosamente.
     """
@@ -159,18 +158,18 @@ async def aggregate_results(job_id, context, state_history, actions):
         if result.get("status") == "success":
             processed_results[task_id] = result.get("data")
 
-    state_history["aggregated_data"] = processed_results
+    steps["aggregated_data"] = processed_results
     logger.info(f"Trabajo {job_id}: Datos agregados: {processed_results}")
     actions.go_to("end")
 
 
-@parallel_bp.handler(is_end=True)
-async def end_flow(job_id, state_history, actions):
-    final_data = state_history.get("aggregated_data")
+@parallel_bp.end("end")
+async def end_flow(job_id, steps, actions):
+    final_data = steps.get("aggregated_data")
     logger.info(f"Trabajo {job_id}: Proceso completo. Datos finales: {final_data}")
 
 
-@parallel_bp.handler(is_end=True)
+@parallel_bp.end("failed")
 async def failed(job_id, actions):
     logger.error(f"Trabajo {job_id} falló.")
 ```
@@ -182,7 +181,7 @@ _Nota: Si al menos una de las tareas paralelas falla (transita al estado `failed
 **Tarea:** Asegurar alta disponibilidad y/o equilibrio de carga configurando un solo Worker para conectarse a múltiples instancias de Orquestador.
 
 **Concepto:**
-`worker_sdk` admite dos modos para trabajar con múltiples Orquestadores, configurados a través de variables de entorno. El worker se registrará automáticamente y enviará latidos a todos los Orquestadores en la lista.
+`holonode` admite dos modos para trabajar con múltiples Orquestadores, configurados a través de variables de entorno. El worker se registrará automáticamente y enviará latidos a todos los Orquestadores en la lista.
 
 - `FAILOVER` (predeterminado): El worker sondea a los Orquestadores en el orden en que aparecen en la configuración. Si el Orquestador principal no está disponible, el Worker cambia automáticamente al siguiente en la lista.
 - `ROUND_ROBIN`: El worker sondea a cada Orquestador en la lista secuencialmente, permitiendo la distribución de carga.
@@ -233,23 +232,23 @@ from holarchy import Blueprint, F
 multilingual_pipeline = Blueprint(name="multilingual_flow", api_version="v1", api_endpoint="jobs/multilingual_flow")
 
 
-@multilingual_pipeline.handler(is_start=True)
+@multilingual_pipeline.start
 async def start_multilingual(actions):
     # Este paso solo pasa el control más adelante, donde se activará la lógica condicional
     actions.go_to("process_text")
 
 
-@multilingual_pipeline.handler("process_text", F.initial_data["language"] == "en")
-async def process_english_text(initial_data, actions):
-    actions.dispatch_task(task_type="process_en", params=initial_data, transitions={"success": "finished"})
+@multilingual_pipeline.step("process_text", condition=F.language == "en")
+async def process_english_text(input, actions):
+    actions.dispatch_task(task_type="process_en", params=input, transitions={"success": "finished"})
 
 
-@multilingual_pipeline.handler("process_text", F.initial_data["language"] == "de")
-async def process_german_text(initial_data, actions):
-    actions.dispatch_task(task_type="process_de", params=initial_data, transitions={"success": "finished"})
+@multilingual_pipeline.step("process_text", condition=F.language == "de")
+async def process_german_text(input, actions):
+    actions.dispatch_task(task_type="process_de", params=input, transitions={"success": "finished"})
 
 
-@multilingual_pipeline.handler("finished", is_end=True)
+@multilingual_pipeline.end("finished")
 async def multilingual_finished(job_id, actions):
     print(f"Trabajo {job_id} terminó el procesamiento.")
 ```
@@ -264,18 +263,18 @@ from holarchy import Blueprint
 critical_pipeline = Blueprint(name="critical_flow", api_version="v1", api_endpoint="jobs/critical_flow")
 
 
-@critical_pipeline.handler(is_start=True)
-async def start_critical_task(initial_data, actions):
+@critical_pipeline.start
+async def start_critical_task(input, actions):
     actions.dispatch_task(
         task_type="critical_computation",
-        params=initial_data,
+        params=input,
         # Especificar estrategia de selección de worker
         dispatch_strategy="least_connections",
         transitions={"success": "finished"},
     )
 
 
-@critical_pipeline.handler("finished", is_end=True)
+@critical_pipeline.end("finished")
 async def critical_finished(job_id, actions):
     print(f"Tarea crítica {job_id} terminada.")
 ```
@@ -294,21 +293,21 @@ from holarchy import Blueprint
 priority_pipeline = Blueprint(name="priority_flow", api_version="v1", api_endpoint="jobs/priority_flow")
 
 
-@priority_pipeline.handler(is_start=True)
-async def start_priority_task(initial_data, actions):
+@priority_pipeline.start
+async def start_priority_task(input, actions):
     # Asignar prioridad diferente dependiendo de los datos de entrada
-    is_urgent = initial_data.get("is_urgent", False)
+    is_urgent = input.get("is_urgent", False)
 
     actions.dispatch_task(
         task_type="computation",
-        params=initial_data,
+        params=input,
         # Las tareas urgentes obtienen prioridad 10, otras - 0
         priority=10.0 if is_urgent else 0.0,
         transitions={"success": "finished"},
     )
 
 
-@priority_pipeline.handler("finished", is_end=True)
+@priority_pipeline.end("finished")
 async def priority_finished(job_id, actions):
     print(f"Tarea {job_id} terminada.")
 ```
@@ -327,11 +326,11 @@ cost_optimized_pipeline = Blueprint(
 )
 
 
-@cost_optimized_pipeline.handler(is_start=True)
-async def start_cost_optimized_task(initial_data, actions):
+@cost_optimized_pipeline.start
+async def start_cost_optimized_task(input, actions):
     actions.dispatch_task(
         task_type="image_compression",
-        params=initial_data,
+        params=input,
         # Seleccionar worker más barato
         dispatch_strategy="cheapest",
         # Pero solo si su costo ($/seg) no es más de 0.05
@@ -340,12 +339,12 @@ async def start_cost_optimized_task(initial_data, actions):
     )
 
 
-@cost_optimized_pipeline.handler("finished", is_end=True)
+@cost_optimized_pipeline.end("finished")
 async def cost_optimized_finished(actions):
     print("Trabajo terminado con optimización de costos.")
 
 
-@cost_optimized_pipeline.handler("too_expensive", is_end=True)
+@cost_optimized_pipeline.end("too_expensive")
 async def cost_optimized_failed(actions):
     print("El trabajo falló porque ningún worker cumplió con los criterios de costo.")
 ```
@@ -371,23 +370,23 @@ analytics_bp = Blueprint(name="analytics_flow", api_version="v1", api_endpoint="
 analytics_bp.add_data_store("request_counter", {"total_requests": 0})
 
 
-@analytics_bp.handler("start", is_start=True)
-async def count_request(data_stores, state_history, actions):
+@analytics_bp.start
+async def count_request(data_stores, steps, actions):
     # 2. Acceder al almacén a través del contexto e incrementar contador.
     #    Las operaciones son atómicas ya que Redis es de un solo hilo.
     current_count = await data_stores.request_counter.get("total_requests")
     new_count = current_count + 1
     await data_stores.request_counter.set("total_requests", new_count)
 
-    # Guardar valor actual del contador en el historial de este trabajo específico
-    state_history["request_number"] = new_count
+    # Guardar valor actual del contador en steps de este trabajo específico
+    steps["request_number"] = new_count
 
     actions.go_to("finished")
 
 
-@analytics_bp.handler("finished", is_end=True)
-async def show_result(job_id, state_history, actions):
-    request_num = state_history.get("request_number")
+@analytics_bp.end("finished")
+async def show_result(job_id, steps, actions):
+    request_num = steps.get("request_number")
     print(f"Trabajo {job_id} procesado. Número de solicitud {request_num}.")
 ```
 
@@ -443,11 +442,11 @@ from holarchy import Blueprint
 cancellable_pipeline = Blueprint(name="cancellable_flow", api_version="v1", api_endpoint="jobs/cancellable")
 
 
-@cancellable_pipeline.handler(is_start=True)
-async def start_long_task(actions):
+@cancellable_pipeline.start
+async def start_long_task(input, actions):
     actions.dispatch_task(
         task_type="long_video_processing",
-        params=initial_data,
+        params=input,
         transitions={
             "success": "finished_successfully",
             "failure": "task_failed",
@@ -456,18 +455,18 @@ async def start_long_task(actions):
     )
 
 
-@cancellable_pipeline.handler(is_end=True)
-async def finished_successfully(actions):
+@cancellable_pipeline.end("finished_successfully")
+async def finished_successfully(job_id, actions):
     print(f"Trabajo {job_id} terminado exitosamente.")
 
 
-@cancellable_pipeline.handler(is_end=True)
-async def task_failed(actions):
+@cancellable_pipeline.end("task_failed")
+async def task_failed(job_id, actions):
     print(f"Trabajo {job_id} falló.")
 
 
-@cancellable_pipeline.handler(is_end=True)
-async def task_cancelled(actions):
+@cancellable_pipeline.end("task_cancelled")
+async def task_cancelled(job_id, actions):
     print(f"Trabajo {job_id} cancelado exitosamente.")
 ```
 
@@ -475,10 +474,10 @@ async def task_cancelled(actions):
 
 ```bash
 # Ejecutar Trabajo y obtener su ID
-curl -X POST http://localhost:8080/api/v1/jobs/cancellable
--H "Content-Type: application/json"
--H "X-Client-Token: your-secret-orchestrator-token"
--d '{"video_url": "..."}'
+curl -X POST http://localhost:8080/api/v1/jobs/cancellable \
+-H "Content-Type: application/json" \
+-H "X-Client-Token: your-secret-orchestrator-token" \
+-d '{"input": {"video_url": "..."}}'
 # Respuesta: {"status": "accepted", "job_id": "YOUR_JOB_ID"}
 ```
 
@@ -497,7 +496,7 @@ Verás el mensaje de cancelación en los logs del Worker, y el `Job` en el Orque
 **Tarea:** Para una tarea de larga duración (por ejemplo, entrenamiento de modelos), informar regularmente el progreso para ser rastreado en la UI.
 
 **Concepto:**
-Al igual que la cancelación, esta característica funciona vía WebSocket. El Worker puede enviar eventos de progreso, que el Orquestador guarda en `state_history` del `Job` correspondiente.
+Al igual que la cancelación, esta característica funciona vía WebSocket. El Worker puede enviar eventos de progreso, que el Orquestador guarda en `steps` del `Job` correspondiente.
 
 #### **Paso 1: Código en Worker**
 
@@ -519,13 +518,13 @@ async def train_model_handler(params: dict, task_id: str, job_id: str) -> dict:
 
 #### **Paso 2: Verificación en Orquestador**
 
-Después de la ejecución de la tarea, puedes solicitar el estado y ver `progress_updates` en `state_history`:
+Después de la ejecución de la tarea, puedes solicitar el estado y ver `progress_updates` en `steps`:
 
 ```json
 {
   "id": "YOUR_JOB_ID",
   "current_state": "finished",
-  "state_history": {
+  "steps": {
     "progress_updates": [
       { "progress": 0.1, "message": "Época 1 completada", "timestamp": "..." },
       { "progress": 0.2, "message": "Época 2 completada", "timestamp": "..." }
@@ -552,7 +551,7 @@ from holarchy import Blueprint
 s3_ops_bp = Blueprint(name="s3_ops_flow", api_version="v1", api_endpoint="jobs/s3_ops")
 
 
-@s3_ops_bp.handler(is_start=True)
+@s3_ops_bp.start
 async def check_config(context, task_files, actions):
     """
     Descarga 'config.json' desde S3 (jobs/{job_id}/config.json),
@@ -576,7 +575,7 @@ async def check_config(context, task_files, actions):
         actions.go_to("deep_processing")
 
 
-@s3_ops_bp.handler("fast_processing")
+@s3_ops_bp.step("fast_processing")
 async def fast_process(context, task_files, actions):
     # ... lógica ...
 
@@ -614,7 +613,6 @@ El Worker no necesita saber sobre S3. Simplemente trabaja con archivos locales.
 
 ```python
 # my_video_worker.py
-import os
 from pathlib import Path
 
 
@@ -641,12 +639,12 @@ async def process_video(params: dict, **kwargs) -> dict:
 El Blueprint simplemente pasa el URI S3 como parámetro.
 
 ```python
-@s3_pipeline.handler(is_start=True)
-async def start_s3_task(actions):
+@s3_pipeline.start
+async def start_s3_task(input, actions):
     actions.dispatch_task(
         task_type="process_video_from_s3",
         # Pasar URI S3
-        params={"video_path": initial_data.get("s3_uri")},
+        params={"video_path": input.get("s3_uri")},
         transitions={"success": "finished"},
     )
 ```
@@ -654,10 +652,10 @@ async def start_s3_task(actions):
 #### **Paso 3: Ejecutar Tarea**
 
 ```bash
-curl -X POST ... -d '{"s3_uri": "s3://my-bucket/raw_videos/movie.mp4"}'
+curl -X POST ... -d '{"input": {"s3_uri": "s3://my-bucket/raw_videos/movie.mp4"}}'
 ```
 
-Después de la ejecución, `state_history` de la tarea contendrá el resultado con el nuevo URI S3, por ejemplo: `{"processed_video_path": "s3://my-processing-bucket/processed_movie.mp4"}`.
+Después de la ejecución, `steps` de la tarea contendrá el resultado con el nuevo URI S3, por ejemplo: `{"processed_video_path": "s3://my-processing-bucket/processed_movie.mp4"}`.
 
 ### **Receta 13: Gestión de Lógica de Reintento con Tipos de Error**
 
@@ -697,11 +695,11 @@ async def fetch_data(params: dict, **kwargs) -> dict:
 El Blueprint puede tener diferentes ramas para diferentes resultados.
 
 ```python
-@error_handling_bp.handler(is_start=True)
-async def start_api_call(actions):
+@error_handling_bp.start
+async def start_api_call(input, actions):
     actions.dispatch_task(
         task_type="fetch_external_data",
-        params=initial_data,
+        params=input,
         transitions={
             "success": "finished_successfully",
             "failure": "handle_failure",  # Manejador común para todos los errores
@@ -709,8 +707,8 @@ async def start_api_call(actions):
     )
 
 
-@error_handling_bp.handler(is_end=True)
-async def handle_failure(actions):
+@error_handling_bp.end("handle_failure")
+async def handle_failure(job_id, context, actions):
     # Aquí podemos analizar `job_state` para entender si la tarea fue puesta en cuarentena o simplemente falló.
     job_state = await context.storage.get_job_state(job_id)
     if job_state.get("status") == "quarantined":
@@ -724,7 +722,7 @@ async def handle_failure(actions):
 **Tarea:** Crear un pipeline principal que use otro pipeline reutilizable como paso y obtenga su resultado.
 
 **Concepto:**
-El mecanismo de blueprint anidado permite que un pipeline (padre) ejecute otro (hijo) y espere su finalización. El resultado del blueprint hijo (éxito o fallo) se guarda automáticamente en `state_history` del pipeline padre. Esto permite crear flujos de trabajo complejos pero modulares y reutilizables.
+El mecanismo de blueprint anidado permite que un pipeline (padre) ejecute otro (hijo) y espere su finalización. El resultado del blueprint hijo (éxito o fallo) se guarda automáticamente en `steps` del pipeline padre. Esto permite crear flujos de trabajo complejos pero modulares y reutilizables.
 
 ```python
 from holarchy import Blueprint
@@ -734,26 +732,26 @@ from holarchy import Blueprint
 text_processing_bp = Blueprint(name="text_processor")
 
 
-@text_processing_bp.handler("start", is_start=True)
-async def process(actions):
+@text_processing_bp.start
+async def process(input, steps, actions):
     # ... alguna lógica de procesamiento de texto ...
-    text = initial_data.get("text", "")
+    text = input.get("text", "")
     if not text:
         # Si la entrada es inválida, terminar el blueprint con fallo.
         actions.go_to("failed")
     else:
-        # El resultado se puede guardar en `state_history` del blueprint hijo.
-        # Aunque no se pasa directamente, está disponible para depuración en el historial.
-        state_history["processed_text"] = text.upper()
+        # El resultado se puede guardar en `steps` del blueprint hijo.
+        # Aunque no se pasa directamente, está disponible para depuración en steps.
+        steps["processed_text"] = text.upper()
         actions.go_to("finished")
 
 
-@text_processing_bp.handler("finished", is_end=True)
+@text_processing_bp.end("finished")
 async def text_processing_finished(actions):
     pass
 
 
-@text_processing_bp.handler("failed", is_end=True)
+@text_processing_bp.end("failed")
 async def text_processing_failed(actions):
     pass
 
@@ -762,51 +760,51 @@ async def text_processing_failed(actions):
 main_pipeline = Blueprint(name="main_flow", api_version="v1", api_endpoint="jobs/main_flow")
 
 
-@main_pipeline.handler("start", is_start=True)
+@main_pipeline.start
 async def parent_start(actions):
     actions.go_to("process_user_text")
 
 
-@main_pipeline.handler("process_user_text")
-async def main_handler(actions):
-    user_text = initial_data.get("raw_text", "")
+@main_pipeline.step("process_user_text")
+async def process_user_text(input, actions):
+    user_text = input.get("raw_text", "")
     actions.run_blueprint(
         blueprint_name="text_processor",
-        initial_data={"text": user_text},
+        input={"text": user_text},
         transitions={"success": "final_step", "failure": "sub_job_failed"},
     )
 
 
-@main_pipeline.handler
-async def final_step_handler(actions):
-    # Resultado del blueprint hijo guardado en `state_history`.
+@main_pipeline.step("final_step")
+async def final_step_handler(steps, actions):
+    # Resultado del blueprint hijo guardado en `steps`.
     # Clave generada automáticamente. Podemos encontrarla iterando claves.
     sub_job_result = None
-    for key, value in state_history.items():
-        if key.startswith("sub_job_") and "outcome" in value:
+    for key, value in steps.items():
+        if key.startswith("sub_job_") and isinstance(value, dict) and "outcome" in value:
             sub_job_result = value
             break
 
     if sub_job_result:
         print(f"Sub-blueprint terminó con resultado: {sub_job_result['outcome']}")
     else:
-        print("Resultado de sub-blueprint no encontrado en historial de estado.")
+        print("Resultado de sub-blueprint no encontrado en steps.")
 
     actions.go_to("finished")
 
 
-@main_pipeline.handler
+@main_pipeline.step("sub_job_failed")
 async def sub_job_failed_handler(actions):
     print("Sub-blueprint falló, manejando fallo en padre.")
     actions.go_to("failed")
 
 
-@main_pipeline.handler("finished", is_end=True)
+@main_pipeline.end("finished")
 async def main_finished(actions):
     pass
 
 
-@main_pipeline.handler("failed", is_end=True)
+@main_pipeline.end("failed")
 async def main_failed(actions):
     pass
 ```
@@ -833,27 +831,27 @@ from holarchy import Blueprint, F
 conditional_pipeline = Blueprint(name="conditional_flow")
 
 
-@conditional_pipeline.handler(is_start=True)
+@conditional_pipeline.start
 async def start(actions):
     actions.go_to("process_data")
 
 
-@conditional_pipeline.handler("process_data", F.initial_data["type"] == "A")
+@conditional_pipeline.step("process_data", condition=F.type == "A")
 async def process_a(actions):
     actions.dispatch_task(task_type="task_a", transitions={"success": "finished", "failure": "failed"})
 
 
-@conditional_pipeline.handler("process_data", F.initial_data["type"] == "B")
+@conditional_pipeline.step("process_data", condition=F.type == "B")
 async def process_b(actions):
     actions.dispatch_task(task_type="task_b", transitions={"success": "finished", "failure": "failed"})
 
 
-@conditional_pipeline.handler(is_end=True)
+@conditional_pipeline.end("finished")
 async def finished(actions):
     print("Terminado.")
 
 
-@conditional_pipeline.handler(is_end=True)
+@conditional_pipeline.end("failed")
 async def failed(actions):
     print("Fallado.")
 
@@ -913,46 +911,44 @@ from holarchy import Blueprint
 premium_features_bp = Blueprint(name="premium_flow", api_version="v1", api_endpoint="jobs/premium_flow")
 
 
-@premium_features_bp.handler(is_start=True)
-async def start_premium_flow(actions):
+@premium_features_bp.start
+async def start_premium_flow(input, client, actions):
     # Obtener configuración del cliente que hizo la solicitud
-    client_config = context.client.config
+    client_config = client.config
 
     # Usar parámetros del cliente para lógica condicional
     if client_config.get("plan") == "premium":
         # Usar worker más potente para clientes premium
-        actions.dispatch_task(
-            task_type="high_quality_generation", params=initial_data, transitions={"success": "finished"}
-        )
+        actions.dispatch_task(task_type="high_quality_generation", params=input, transitions={"success": "finished"})
     elif "en" in client_config.get("languages", []):
         # Worker estándar para clientes gratuitos de habla inglesa
         actions.dispatch_task(
-            task_type="standard_quality_generation", params=initial_data, transitions={"success": "finished"}
+            task_type="standard_quality_generation", params=input, transitions={"success": "finished"}
         )
     else:
         # Error para otros
         actions.go_to("failed", error_message="Idioma no soportado para su plan")
 
 
-@premium_features_bp.handler("finished", is_end=True)
+@premium_features_bp.end("finished")
 async def premium_finished(actions):
     pass
 
 
-@premium_features_bp.handler("failed", is_end=True)
+@premium_features_bp.end("failed")
 async def premium_failed(actions):
     pass
 ```
 
-### **Receta 18: Mejores Prácticas para Manejadores `is_start` e `is_end`**
+### **Receta 18: Mejores Prácticas para Manejadores de Ciclo de Vida `@bp.start` y `@bp.end`**
 
 **Tarea:** Entender qué código es mejor colocar en los manejadores iniciales y finales para crear pipelines limpios y fiables.
 
-#### **Propósito del Manejador `is_start=True`**
+#### **Propósito del Manejador `@bp.start`**
 
-El manejador inicial es la "puerta de entrada" de tu pipeline. Lugar ideal para:
+El manejador inicial `@bp.start` es la «puerta de entrada» canónica de tu pipeline. Lugar ideal para:
 
-1.  **Validación y Preparación de Datos:** Verificar que todos los datos necesarios estén presentes y preparar `state_history` para los pasos siguientes.
+1.  **Validación y Preparación de Datos:** Verificar que todos los datos necesarios estén presentes y preparar `steps` o `output` para los pasos siguientes.
 2.  **Enrutamiento Inicial:** Decidir el primer paso real basado en los datos de entrada.
 
 **Ejemplo:**
@@ -963,21 +959,21 @@ from holarchy import Blueprint
 validation_bp = Blueprint(name="validation_example", api_version="v1", api_endpoint="jobs/validation")
 
 
-@validation_bp.handler(is_start=True)
-async def validate_input(actions):
+@validation_bp.start
+async def validate_input(input, steps, actions):
     """
     Valida datos de entrada y decide a dónde dirigir el proceso.
     """
-    user_id = initial_data.get("user_id")
-    document_type = initial_data.get("document_type")
+    user_id = input.get("user_id")
+    document_type = input.get("document_type")
 
     if not user_id or not document_type:
         actions.go_to("invalid_input_failed")
         return
 
-    # Guardar datos validados en state_history para usar en otros manejadores
-    state_history["validated_user"] = user_id
-    state_history["doc_type"] = document_type
+    # Guardar datos validados en steps para usar en otros manejadores
+    steps["validated_user"] = user_id
+    steps["doc_type"] = document_type
 
     # Enrutamiento basado en tipo de documento
     if document_type == "invoice":
@@ -989,14 +985,14 @@ async def validate_input(actions):
 # ... (otros manejadores) ...
 
 
-@validation_bp.handler(is_end=True)
-async def invalid_input_failed(actions):
+@validation_bp.end("invalid_input_failed")
+async def invalid_input_failed(job_id, actions):
     print(f"El trabajo {job_id} falló debido a entrada inválida.")
 ```
 
-#### **Propósito de los Manejadores `is_end=True`**
+#### **Propósito de los Manejadores `@bp.end`**
 
-Los manejadores finales son la "salida" de tu pipeline. Realizan acciones finales y **no deben** contener llamadas a `actions.go_to()` o `dispatch_task()`.
+Los manejadores finales `@bp.end` son la «salida» de tu pipeline. Realizan acciones finales y **no deben** contener llamadas a `actions.go_to()` o `dispatch_task()`.
 
 **Usos Clave:**
 
@@ -1007,39 +1003,41 @@ Los manejadores finales son la "salida" de tu pipeline. Realizan acciones finale
 **Ejemplo:**
 
 ```python
+from os import remove
+from os.path import exists
+
 from holarchy import Blueprint
-import os
 
 finalization_bp = Blueprint(name="finalization_example")
 
 # ... (pasos intermedios que conducen a diferentes resultados) ...
 
 
-@finalization_bp.handler(is_end=True)
-async def cleanup_and_notify_success(actions):
+@finalization_bp.end("cleanup_and_notify_success")
+async def cleanup_and_notify_success(job_id, steps, input, actions):
     """
     Ejecutado al completar exitosamente.
     """
-    temp_file = state_history.get("temp_file_path")
-    if temp_file and os.path.exists(temp_file):
-        os.remove(temp_file)
+    temp_file = steps.get("temp_file_path")
+    if temp_file and exists(temp_file):
+        remove(temp_file)
         print(f"Trabajo {job_id}: Archivo temporal {temp_file} eliminado.")
 
-    # send_success_email(initial_data.get("user_email"))
+    # send_success_email(input.get("user_email"))
     print(f"Trabajo {job_id} terminado exitosamente. Notificación enviada.")
 
 
-@finalization_bp.handler(is_end=True)
-async def handle_rejection(actions):
+@finalization_bp.end("handle_rejection")
+async def handle_rejection(job_id, steps, input, actions):
     """
     Ejecutado si el proceso fue rechazado.
     """
-    rejection_reason = state_history.get("rejection_reason", "No se proporcionó razón")
+    rejection_reason = steps.get("rejection_reason", "No se proporcionó razón")
     print(f"Trabajo {job_id} fue rechazado. Razón: {rejection_reason}")
-    # send_rejection_notification(initial_data.get("user_email"), rejection_reason)
+    # send_rejection_notification(input.get("user_email"), rejection_reason)
 ```
 
-Usar `is_start` e `is_end` de esta manera hace que tus pipelines sean más estructurados, fiables y fáciles de entender.
+Usar `@bp.start` y `@bp.end` de esta manera hace que tus pipelines sean más estructurados, fiables y fáciles de entender.
 
 ### **Receta 19: Enrutamiento de Tareas Basado en Requisitos de Recursos**
 
@@ -1053,11 +1051,11 @@ from holarchy.blueprint import Blueprint
 gpu_intensive_pipeline = Blueprint(name="gpu_intensive_flow", api_version="v1", api_endpoint="jobs/gpu_flow")
 
 
-@gpu_intensive_pipeline.handler
-async def start_gpu_task(actions):
+@gpu_intensive_pipeline.start
+async def start_gpu_task(input, actions):
     actions.dispatch_task(
         task_type="video_montage",
-        params=initial_data,
+        params=input,
         # El despachador busca un worker cuya lista de dispositivos (devices)
         # contenga un dispositivo compatible y tenga los artefactos requeridos
         resource_requirements={
@@ -1095,11 +1093,11 @@ Esta sección contiene ejemplos de código útiles para la interacción directa 
 **Tarea:** Conectarse al archivo de base de datos SQLite, crear tabla e insertar datos usando la librería estándar `sqlite3`.
 
 ```python
-import sqlite3
-import json
+from json import dumps, loads
+from sqlite3 import connect
 
 # Conectar al archivo DB (creado si no existe)
-con = sqlite3.connect("history.db")
+con = connect("history.db")
 cur = con.cursor()
 
 # Crear tabla
@@ -1115,10 +1113,10 @@ cur.execute("""
 # Preparar datos
 event_data = {"status": "completed", "result": "ok"}
 
-# Insertar registro usando json.dumps para convertir dict a cadena
+# Insertar registro usando dumps para convertir dict a cadena
 cur.execute(
     "INSERT INTO job_history VALUES (?, ?, ?, ?)",
-    ("evt_123", "job_abc", "2024-01-01T12:00:00Z", json.dumps(event_data)),
+    ("evt_123", "job_abc", "2024-01-01T12:00:00Z", dumps(event_data)),
 )
 
 # Guardar cambios
@@ -1127,7 +1125,7 @@ con.commit()
 # Leer datos y convertir cadena JSON de nuevo a dict
 res = cur.execute("SELECT job_id, data FROM job_history WHERE event_id = 'evt_123'")
 job_id, raw_data = res.fetchone()
-retrieved_data = json.loads(raw_data)
+retrieved_data = loads(raw_data)
 
 print(f"ID Trabajo: {job_id}, Datos: {retrieved_data}")
 
@@ -1143,14 +1141,13 @@ _Nota: SQLite soporta nativamente el tipo de datos JSON, simplificando el almace
 **Prerrequisito:** `pip install asyncpg`
 
 ```python
-import asyncio
-import asyncpg
-import json
+from asyncio import run
+from asyncpg import connect
 
 
 async def main():
     # Conectar a PostgreSQL
-    conn = await asyncpg.connect(user="user", password="password", database="db", host="127.0.0.1")
+    conn = await connect(user="user", password="password", database="db", host="127.0.0.1")
 
     # Crear tabla usando tipo nativo JSONB para eficiencia
     await conn.execute("""
@@ -1182,7 +1179,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run(main())
 ```
 
 _Nota: Usar `JSONB` en PostgreSQL es preferible sobre `JSON` ya que se almacena en formato binario y permite crear índices sobre claves dentro del documento JSON._

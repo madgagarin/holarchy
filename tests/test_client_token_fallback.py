@@ -34,11 +34,11 @@ async def test_quickstart_client_token_fallback_success(aiohttp_client):
 
     bp = Blueprint(name="my_flow", api_version="v1", api_endpoint="/jobs/my_flow")
 
-    @bp.handler("start", is_start=True)
-    async def start(job_id: str, initial_data: dict, actions: ActionFactory):
+    @bp.start
+    async def start(job_id: str, input: dict, actions: ActionFactory):
         actions.go_to("end")
 
-    @bp.handler("end", is_end=True)
+    @bp.end("end")
     async def end(context):
         pass
 
@@ -56,7 +56,7 @@ async def test_quickstart_client_token_fallback_success(aiohttp_client):
         AUTH_HEADER_CLIENT: "my-secret-client-token",
         "Content-Type": "application/json",
     }
-    resp = await client.post("/api/v1/jobs/my_flow", json={"initial_data": {}}, headers=headers)
+    resp = await client.post("/api/v1/jobs/my_flow", json={"input": {}}, headers=headers)
     assert resp.status == 202
     data = await resp.json()
     assert "job_id" in data
@@ -75,11 +75,11 @@ async def test_quickstart_client_token_fallback_rejections(aiohttp_client):
 
     bp = Blueprint(name="my_flow", api_version="v1", api_endpoint="/jobs/my_flow")
 
-    @bp.handler("start", is_start=True)
-    async def start(job_id: str, initial_data: dict, actions: ActionFactory):
+    @bp.start
+    async def start(job_id: str, input: dict, actions: ActionFactory):
         actions.go_to("end")
 
-    @bp.handler("end", is_end=True)
+    @bp.end("end")
     async def end(context):
         pass
 
@@ -95,7 +95,7 @@ async def test_quickstart_client_token_fallback_rejections(aiohttp_client):
     # 1. Request with wrong token -> 401
     resp_wrong = await client.post(
         "/api/v1/jobs/my_flow",
-        json={"initial_data": {}},
+        json={"input": {}},
         headers={AUTH_HEADER_CLIENT: "wrong-token"},
     )
     assert resp_wrong.status == 401
@@ -104,7 +104,7 @@ async def test_quickstart_client_token_fallback_rejections(aiohttp_client):
     # 2. Request without token header -> 401
     resp_missing = await client.post(
         "/api/v1/jobs/my_flow",
-        json={"initial_data": {}},
+        json={"input": {}},
     )
     assert resp_missing.status == 401
     assert f"Missing {AUTH_HEADER_CLIENT} header" in (await resp_missing.json())["error"]
@@ -135,11 +135,11 @@ allowed_languages = ["python", "rust"]
 
         bp = Blueprint(name="enterprise_flow", api_version="v1", api_endpoint="/jobs/enterprise_flow")
 
-        @bp.handler("start", is_start=True)
-        async def start(job_id: str, initial_data: dict, actions: ActionFactory):
+        @bp.start
+        async def start(job_id: str, input: dict, actions: ActionFactory):
             actions.go_to("end")
 
-        @bp.handler("end", is_end=True)
+        @bp.end("end")
         async def end(context):
             pass
 
@@ -155,7 +155,7 @@ allowed_languages = ["python", "rust"]
         # 1. Custom enterprise client from clients.toml
         resp = await client.post(
             "/api/v1/jobs/enterprise_flow",
-            json={"initial_data": {}},
+            json={"input": {}},
             headers={AUTH_HEADER_CLIENT: "enterprise-token-xyz"},
         )
         assert resp.status == 202
@@ -169,7 +169,7 @@ allowed_languages = ["python", "rust"]
         # 2. Fallback token also works if needed
         resp_fallback = await client.post(
             "/api/v1/jobs/enterprise_flow",
-            json={"initial_data": {}},
+            json={"input": {}},
             headers={AUTH_HEADER_CLIENT: "global-fallback-token"},
         )
         assert resp_fallback.status == 202
@@ -190,11 +190,11 @@ async def test_strict_zero_trust_when_no_tokens_configured(aiohttp_client):
 
     bp = Blueprint(name="secure_flow", api_version="v1", api_endpoint="/jobs/secure_flow")
 
-    @bp.handler("start", is_start=True)
-    async def start(job_id: str, initial_data: dict, actions: ActionFactory):
+    @bp.start
+    async def start(job_id: str, input: dict, actions: ActionFactory):
         actions.go_to("end")
 
-    @bp.handler("end", is_end=True)
+    @bp.end("end")
     async def end(context):
         pass
 
@@ -209,7 +209,7 @@ async def test_strict_zero_trust_when_no_tokens_configured(aiohttp_client):
 
     resp = await client.post(
         "/api/v1/jobs/secure_flow",
-        json={"initial_data": {}},
+        json={"input": {}},
         headers={AUTH_HEADER_CLIENT: "some-arbitrary-token"},
     )
     assert resp.status == 401

@@ -52,7 +52,7 @@ async def engine(redis_storage, config):
     # Simple parallel blueprint
     parallel_bp = Blueprint(name="parallel_bp")
 
-    @parallel_bp.handler("start", is_start=True)
+    @parallel_bp.start("start")
     async def start(actions):
         actions.dispatch_parallel(
             tasks=[{"type": "task_a", "params": {"id": 1}}, {"type": "task_b", "params": {"id": 2}}],
@@ -105,7 +105,7 @@ async def test_parallel_branch_isolation_happy_path(engine, redis_storage):
             "blueprint_name": "parallel_bp",
             "current_state": "start",
             "status": "running",
-            "initial_data": {},
+            "input": {},
         },
     )
 
@@ -365,7 +365,7 @@ async def test_lost_update_prevention_parallel_dispatch(engine, redis_storage):
             "blueprint_name": "parallel_bp",
             "current_state": "start",
             "status": "running",
-            "initial_data": {},
+            "input": {},
         },
     )
 

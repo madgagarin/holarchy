@@ -47,14 +47,14 @@ class TaskFiles:
 
     def __init__(
         self,
-        provider: BlobProvider,
+        provider: Any,
         bucket: str,
         job_id: str,
         base_local_dir: str | Path,
         history: HistoryStorageBase | None = None,
         client_token: str | None = None,
     ):
-        self._provider = provider
+        self._provider: Any = provider
         self._bucket = bucket
         self._job_id = job_id
         self._history = history
@@ -177,11 +177,12 @@ class TaskFiles:
             target_key = f"{self._s3_prefix}{(remote_name or local_name).lstrip('/')}"
             logger.debug(f"Uploading {local_path} -> s3://{self._bucket}/{target_key}")
 
-            uri = await self._provider.upload(str(local_path), f"s3://{self._bucket}/{target_key}")
+            upload_res = await self._provider.upload(str(local_path), f"s3://{self._bucket}/{target_key}")
+            uri = str(getattr(upload_res, "uri", upload_res))
             meta = await self._provider.get_metadata(uri)
 
             await self._log_event("upload", uri, str(local_path), metadata=meta)
-            return str(uri)
+            return uri
         else:
             raise FileNotFoundError(f"Local file/dir not found: {local_path}")
 

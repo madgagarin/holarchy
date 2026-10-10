@@ -9,7 +9,8 @@ from contextlib import suppress
 from unittest.mock import MagicMock
 
 from pytest import fixture, mark
-from src.holarchy.health_checker import HealthChecker
+
+from holarchy.health_checker import HealthChecker
 
 
 @fixture

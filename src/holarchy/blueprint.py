@@ -97,7 +97,7 @@ class HandlerDecorator:
             self._blueprint.conditional_handlers.append(handler)
         else:
             existing_handler = self._blueprint.handlers.get(state_name)
-            if existing_handler and existing_handler is not _PLACEHOLDER:
+            if existing_handler and existing_handler is not _PLACEHOLDER and existing_handler is not func:
                 raise ValueError(f"Default handler for state '{state_name}' is already registered.")
             self._blueprint.handlers[state_name] = func
 
@@ -112,8 +112,9 @@ class HandlerDecorator:
             self._blueprint.end_states.add(state_name)
 
         self._state = state_name
-        func._risk = getattr(func, "_risk", self._risk)
-        func._permissions = getattr(func, "_permissions", self._permissions)
+        cast(Any, func)._risk = getattr(func, "_risk", self._risk)
+        cast(Any, func)._permissions = getattr(func, "_permissions", self._permissions)
+        self._blueprint._invalidate_caches()
         return func
 
 
@@ -125,7 +126,7 @@ class Blueprint:
         api_version: str | None = None,
         data_stores: dict[str, Any] | None = None,
     ):
-        """Initializes a new blueprint.
+        """Initializes a new Blueprint.
 
         Args:
             name: A unique name for the blueprint.
@@ -157,6 +158,15 @@ class Blueprint:
         self._explicit_transitions: dict[str, set[str]] = {}
         self.terminal_statuses: dict[str, str] = {}
         self._deciders: dict[str, dict[str, Any]] = {}
+        self._cached_transitions: tuple[dict[str, set[str]], int] | None = None
+        self._cached_dag: dict[str, Any] | None = None
+        self._cached_security_metadata: dict[str, Any] | None = None
+
+    def _invalidate_caches(self) -> None:
+        """Invalidates internally cached DAG topology, transitions, and security metadata."""
+        self._cached_transitions = None
+        self._cached_dag = None
+        self._cached_security_metadata = None
 
     def add_data_store(self, name: str, initial_data: dict[str, Any]) -> None:
         """Adds a named data store to the blueprint."""
@@ -197,10 +207,10 @@ class Blueprint:
             async def process(actions): ...  # state name is "process"
 
             # With conditions:
-            @bp.handler("process", F.initial_data["x"] == 1)
+            @bp.handler("process", F.input["x"] == 1)
             async def process_special(actions): ...
 
-            @bp.handler(F.initial_data["x"] == 1)
+            @bp.handler(F.input["x"] == 1)
             async def process_special(actions): ...  # state name is "process_special"
         """
         state_name = None
@@ -249,6 +259,7 @@ class Blueprint:
 
     def add_transition(self, from_state: Any, to_state: Any) -> None:
         """Explicitly registers a valid transition between states."""
+        self._invalidate_caches()
         src = str(from_state)
         dst = str(to_state)
         if src not in self._explicit_transitions:
@@ -257,11 +268,20 @@ class Blueprint:
 
     def start(
         self,
-        state: Any = None,
+        *args: Any,
+        is_end: bool = False,
+        condition: FastF | None = None,
         risk: str = "low",
         permissions: list[str] | None = None,
     ) -> Any:
         """Decorator for registering the entry point (start step) of the blueprint.
+
+        Args:
+            *args: State or state name, and optional condition.
+            is_end: Whether this state is also a terminal state.
+            condition: An optional FastF condition.
+            risk: Risk level ('low', 'medium', 'high').
+            permissions: Required permissions list.
 
         Examples:
             @bp.start(OrderFlow.init)
@@ -269,10 +289,21 @@ class Blueprint:
 
             @bp.start
             async def init(order: OrderDetails): ...
+
+            @bp.start(is_end=True)
+            async def single_step(actions: ActionFactory): ...
+
+            @bp.start(condition=F.input["type"] == "urgent")
+            async def init_urgent(ctx: Context): ...
         """
-        if callable(state) and not isinstance(state, State):
-            return self.handler(state, is_start=True, risk=risk, permissions=permissions)
-        return self.handler(state, is_start=True, risk=risk, permissions=permissions)
+        return self.handler(
+            *args,
+            is_start=True,
+            is_end=is_end,
+            condition=condition,
+            risk=risk,
+            permissions=permissions,
+        )
 
     def step(
         self,
@@ -311,13 +342,13 @@ class Blueprint:
         if callable(decorator):
             orig_call = decorator.__call__
 
-            def wrapped_decorator(func: Callable) -> Callable:
-                func._risk = risk
-                func._permissions = list(permissions or [])
+            def wrapped_decorator(func: Callable[..., Any]) -> Any:
+                cast(Any, func)._risk = risk
+                cast(Any, func)._permissions = list(permissions or [])
                 if on_success:
-                    func._on_success = str(on_success)
+                    cast(Any, func)._on_success = str(on_success)
                 if on_error:
-                    func._on_error = str(on_error)
+                    cast(Any, func)._on_error = str(on_error)
                 res = orig_call(func)
                 st_name = getattr(decorator, "_state", None) or func.__name__
                 if on_success:
@@ -331,7 +362,8 @@ class Blueprint:
 
     def end(
         self,
-        state: Any = None,
+        *args: Any,
+        is_start: bool = False,
         status: str = "finished",
         risk: str = "low",
         permissions: list[str] | None = None,
@@ -339,7 +371,8 @@ class Blueprint:
         """Decorator for registering a terminal step in the blueprint.
 
         Args:
-            state: The terminal state.
+            *args: State or state name.
+            is_start: Whether this state is also the start state.
             status: Final status of the job (default 'finished').
             risk: Risk level ('low', 'medium', 'high').
             permissions: Required permissions list.
@@ -351,15 +384,16 @@ class Blueprint:
             @bp.end(OrderFlow.failed, status="failed")
             async def on_failure(error: dict): ...
         """
+        state = args[0] if args else None
         if callable(state) and not isinstance(state, State):
             st_name = state.__name__
             self.terminal_statuses[st_name] = status
-            return self.handler(state, is_end=True, risk=risk, permissions=permissions)
+            return self.handler(state, is_start=is_start, is_end=True, risk=risk, permissions=permissions)
 
-        decorator = self.handler(state, is_end=True, risk=risk, permissions=permissions)
+        decorator = self.handler(state, is_start=is_start, is_end=True, risk=risk, permissions=permissions)
         orig_call = decorator.__call__
 
-        def wrapped_decorator(func: Callable) -> Callable:
+        def wrapped_decorator(func: Callable[..., Any]) -> Any:
             res = orig_call(func)
             st_name = getattr(decorator, "_state", None) or func.__name__
             self.terminal_statuses[st_name] = status
@@ -384,6 +418,7 @@ class Blueprint:
         - Fail-Open Guarantee: If the handler times out, fails, or returns an invalid candidate,
           the host automatically transitions to 'fallback'.
         """
+        decider_name: str | None = None
         if isinstance(candidates_or_name, str):
             decider_name = candidates_or_name
             actual_cands = candidates or []
@@ -400,10 +435,10 @@ class Blueprint:
         candidates_str = [str(c) for c in actual_cands]
         fallback_str = str(actual_fallback)
 
-        def decorator(func: Callable) -> Callable:
+        def decorator(func: Callable[..., Any]) -> Any:
             state_name = decider_name or func.__name__
-            func._risk = risk
-            func._permissions = list(permissions or [])
+            cast(Any, func)._risk = risk
+            cast(Any, func)._permissions = list(permissions or [])
             self._deciders[state_name] = {
                 "candidates": candidates_str,
                 "fallback": fallback_str,
@@ -412,8 +447,8 @@ class Blueprint:
                 "risk": risk,
                 "permissions": list(permissions or []),
             }
-            func._is_decider = True
-            func._decide_meta = self._deciders[state_name]
+            cast(Any, func)._is_decider = True
+            cast(Any, func)._decide_meta = self._deciders[state_name]
 
             # Only register as an FSM transition state if candidates and fallback are explicitly specified
             if candidates_str and fallback is not None:
@@ -429,19 +464,30 @@ class Blueprint:
 
     def to_dag(self) -> dict[str, Any]:
         """Exports the blueprint's state machine graph topology for spatial visualization."""
+        if self._cached_dag is not None:
+            return self._cached_dag
+
         transitions, _ = self._get_all_transitions()
         nodes = []
-        all_states = set(self.handlers.keys()) | set(self.end_states)
+        all_states = set(self.handlers.keys()) | set(self.end_states) | set(self.aggregator_handlers.keys())
         if self.start_state:
             all_states.add(self.start_state)
         for state_name in sorted(all_states):
-            h_func = self.handlers.get(state_name)
+            h_func = self.handlers.get(state_name) or self.aggregator_handlers.get(state_name)
             is_start = state_name == self.start_state
             is_end = state_name in self.end_states
             is_decider = state_name in self._deciders
             risk = getattr(h_func, "_risk", "low") if h_func else "low"
             dec_meta = self._deciders.get(state_name) or {}
-            node_type = "decider" if is_decider else ("subgraph" if getattr(h_func, "_is_subgraph", False) else "step")
+            node_type = (
+                "decider"
+                if is_decider
+                else (
+                    "aggregator"
+                    if state_name in self.aggregator_handlers
+                    else ("subgraph" if getattr(h_func, "_is_subgraph", False) else "step")
+                )
+            )
             node = {
                 "id": state_name,
                 "name": state_name,
@@ -470,15 +516,20 @@ class Blueprint:
                     edge["is_fallback"] = True
                 edges.append(edge)
 
-        return {
+        dag = {
             "blueprint_name": self.name,
             "start_state": self.start_state,
             "nodes": nodes,
             "edges": edges,
         }
+        self._cached_dag = dag
+        return dag
 
     def get_security_metadata(self) -> dict[str, Any]:
         """Calculates aggregated risk and permissions across all steps and skills in the blueprint."""
+        if self._cached_security_metadata is not None:
+            return self._cached_security_metadata
+
         risk_levels = {"low": 1, "medium": 2, "high": 3}
         inv_risk = {1: "low", 2: "medium", 3: "high"}
         max_risk_val = 1
@@ -502,10 +553,12 @@ class Blueprint:
             if isinstance(perms, (list, tuple, set)):
                 all_permissions.update(perms)
 
-        return {
+        sec_meta = {
             "risk": inv_risk.get(max_risk_val, "low"),
             "permissions": sorted(all_permissions),
         }
+        self._cached_security_metadata = sec_meta
+        return sec_meta
 
     def aggregator(self, state_or_func: str | Callable | None = None) -> Any:
         """Decorator for registering an aggregator handler.
@@ -529,6 +582,7 @@ class Blueprint:
             if state_name in self.aggregator_handlers:
                 raise ValueError(f"Aggregator for state '{state_name}' is already registered.")
             self.aggregator_handlers[state_name] = func
+            self._invalidate_caches()
             return func
 
         if callable(state_or_func):
@@ -613,6 +667,10 @@ class Blueprint:
 
         Returns a tuple of (transitions_map, parse_error_count).
         """
+        if self._cached_transitions is not None:
+            trans_map, errs = self._cached_transitions
+            return {k: set(v) for k, v in trans_map.items()}, errs
+
         transitions: dict[str, set[str]] = {k: set(v) for k, v in self._explicit_transitions.items()}
         parse_errors = 0
 
@@ -674,7 +732,7 @@ class Blueprint:
                         with suppress(ValueError):
                             scope_vars[var_name] = cell.cell_contents
 
-                fn_nodes = []
+                fn_nodes: list[Any] = []
                 for stmt in getattr(tree, "body", []):
                     if isinstance(stmt, (FunctionDef, AsyncFunctionDef)):
                         for body_stmt in stmt.body:
@@ -733,7 +791,8 @@ class Blueprint:
                 logger.warning(f"Could not parse handler for state '{state}' in blueprint '{self.name}': {e}")
                 parse_errors += 1
 
-        return transitions, parse_errors
+        self._cached_transitions = (transitions, parse_errors)
+        return {k: set(v) for k, v in transitions.items()}, parse_errors
 
     def _analyze_handlers(self) -> None:
         """Analyzes and caches parameters for all registered handlers."""

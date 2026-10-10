@@ -9,7 +9,8 @@ from os.path import exists
 from unittest.mock import AsyncMock
 
 from pytest import mark, raises
-from src.holarchy.worker_config_loader import load_worker_configs_to_redis
+
+from holarchy.worker_config_loader import load_worker_configs_to_redis
 
 
 @mark.asyncio

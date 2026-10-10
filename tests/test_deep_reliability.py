@@ -87,7 +87,7 @@ async def test_infinite_loop_prevention(config, redis_storage):
     """
     loop_bp = Blueprint(name="loop_bp")
 
-    @loop_bp.handler("start", is_start=True)
+    @loop_bp.start("start")
     async def start_node(actions):
         actions.go_to("loop")
 
@@ -114,7 +114,7 @@ async def test_infinite_loop_prevention(config, redis_storage):
                 "blueprint_name": "loop_bp",
                 "current_state": "start",
                 "status": JOB_STATUS_RUNNING,
-                "initial_data": {},
+                "input": {},
             },
         )
         await redis_storage.enqueue_job(job_id)

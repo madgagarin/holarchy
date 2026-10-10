@@ -7,7 +7,8 @@
 from unittest.mock import AsyncMock, MagicMock
 
 from pytest import fixture, mark
-from src.holarchy.dispatcher import Dispatcher
+
+from holarchy.dispatcher import Dispatcher
 
 
 @fixture

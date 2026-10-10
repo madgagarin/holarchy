@@ -13,15 +13,15 @@ def test_valid_blueprint_integrity():
     """Tests that a correctly defined blueprint passes integrity validation."""
     bp = Blueprint("valid_bp")
 
-    @bp.handler("start", is_start=True)
+    @bp.start
     async def start(actions):
         actions.go_to("next")
 
-    @bp.handler("next")
+    @bp.step("next")
     async def next_handler(actions):
         actions.dispatch_task("task", params={}, transitions={"success": "end"})
 
-    @bp.handler("end", is_end=True)
+    @bp.end("end")
     async def end():
         pass
 
@@ -33,7 +33,7 @@ def test_dangling_transition():
     """Tests that a transition to a non-existent state raises ValueError."""
     bp = Blueprint("dangling_bp")
 
-    @bp.handler("start", is_start=True)
+    @bp.start
     async def start(actions):
         actions.go_to("non_existent_state")
 
@@ -48,15 +48,15 @@ def test_unreachable_state():
     """Tests that a state that cannot be reached from 'start' raises ValueError."""
     bp = Blueprint("unreachable_bp")
 
-    @bp.handler("start", is_start=True)
+    @bp.start
     async def start(actions):
         actions.go_to("end")
 
-    @bp.handler("end", is_end=True)
+    @bp.end("end")
     async def end():
         pass
 
-    @bp.handler("dead_code")
+    @bp.step("dead_code")
     async def dead_code():
         pass
 
@@ -70,7 +70,7 @@ def test_aggregator_reachability():
     """Tests that aggregator states are correctly identified as reachable."""
     bp = Blueprint("aggregator_bp")
 
-    @bp.handler("start", is_start=True)
+    @bp.start
     async def start(actions):
         actions.dispatch_parallel(tasks=[], aggregate_into="aggregator")
 
@@ -78,7 +78,7 @@ def test_aggregator_reachability():
     async def agg(actions):
         actions.go_to("end")
 
-    @bp.handler("end", is_end=True)
+    @bp.end("end")
     async def end():
         pass
 
@@ -90,15 +90,15 @@ def test_complex_transitions_reachability():
     """Tests run_blueprint and await_human_approval transitions."""
     bp = Blueprint("complex_bp")
 
-    @bp.handler("start", is_start=True)
+    @bp.start
     async def start(actions):
-        actions.run_blueprint("other", initial_data={}, transitions={"success": "step2"})
+        actions.run_blueprint("other", input={}, transitions={"success": "step2"})
 
-    @bp.handler("step2")
+    @bp.step("step2")
     async def step2(actions):
         actions.await_human_approval("email", "Verify", transitions={"approved": "end"})
 
-    @bp.handler("end", is_end=True)
+    @bp.end("end")
     async def end():
         pass
 

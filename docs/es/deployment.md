@@ -30,7 +30,7 @@ docker-compose up --build
 
 ### Ejecución de Pruebas
 
-Es **crucial** ejecutar las pruebas después de realizar cambios.
+Ejecute el conjunto de pruebas tras introducir modificaciones en el código.
 
 **1. Configurar el entorno:**
 

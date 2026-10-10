@@ -45,3 +45,4 @@ htmlcov/
 Thumbs.db
 new/
 .agignore
+.holarchy/

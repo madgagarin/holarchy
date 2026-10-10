@@ -53,9 +53,9 @@ class State(str):
 class StatesGroupMeta(type):
     """Metaclass that automatically binds declared States to their parent group."""
 
-    def __new__(
-        mcls, name: str, bases: tuple[type, ...], namespace: dict[str, Any]
-    ) -> StatesGroupMeta:
+    _states: tuple[State, ...]
+
+    def __new__(mcls, name: str, bases: tuple[type, ...], namespace: dict[str, Any]) -> StatesGroupMeta:
         cls = super().__new__(mcls, name, bases, namespace)
         states: list[State] = []
 
@@ -129,25 +129,25 @@ class StepScope:
         self._context = context
         self._current_data = current_data
 
-        inp = None
+        inp: Any = None
         if isinstance(context, dict):
             inp = context
         elif not type(context).__name__.endswith("Mock"):
-            inp = getattr(context, "input", None) or getattr(context, "initial_data", None)
+            inp = getattr(context, "input", None)
         else:
             ctx_dict = getattr(context, "__dict__", {})
-            inp = ctx_dict.get("input") or ctx_dict.get("initial_data")
+            inp = ctx_dict.get("input")
 
         self._input = inp if isinstance(inp, dict) else (inp or {})
 
-        steps = None
+        steps: Any = None
         if isinstance(context, dict):
             steps = {}
         elif not type(context).__name__.endswith("Mock"):
-            steps = getattr(context, "steps", None) or getattr(context, "state_history", None)
+            steps = getattr(context, "steps", None)
         else:
             ctx_dict = getattr(context, "__dict__", {})
-            steps = ctx_dict.get("steps") or ctx_dict.get("state_history")
+            steps = ctx_dict.get("steps")
 
         self._steps = steps if isinstance(steps, dict) else (steps or {})
 
@@ -162,15 +162,7 @@ class StepScope:
         return self._input
 
     @property
-    def initial_data(self) -> Any:
-        return self._input
-
-    @property
     def steps(self) -> Any:
-        return self._steps
-
-    @property
-    def state_history(self) -> Any:
         return self._steps
 
     @property
@@ -183,7 +175,6 @@ class StepScope:
         return getattr(self._steps, name, None)
 
     def __getattr__(self, name: str) -> Any:
-        # 1. Check current data
         if self._current_data is not None:
             if isinstance(self._current_data, dict):
                 if name in self._current_data:
@@ -191,14 +182,12 @@ class StepScope:
             elif hasattr(self._current_data, name):
                 return getattr(self._current_data, name)
 
-        # 2. Check input payload
         if isinstance(self._input, dict):
             if name in self._input:
                 return self._input[name]
         elif hasattr(self._input, name) and not type(self._input).__name__.endswith("Mock"):
             return getattr(self._input, name)
 
-        # 3. Check underlying context
         if hasattr(self._context, name):
             return getattr(self._context, name)
 

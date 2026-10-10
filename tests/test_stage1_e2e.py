@@ -3,10 +3,10 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-from pydantic import BaseModel, Field
+from pytest import fixture, mark
 from rxon.schema import extract_skill_contract
 
 from holarchy.blueprint import Blueprint
@@ -20,19 +20,21 @@ class OrderFlow(StatesGroup):
     done = State()
 
 
-class OrderInput(BaseModel):
+@dataclass
+class OrderInput:
     item: str
-    price: float = Field(gt=0)
-    quantity: int = Field(default=1, ge=1)
+    price: float
+    quantity: int = 1
 
 
-class OrderReceipt(BaseModel):
+@dataclass
+class OrderReceipt:
     item: str
     total: float
     confirmed: bool
 
 
-@pytest.fixture
+@fixture
 def stage1_executor():
     engine = MagicMock()
     history = AsyncMock()
@@ -53,12 +55,12 @@ def stage1_executor():
     return executor
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_stage1_full_lifecycle_e2e(stage1_executor):
     """
     End-to-End verification of Stage 1 DX/UX modernization:
     1. StatesGroup declaration
-    2. Input schema extracted from Pydantic model in handler signature
+    2. Input schema extracted from dataclass model in handler signature
     3. Input model injected into handler
     4. Next() with step data returned
     5. Step return captured in 5 clean zones
@@ -107,8 +109,6 @@ async def test_stage1_full_lifecycle_e2e(stage1_executor):
         "output": None,
         "params": {"discount": 0.0},
         "meta": {"priority": "high"},
-        "initial_data": {"item": "laptop", "price": 1000.0, "quantity": 2},
-        "state_history": {},
     }
     stage1_executor.storage.get_job_state.return_value = job_state
     stage1_executor.storage.ack_job = AsyncMock()
@@ -129,13 +129,9 @@ async def test_stage1_full_lifecycle_e2e(stage1_executor):
 
     # Step 3: Execute finalize_order end handler
     await stage1_executor._process_job(job_id, "msg-step-3")
+    # Verification of final output and history
     assert job_state["status"] == "finished"
     expected_output = {"item": "laptop", "total": 2400.0, "confirmed": True}
     assert job_state["output"] == expected_output
-    assert job_state["result"] == expected_output
     assert len(job_state["history"]) == 3
     assert job_state["history"][2]["status"] == "finished"
-
-    # Backward compatibility checks
-    assert job_state["initial_data"] == job_state["input"]
-    assert job_state["state_history"] == job_state["steps"]

@@ -200,14 +200,14 @@ async def test_job_executor_s3_injection(config):
     bp = Blueprint("s3_test")
     handler_called = False
 
-    @bp.handler("start", is_start=True)
+    @bp.start("start")
     async def s3_handler(task_files, actions):
         nonlocal handler_called
         assert task_files is mock_task_files
         handler_called = True
         actions.go_to("finished")
 
-    @bp.handler("finished", is_end=True)
+    @bp.end("finished")
     async def end_handler():
         pass
 
@@ -220,7 +220,7 @@ async def test_job_executor_s3_injection(config):
         "blueprint_name": "s3_test",
         "current_state": "start",
         "status": "pending",
-        "initial_data": {},
+        "input": {},
         "client_config": {},
     }
     mock_storage.get_job_state.return_value = job_state
@@ -248,7 +248,7 @@ async def test_job_executor_s3_auto_cleanup(config):
 
     bp = Blueprint("cleanup_test")
 
-    @bp.handler("start", is_start=True, is_end=True)
+    @bp.start("start", is_end=True)
     async def terminal_handler():
         pass
 
@@ -261,7 +261,7 @@ async def test_job_executor_s3_auto_cleanup(config):
         "blueprint_name": "cleanup_test",
         "current_state": "start",
         "status": "running",
-        "initial_data": {},
+        "input": {},
         "client_config": {},
     }
     mock_storage.get_job_state.return_value = job_state
@@ -289,7 +289,7 @@ async def test_job_executor_s3_auto_cleanup(config):
         "blueprint_name": "cleanup_test",
         "current_state": "start",
         "status": "running",
-        "initial_data": {},
+        "input": {},
         "client_config": {},
     }
     mock_storage.get_job_state.return_value = job_state2

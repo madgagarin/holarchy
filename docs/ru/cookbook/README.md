@@ -6,7 +6,7 @@
 
 ## Ключевые руководства и архитектура
 
-- **[Создание современного Blueprint](creating_blueprint.md)**: Строго типизированные FSM-пайплайны, `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end`, Pydantic-модели и 5 чистых зон хранения.
+- **[Создание современного Blueprint](creating_blueprint.md)**: Строго типизированные FSM-пайплайны, `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end`, модели `@dataclass` / `msgspec.Struct` и 5 чистых зон хранения.
 - **[Создание воркера](creating_worker.md)**: Разработка распределенных исполнителей навыков с помощью `holonode`.
 - **[Локальная разработка и тестирование воркеров](local_worker_development.md)**: Локальная отладка, WebSocket, кооперативная отмена и моки.
 - **[Консультативная AI-маршрутизация и Replay-тестирование](ai_routing_and_replay.md)**: Принцип Host-Owned Choice, безопасный fallback, чеки выполнения и офлайн-тестирование дрейфа.
@@ -19,35 +19,33 @@
 **Задача:** Создать пайплайн, который последовательно выполняет три шага: A -> B -> C.
 
 ```python
-from holarchy import Blueprint
+from holarchy import ActionFactory, Blueprint
 
 simple_pipeline = Blueprint(name="simple_linear_flow", api_version="v1", api_endpoint="jobs/simple_flow")
 
 
-@simple_pipeline.handler(is_start=True)
-async def start(initial_data: dict, actions: ActionFactory):
+@simple_pipeline.start
+async def start(input: dict, actions: ActionFactory):
     """Используем внедрение зависимостей для чистого кода."""
     actions.go_to("step_A")
 
 
-@simple_pipeline.handler("step_A")
-async def handler_A(initial_data: dict, actions: ActionFactory):
-    actions.dispatch_task(
-        task_type="simple_task", params=initial_data, transitions={"success": "step_B", "failure": "failed"}
-    )
+@simple_pipeline.step("step_A")
+async def handler_A(input: dict, actions: ActionFactory):
+    actions.dispatch_task(task_type="simple_task", params=input, transitions={"success": "step_B", "failure": "failed"})
 
 
-@simple_pipeline.handler("step_B")
+@simple_pipeline.step("step_B")
 async def handler_B(context, actions):
     actions.go_to("finished")
 
 
-@simple_pipeline.handler(is_end=True)
+@simple_pipeline.end("finished")
 async def finished(context, actions):
     print(f"Пайплайн {context.job_id} успешно завершен.")
 
 
-@simple_pipeline.handler(is_end=True)
+@simple_pipeline.end("failed")
 async def failed(context, actions):
     print(f"Пайплайн {context.job_id} завершился с ошибкой.")
 ```
@@ -62,31 +60,16 @@ from holarchy import Blueprint
 moderation_pipeline = Blueprint(name="moderation_flow", api_version="v1", api_endpoint="jobs/moderation_flow")
 
 
-@moderation_pipeline.handler(is_start=True)
-async def generate_data(context, actions):
+@moderation_pipeline.start
+async def generate_data(input, actions):
     actions.dispatch_task(
         task_type="data_generation",
-        params=context.initial_data,
+        params=input,
         transitions={"success": "awaiting_approval", "failure": "failed"},
     )
 
 
-@moderation_pipeline.handler(is_end=True)
-async def process_approved_data(context, actions):
-    actions.go_to("finished")
-
-
-@moderation_pipeline.handler(is_end=True)
-async def rejected_by_moderator(context, actions):
-    print(f"Job {context.job_id} был отклонен модератором.")
-
-
-@moderation_pipeline.handler(is_end=True)
-async def failed(context, actions):
-    print(f"Job {context.job_id} завершился с ошибкой.")
-
-
-@moderation_pipeline.handler
+@moderation_pipeline.step("awaiting_approval")
 async def awaiting_approval(context, actions):
     actions.await_human_approval(
         integration="telegram",
@@ -95,9 +78,24 @@ async def awaiting_approval(context, actions):
     )
 
 
-@moderation_pipeline.handler
+@moderation_pipeline.step("process_approved_data")
 async def process_approved_data(context, actions):
     actions.go_to("finished")
+
+
+@moderation_pipeline.end("finished")
+async def finished(context, actions):
+    print(f"Job {context.job_id} успешно завершен.")
+
+
+@moderation_pipeline.end("rejected_by_moderator")
+async def rejected_by_moderator(context, actions):
+    print(f"Job {context.job_id} был отклонен модератором.")
+
+
+@moderation_pipeline.end("failed")
+async def failed(context, actions):
+    print(f"Job {context.job_id} завершился с ошибкой.")
 ```
 
 ### **Рецепт 3: Параллельное выполнение и агрегация результатов**
@@ -111,15 +109,16 @@ async def process_approved_data(context, actions):
 3.  **Доступ к результатам:** Внутри хендлера-агрегатора результаты всех параллельных задач доступны в `context.aggregation_results`. Это словарь, где ключ — это `task_id`, а значение — результат, возвращенный воркером.
 
 ```python
-from holarchy import Blueprint
-import logging
+from logging import getLogger
 
-logger = logging.getLogger(__name__)
+from holarchy import Blueprint
+
+logger = getLogger(__name__)
 
 parallel_bp = Blueprint(name="parallel_flow_example", api_version="v1", api_endpoint="/jobs/parallel_example")
 
 
-@parallel_bp.handler(is_start=True)
+@parallel_bp.start
 async def start_parallel_tasks(context, actions):
     """
     Этот хендлер запускает две задачи, которые будут выполняться параллельно.
@@ -155,18 +154,18 @@ async def aggregate_results(context, actions):
         if result.get("status") == "success":
             processed_results[task_id] = result.get("data")
 
-    context.state_history["aggregated_data"] = processed_results
+    context.steps["aggregated_data"] = processed_results
     logger.info(f"Job {context.job_id}: Агрегированные данные: {processed_results}")
     actions.go_to("end")
 
 
-@parallel_bp.handler(is_end=True)
+@parallel_bp.end("end")
 async def end_flow(context, actions):
-    final_data = context.state_history.get("aggregated_data")
+    final_data = context.steps.get("aggregated_data")
     logger.info(f"Job {context.job_id}: Процесс завершен. Финальные данные: {final_data}")
 
 
-@parallel_bp.handler(is_end=True)
+@parallel_bp.end("failed")
 async def failed(context, actions):
     logger.error(f"Job {context.job_id} завершился с ошибкой.")
 ```
@@ -178,7 +177,7 @@ _Примечание: Если хотя бы одна из параллельн
 **Задача:** Обеспечить высокую доступность и/или распределить нагрузку, настроив один Воркер на подключение к нескольким экземплярам Оркестратора.
 
 **Концепция:**
-`worker_sdk` поддерживает два режима работы с несколькими Оркестраторами, которые настраиваются через переменные окружения. Воркер будет автоматически регистрироваться и отправлять heartbeats всем Оркестраторам из списка.
+`holonode` поддерживает два режима работы с несколькими Оркестраторами, которые настраиваются через переменные окружения. Воркер будет автоматически регистрироваться и отправлять heartbeats всем Оркестраторам из списка.
 
 - `FAILOVER` (по умолчанию): Воркер опрашивает Оркестраторы в порядке их появления в конфигурации. Если основной Оркестратор становится недоступен, Воркер автоматически переключается на следующий в списке.
 - `ROUND_ROBIN`: Воркер поочередно опрашивает каждый Оркестратор из списка, что позволяет распределять нагрузку между ними.
@@ -229,25 +228,25 @@ from holarchy import Blueprint, F
 multilingual_pipeline = Blueprint(name="multilingual_flow", api_version="v1", api_endpoint="jobs/multilingual_flow")
 
 
-@multilingual_pipeline.handler(is_start=True)
-async def start_multilingual(context, actions):
+@multilingual_pipeline.start
+async def start_multilingual(actions):
     # Этот шаг просто передает управление дальше, где сработает условная логика
     actions.go_to("process_text")
 
 
-@multilingual_pipeline.handler("process_text", F.initial_data["language"] == "en")
-async def process_english_text(context, actions):
-    actions.dispatch_task(task_type="process_en", params=context.initial_data, transitions={"success": "finished"})
+@multilingual_pipeline.step("process_text", condition=F.language == "en")
+async def process_english_text(input, actions):
+    actions.dispatch_task(task_type="process_en", params=input, transitions={"success": "finished"})
 
 
-@multilingual_pipeline.handler("process_text", F.initial_data["language"] == "de")
-async def process_german_text(context, actions):
-    actions.dispatch_task(task_type="process_de", params=context.initial_data, transitions={"success": "finished"})
+@multilingual_pipeline.step("process_text", condition=F.language == "de")
+async def process_german_text(input, actions):
+    actions.dispatch_task(task_type="process_de", params=input, transitions={"success": "finished"})
 
 
-@multilingual_pipeline.handler("finished", is_end=True)
-async def multilingual_finished(context, actions):
-    print(f"Job {context.job_id} finished processing.")
+@multilingual_pipeline.end("finished")
+async def multilingual_finished(job_id, actions):
+    print(f"Job {job_id} finished processing.")
 ```
 
 ### **Рецепт 6: Выбор стратегии распределения задач**
@@ -260,18 +259,18 @@ from holarchy import Blueprint
 critical_pipeline = Blueprint(name="critical_flow", api_version="v1", api_endpoint="jobs/critical_flow")
 
 
-@critical_pipeline.handler(is_start=True)
-async def start_critical_task(context, actions):
+@critical_pipeline.start
+async def start_critical_task(input, actions):
     actions.dispatch_task(
         task_type="critical_computation",
-        params=context.initial_data,
+        params=input,
         # Указываем стратегию выбора воркера
         dispatch_strategy="least_connections",
         transitions={"success": "finished"},
     )
 
 
-@critical_pipeline.handler("finished", is_end=True)
+@critical_pipeline.end("finished")
 async def critical_finished(context, actions):
     print(f"Critical task {context.job_id} finished.")
 ```
@@ -290,21 +289,21 @@ from holarchy import Blueprint
 priority_pipeline = Blueprint(name="priority_flow", api_version="v1", api_endpoint="jobs/priority_flow")
 
 
-@priority_pipeline.handler(is_start=True)
-async def start_priority_task(context, actions):
+@priority_pipeline.start
+async def start_priority_task(input, actions):
     # В зависимости от входных данных, назначаем разный приоритет
-    is_urgent = context.initial_data.get("is_urgent", False)
+    is_urgent = input.get("is_urgent", False)
 
     actions.dispatch_task(
         task_type="computation",
-        params=context.initial_data,
+        params=input,
         # Срочные задачи получают приоритет 10, остальные - 0
         priority=10.0 if is_urgent else 0.0,
         transitions={"success": "finished"},
     )
 
 
-@priority_pipeline.handler("finished", is_end=True)
+@priority_pipeline.end("finished")
 async def priority_finished(context, actions):
     print(f"Task {context.job_id} finished.")
 ```
@@ -323,11 +322,11 @@ cost_optimized_pipeline = Blueprint(
 )
 
 
-@cost_optimized_pipeline.handler(is_start=True)
-async def start_cost_optimized_task(context, actions):
+@cost_optimized_pipeline.start
+async def start_cost_optimized_task(input, actions):
     actions.dispatch_task(
         task_type="image_compression",
-        params=context.initial_data,
+        params=input,
         # Выбираем самый дешевый воркер
         dispatch_strategy="cheapest",
         # Но только если его стоимость ($/сек) не более 0.05
@@ -336,12 +335,12 @@ async def start_cost_optimized_task(context, actions):
     )
 
 
-@cost_optimized_pipeline.handler("finished", is_end=True)
+@cost_optimized_pipeline.end("finished")
 async def cost_optimized_finished(context, actions):
     print("Job finished with cost optimization.")
 
 
-@cost_optimized_pipeline.handler("too_expensive", is_end=True)
+@cost_optimized_pipeline.end("too_expensive")
 async def cost_optimized_failed(context, actions):
     print("Job failed because no workers met the cost criteria.")
 ```
@@ -355,7 +354,7 @@ _Примечание: Стратегия `cheapest` использует пол
 **Концепция:**
 
 1.  **Инициализация:** При создании блупринта вы можете "прикрепить" к нему одно или несколько хранилищ данных. Каждое хранилище — это, по сути, обертка над Redis, предоставляющая key-value доступ.
-2.  **Доступ в хендлерах:** Внутри любого хендлера этого блупринта вы можете получить доступ к этим хранилищам через `context.data_stores`.
+2.  **Доступ в хендлерах:** Внутри любого хендлера этого блупринта вы можете получить доступ к этим хранилищам через `data_stores`.
 3.  **Персистентность:** Данные в `data_store` сохраняются между вызовами хендлеров и даже между разными `job_id` одного и того же блупринта.
 
 ```python
@@ -367,30 +366,30 @@ analytics_bp = Blueprint(name="analytics_flow", api_version="v1", api_endpoint="
 analytics_bp.add_data_store("request_counter", {"total_requests": 0})
 
 
-@analytics_bp.handler("start", is_start=True)
-async def count_request(context, actions):
-    # 2. Получаем доступ к хранилищу через context и увеличиваем счетчик.
+@analytics_bp.start
+async def count_request(data_stores, steps, actions):
+    # 2. Получаем доступ к хранилищу через внедрение зависимостей и увеличиваем счетчик.
     #    Операции атомарны, так как Redis однопоточен.
-    current_count = await context.data_stores.request_counter.get("total_requests")
+    current_count = await data_stores.request_counter.get("total_requests")
     new_count = current_count + 1
-    await context.data_stores.request_counter.set("total_requests", new_count)
+    await data_stores.request_counter.set("total_requests", new_count)
 
-    # Сохраняем в историю этого конкретного job'а, какой был счетчик на момент его запуска
-    context.state_history["request_number"] = new_count
+    # Сохраняем в шаги этого конкретного job'а, какой был счетчик на момент его запуска
+    steps["request_number"] = new_count
 
     actions.go_to("finished")
 
 
-@analytics_bp.handler("finished", is_end=True)
-async def show_result(context, actions):
-    request_num = context.state_history.get("request_number")
-    print(f"Job {context.job_id} был обработан. Это был запрос номер {request_num}.")
+@analytics_bp.end("finished")
+async def show_result(job_id, steps, actions):
+    request_num = steps.get("request_number")
+    print(f"Job {job_id} был обработан. Это был запрос номер {request_num}.")
 ```
 
 **Как это работает:**
 
 - `analytics_bp.add_data_store("request_counter", ...)` создает экземпляр `AsyncDictStore`, который будет жить, пока жив Оркестратор.
-- `context.data_stores.request_counter` предоставляет доступ к этому экземпляру. `data_stores` - это динамический объект, атрибуты которого соответствуют именам созданных хранилищ.
+- `data_stores.request_counter` предоставляет доступ к этому экземпляру. `data_stores` - это динамический объект, атрибуты которого соответствуют именам созданных хранилищ.
 - Каждый раз, когда вы запускаете этот пайплайн (`/v1/jobs/analytics`), он будет увеличивать **один и тот же** счетчик, потому что `data_store` привязан к блупринту, а не к конкретному `job_id`.
 
 ### **Рецепт 10: Отмена выполняемой задачи**
@@ -439,11 +438,11 @@ from holarchy import Blueprint
 cancellable_pipeline = Blueprint(name="cancellable_flow", api_version="v1", api_endpoint="jobs/cancellable")
 
 
-@cancellable_pipeline.handler(is_start=True)
-async def start_long_task(context, actions):
+@cancellable_pipeline.start
+async def start_long_task(input, actions):
     actions.dispatch_task(
         task_type="long_video_processing",
-        params=context.initial_data,
+        params=input,
         transitions={
             "success": "finished_successfully",
             "failure": "task_failed",
@@ -452,17 +451,17 @@ async def start_long_task(context, actions):
     )
 
 
-@cancellable_pipeline.handler(is_end=True)
+@cancellable_pipeline.end("finished_successfully")
 async def finished_successfully(context, actions):
     print(f"Job {context.job_id} успешно завершен.")
 
 
-@cancellable_pipeline.handler(is_end=True)
+@cancellable_pipeline.end("task_failed")
 async def task_failed(context, actions):
     print(f"Job {context.job_id} завершился с ошибкой.")
 
 
-@cancellable_pipeline.handler(is_end=True)
+@cancellable_pipeline.end("task_cancelled")
 async def task_cancelled(context, actions):
     print(f"Job {context.job_id} был успешно отменен.")
 ```
@@ -474,7 +473,7 @@ async def task_cancelled(context, actions):
 curl -X POST http://localhost:8080/api/v1/jobs/cancellable \
 -H "Content-Type: application/json" \
 -H "X-Client-Token: your-secret-orchestrator-token" \
--d '{"video_url": "..."}'
+-d '{"input": {"video_url": "..."}}'
 # Ответ: {"status": "accepted", "job_id": "YOUR_JOB_ID"}
 ```
 
@@ -493,7 +492,7 @@ curl -X POST http://localhost:8080/api/v1/jobs/YOUR_JOB_ID/cancel \
 **Задача:** Для длительной задачи (например, обучение модели) регулярно сообщать о прогрессе, чтобы его можно было отслеживать в UI.
 
 **Концепция:**
-Как и отмена, эта функция работает через WebSocket. Воркер может отправлять события с прогрессом, которые Оркестратор сохраняет в `state_history` соответствующего `Job`.
+Как и отмена, эта функция работает через WebSocket. Воркер может отправлять события с прогрессом, которые Оркестратор сохраняет в `steps` соответствующего `Job`.
 
 #### **Шаг 1: Код в Воркере**
 
@@ -515,13 +514,13 @@ async def train_model_handler(params: dict, task_id: str, job_id: str) -> dict:
 
 #### **Шаг 2: Проверка в Оркестраторе**
 
-После выполнения задачи вы можете запросить ее статус и увидеть `progress_updates` в `state_history`:
+После выполнения задачи вы можете запросить ее статус и увидеть `progress_updates` в `steps`:
 
 ```json
 {
   "id": "YOUR_JOB_ID",
   "current_state": "finished",
-  "state_history": {
+  "steps": {
     "progress_updates": [
       {"progress": 0.1, "message": "Epoch 1 completed", "timestamp": "..."},
       {"progress": 0.2, "message": "Epoch 2 completed", "timestamp": "..."}
@@ -548,7 +547,7 @@ from holarchy import Blueprint
 s3_ops_bp = Blueprint(name="s3_ops_flow", api_version="v1", api_endpoint="jobs/s3_ops")
 
 
-@s3_ops_bp.handler(is_start=True)
+@s3_ops_bp.start
 async def check_config(context, task_files, actions):
     """
     Скачивает 'config.json' из S3 (jobs/{job_id}/config.json),
@@ -572,7 +571,7 @@ async def check_config(context, task_files, actions):
         actions.go_to("deep_processing")
 
 
-@s3_ops_bp.handler("fast_processing")
+@s3_ops_bp.step("fast_processing")
 async def fast_process(context, task_files, actions):
     # ... логика ...
 
@@ -610,7 +609,6 @@ SDK для Воркеров имеет встроенную поддержку S
 
 ```python
 # my_video_worker.py
-import os
 from pathlib import Path
 
 
@@ -637,12 +635,12 @@ async def process_video(params: dict, **kwargs) -> dict:
 Блупринт просто передает S3 URI как параметр.
 
 ```python
-@s3_pipeline.handler(is_start=True)
-async def start_s3_task(context, actions):
+@s3_pipeline.start
+async def start_s3_task(input, actions):
     actions.dispatch_task(
         task_type="process_video_from_s3",
         # Мы передаем S3 URI
-        params={"video_path": context.initial_data.get("s3_uri")},
+        params={"video_path": input.get("s3_uri")},
         transitions={"success": "finished"},
     )
 ```
@@ -650,10 +648,10 @@ async def start_s3_task(context, actions):
 #### **Шаг 3: Запуск задачи**
 
 ```bash
-curl -X POST ... -d '{"s3_uri": "s3://my-bucket/raw_videos/movie.mp4"}'
+curl -X POST ... -d '{"input": {"s3_uri": "s3://my-bucket/raw_videos/movie.mp4"}}'
 ```
 
-После выполнения в `state_history` задачи появится результат с новым S3 URI, например: `{"processed_video_path": "s3://my-processing-bucket/processed_movie.mp4"}`.
+После выполнения в `steps` задачи появится результат с новым S3 URI, например: `{"processed_video_path": "s3://my-processing-bucket/processed_movie.mp4"}`.
 
 ### **Рецепт 13: Управление логикой повторов с помощью типов ошибок**
 
@@ -693,11 +691,11 @@ async def fetch_data(params: dict, **kwargs) -> dict:
 Блупринт может иметь разные ветки для разных исходов.
 
 ```python
-@error_handling_bp.handler(is_start=True)
-async def start_api_call(context, actions):
+@error_handling_bp.start
+async def start_api_call(input, actions):
     actions.dispatch_task(
         task_type="fetch_external_data",
-        params=context.initial_data,
+        params=input,
         transitions={
             "success": "finished_successfully",
             "failure": "handle_failure",  # Общий обработчик для всех ошибок
@@ -705,7 +703,7 @@ async def start_api_call(context, actions):
     )
 
 
-@error_handling_bp.handler(is_end=True)
+@error_handling_bp.end("handle_failure")
 async def handle_failure(context, actions):
     # Здесь можно проанализировать `job_state`, чтобы понять,
     # была ли задача помещена в карантин или просто провалена.
@@ -721,7 +719,7 @@ async def handle_failure(context, actions):
 **Задача:** Создать основной пайплайн, который в качестве одного из шагов использует другой, переиспользуемый пайплайн, и получить результат его работы.
 
 **Концепция:**
-Механизм вложенных блупринтов позволяет одному пайплайну (родительскому) запускать другой (дочерний) и ожидать его завершения. Результат выполнения дочернего блупринта (успех или неудача) автоматически сохраняется в `state_history` родительского пайплайна. Это позволяет создавать сложные, но модульные и переиспользуемые рабочие процессы.
+Механизм вложенных блупринтов позволяет одному пайплайну (родительскому) запускать другой (дочерний) и ожидать его завершения. Результат выполнения дочернего блупринта (успех или неудача) автоматически сохраняется в `steps` родительского пайплайна. Это позволяет создавать сложные, но модульные и переиспользуемые рабочие процессы.
 
 ```python
 from holarchy import Blueprint
@@ -731,27 +729,27 @@ from holarchy import Blueprint
 text_processing_bp = Blueprint(name="text_processor")
 
 
-@text_processing_bp.handler("start", is_start=True)
-async def process(context, actions):
+@text_processing_bp.start
+async def process(input, steps, actions):
     # ... какая-то логика обработки текста ...
-    text = context.initial_data.get("text", "")
+    text = input.get("text", "")
     if not text:
         # Если входные данные некорректны, завершаем блупринт с ошибкой.
         actions.go_to("failed")
     else:
-        # В `state_history` дочернего блупринта можно сохранить результат.
-        # Хотя он не передается напрямую, он будет доступен для отладки в истории.
-        context.state_history["processed_text"] = text.upper()
+        # В `steps` дочернего блупринта можно сохранить результат.
+        # Хотя он не передается напрямую, он будет доступен для отладки в steps.
+        steps["processed_text"] = text.upper()
         actions.go_to("finished")
 
 
-@text_processing_bp.handler("finished", is_end=True)
-async def text_processing_finished(context, actions):
+@text_processing_bp.end("finished")
+async def text_processing_finished(actions):
     pass
 
 
-@text_processing_bp.handler("failed", is_end=True)
-async def text_processing_failed(context, actions):
+@text_processing_bp.end("failed")
+async def text_processing_failed(actions):
     pass
 
 
@@ -759,52 +757,52 @@ async def text_processing_failed(context, actions):
 main_pipeline = Blueprint(name="main_flow", api_version="v1", api_endpoint="jobs/main_flow")
 
 
-@main_pipeline.handler("start", is_start=True)
-async def parent_start(context, actions):
+@main_pipeline.start
+async def parent_start(actions):
     actions.go_to("process_user_text")
 
 
-@main_pipeline.handler
-async def process_user_text(context, actions):
-    user_text = context.initial_data.get("raw_text", "")
+@main_pipeline.step("process_user_text")
+async def process_user_text(input, actions):
+    user_text = input.get("raw_text", "")
     actions.run_blueprint(
         blueprint_name="text_processor",
-        initial_data={"text": user_text},
+        input={"text": user_text},
         transitions={"success": "final_step", "failure": "sub_job_failed"},
     )
 
 
-@main_pipeline.handler
-async def final_step_handler(context, actions):
-    # Результат выполнения дочернего блупринта сохраняется в `state_history`.
+@main_pipeline.step("final_step")
+async def final_step_handler(steps, actions):
+    # Результат выполнения дочернего блупринта сохраняется в `steps`.
     # Ключ генерируется автоматически. Мы можем найти его, перебрав ключи.
     sub_job_result = None
-    for key, value in context.state_history.items():
-        if key.startswith("sub_job_") and "outcome" in value:
+    for key, value in steps.items():
+        if key.startswith("sub_job_") and isinstance(value, dict) and "outcome" in value:
             sub_job_result = value
             break
 
     if sub_job_result:
         print(f"Sub-blueprint finished with outcome: {sub_job_result['outcome']}")
     else:
-        print("Sub-blueprint result not found in state history.")
+        print("Sub-blueprint result not found in steps.")
 
     actions.go_to("finished")
 
 
-@main_pipeline.handler
-async def sub_job_failed_handler(context, actions):
+@main_pipeline.step("sub_job_failed")
+async def sub_job_failed_handler(actions):
     print("Sub-blueprint failed, handling failure in parent.")
     actions.go_to("failed")
 
 
-@main_pipeline.handler("finished", is_end=True)
-async def main_finished(context, actions):
+@main_pipeline.end("finished")
+async def main_finished(actions):
     pass
 
 
-@main_pipeline.handler("failed", is_end=True)
-async def main_failed(context, actions):
+@main_pipeline.end("failed")
+async def main_failed(actions):
     pass
 ```
 
@@ -830,28 +828,28 @@ from holarchy import Blueprint, F
 conditional_pipeline = Blueprint(name="conditional_flow")
 
 
-@conditional_pipeline.handler(is_start=True)
-async def start(context, actions):
+@conditional_pipeline.start
+async def start(actions):
     actions.go_to("process_data")
 
 
-@conditional_pipeline.handler("process_data", F.initial_data["type"] == "A")
-async def process_a(context, actions):
+@conditional_pipeline.step("process_data", condition=F.type == "A")
+async def process_a(actions):
     actions.dispatch_task(task_type="task_a", transitions={"success": "finished", "failure": "failed"})
 
 
-@conditional_pipeline.handler("process_data", F.initial_data["type"] == "B")
-async def process_b(context, actions):
+@conditional_pipeline.step("process_data", condition=F.type == "B")
+async def process_b(actions):
     actions.dispatch_task(task_type="task_b", transitions={"success": "finished", "failure": "failed"})
 
 
-@conditional_pipeline.handler(is_end=True)
-async def finished(context, actions):
+@conditional_pipeline.end("finished")
+async def finished(actions):
     print("Finished.")
 
 
-@conditional_pipeline.handler(is_end=True)
-async def failed(context, actions):
+@conditional_pipeline.end("failed")
+async def failed(actions):
     print("Failed.")
 
 
@@ -910,46 +908,44 @@ from holarchy import Blueprint
 premium_features_bp = Blueprint(name="premium_flow", api_version="v1", api_endpoint="jobs/premium_flow")
 
 
-@premium_features_bp.handler(is_start=True)
-async def start_premium_flow(context, actions):
+@premium_features_bp.start
+async def start_premium_flow(input, client, actions):
     # Получаем доступ к конфигурации клиента, сделавшего запрос
-    client_config = context.client.config
+    client_config = client.config
 
     # Используем параметры клиента для условной логики
     if client_config.get("plan") == "premium":
         # Для премиум-клиентов используем более мощный воркер
-        actions.dispatch_task(
-            task_type="high_quality_generation", params=context.initial_data, transitions={"success": "finished"}
-        )
+        actions.dispatch_task(task_type="high_quality_generation", params=input, transitions={"success": "finished"})
     elif "en" in client_config.get("languages", []):
         # Для бесплатных англоговорящих клиентов - стандартный воркер
         actions.dispatch_task(
-            task_type="standard_quality_generation", params=context.initial_data, transitions={"success": "finished"}
+            task_type="standard_quality_generation", params=input, transitions={"success": "finished"}
         )
     else:
         # Для остальных - ошибка
         actions.go_to("failed", error_message="Language not supported for your plan")
 
 
-@premium_features_bp.handler("finished", is_end=True)
+@premium_features_bp.end("finished")
 async def premium_finished(context, actions):
     pass
 
 
-@premium_features_bp.handler("failed", is_end=True)
+@premium_features_bp.end("failed")
 async def premium_failed(context, actions):
     pass
 ```
 
-### **Рецепт 18: Лучшие практики для `is_start` и `is_end` хендлеров**
+### **Рецепт 18: Лучшие практики для жизненных хендлеров `@bp.start` и `@bp.end`**
 
 **Задача:** Понять, какой код лучше всего размещать в начальных и конечных обработчиках для создания чистых и надежных пайплайнов.
 
-#### **Назначение `is_start=True` хендлера**
+#### **Назначение `@bp.start` хендлера**
 
-Начальный хендлер — это "входные ворота" вашего пайплайна. Это идеальное место для:
+Начальный хендлер `@bp.start` — это канонические «входные ворота» вашего пайплайна. Это идеальное место для:
 
-1.  **Валидации и подготовки данных:** Проверьте, что все необходимые данные присутствуют, и подготовьте `state_history` для последующих шагов.
+1.  **Валидации и подготовки данных:** Проверьте, что все необходимые данные присутствуют, и подготовьте `steps` или `output` для последующих шагов.
 2.  **Начальной маршрутизации:** Примите решение о первом реальном шаге на основе входных данных.
 
 **Пример:**
@@ -960,21 +956,21 @@ from holarchy import Blueprint
 validation_bp = Blueprint(name="validation_example", api_version="v1", api_endpoint="jobs/validation")
 
 
-@validation_bp.handler(is_start=True)
-async def validate_input(context, actions):
+@validation_bp.start
+async def validate_input(input, steps, actions):
     """
     Проверяет входные данные и решает, куда направить процесс.
     """
-    user_id = context.initial_data.get("user_id")
-    document_type = context.initial_data.get("document_type")
+    user_id = input.get("user_id")
+    document_type = input.get("document_type")
 
     if not user_id or not document_type:
         actions.go_to("invalid_input_failed")
         return
 
-    # Сохраняем проверенные данные в state_history для использования в других хендлерах
-    context.state_history["validated_user"] = user_id
-    context.state_history["doc_type"] = document_type
+    # Сохраняем проверенные данные в steps для использования в других хендлерах
+    steps["validated_user"] = user_id
+    steps["doc_type"] = document_type
 
     # Маршрутизация на основе типа документа
     if document_type == "invoice":
@@ -986,14 +982,14 @@ async def validate_input(context, actions):
 # ... (другие хендлеры) ...
 
 
-@validation_bp.handler(is_end=True)
-async def invalid_input_failed(context, actions):
-    print(f"Job {context.job_id} failed due to invalid input.")
+@validation_bp.end("invalid_input_failed")
+async def invalid_input_failed(job_id, actions):
+    print(f"Job {job_id} failed due to invalid input.")
 ```
 
-#### **Назначение `is_end=True` хендлеров**
+#### **Назначение `@bp.end` хендлеров**
 
-Конечные хендлеры — это "выход" из вашего пайплайна. Они выполняют финальные действия и **не должны** содержать вызовов `actions.go_to()` или `dispatch_task()`.
+Конечные хендлеры `@bp.end` — это «выход» из вашего пайплайна. Они выполняют финальные действия и **не должны** содержать вызовов `actions.go_to()` или `dispatch_task()`.
 
 **Ключевые использования:**
 
@@ -1004,39 +1000,41 @@ async def invalid_input_failed(context, actions):
 **Пример:**
 
 ```python
+from os import remove
+from os.path import exists
+
 from holarchy import Blueprint
-import os
 
 finalization_bp = Blueprint(name="finalization_example")
 
 # ... (промежуточные шаги, которые могут привести к разным исходам) ...
 
 
-@finalization_bp.handler(is_end=True)
-async def cleanup_and_notify_success(context, actions):
+@finalization_bp.end("cleanup_and_notify_success")
+async def cleanup_and_notify_success(job_id, steps, input, actions):
     """
     Выполняется при успешном завершении.
     """
-    temp_file = context.state_history.get("temp_file_path")
-    if temp_file and os.path.exists(temp_file):
-        os.remove(temp_file)
-        print(f"Job {context.job_id}: Temporary file {temp_file} deleted.")
+    temp_file = steps.get("temp_file_path")
+    if temp_file and exists(temp_file):
+        remove(temp_file)
+        print(f"Job {job_id}: Temporary file {temp_file} deleted.")
 
-    # send_success_email(context.initial_data.get("user_email"))
-    print(f"Job {context.job_id} finished successfully. Notification sent.")
+    # send_success_email(input.get("user_email"))
+    print(f"Job {job_id} finished successfully. Notification sent.")
 
 
-@finalization_bp.handler(is_end=True)
-async def handle_rejection(context, actions):
+@finalization_bp.end("handle_rejection")
+async def handle_rejection(job_id, steps, input, actions):
     """
     Выполняется, если процесс был отклонен.
     """
-    rejection_reason = context.state_history.get("rejection_reason", "No reason provided")
-    print(f"Job {context.job_id} was rejected. Reason: {rejection_reason}")
-    # send_rejection_notification(context.initial_data.get("user_email"), rejection_reason)
+    rejection_reason = steps.get("rejection_reason", "No reason provided")
+    print(f"Job {job_id} was rejected. Reason: {rejection_reason}")
+    # send_rejection_notification(input.get("user_email"), rejection_reason)
 ```
 
-Использование `is_start` и `is_end` таким образом делает ваши пайплайны более структурированными, надежными и легкими для понимания.
+Использование `@bp.start` и `@bp.end` таким образом делает ваши пайплайны более структурированными, надежными и легкими для понимания.
 
 ### **Рецепт 19: Маршрутизация задач на основе требований к ресурсам**
 
@@ -1050,11 +1048,11 @@ from holarchy.blueprint import Blueprint
 gpu_intensive_pipeline = Blueprint(name="gpu_intensive_flow", api_version="v1", api_endpoint="jobs/gpu_flow")
 
 
-@gpu_intensive_pipeline.handler
-async def start_gpu_task(context, actions):
+@gpu_intensive_pipeline.start
+async def start_gpu_task(input, actions):
     actions.dispatch_task(
         task_type="video_montage",
-        params=context.initial_data,
+        params=input,
         # Диспетчер будет искать воркер, у которого в списке устройств (devices)
         # содержится подходящий GPU, а также есть нужный артефакт
         resource_requirements={
@@ -1092,11 +1090,11 @@ async def start_gpu_task(context, actions):
 **Задача:** Подключиться к файлу базы данных SQLite, создать таблицу и вставить данные, используя стандартную библиотеку `sqlite3`.
 
 ```python
-import sqlite3
-import json
+from json import dumps, loads
+from sqlite3 import connect
 
 # Подключаемся к файлу БД (он будет создан, если не существует)
-con = sqlite3.connect("history.db")
+con = connect("history.db")
 cur = con.cursor()
 
 # Создаем таблицу
@@ -1112,10 +1110,10 @@ cur.execute("""
 # Готовим данные
 event_data = {"status": "completed", "result": "ok"}
 
-# Вставляем запись, используя json.dumps для преобразования dict в строку
+# Вставляем запись, используя dumps для преобразования dict в строку
 cur.execute(
     "INSERT INTO job_history VALUES (?, ?, ?, ?)",
-    ("evt_123", "job_abc", "2024-01-01T12:00:00Z", json.dumps(event_data)),
+    ("evt_123", "job_abc", "2024-01-01T12:00:00Z", dumps(event_data)),
 )
 
 # Сохраняем изменения
@@ -1124,7 +1122,7 @@ con.commit()
 # Читаем данные и преобразуем JSON-строку обратно в dict
 res = cur.execute("SELECT job_id, data FROM job_history WHERE event_id = 'evt_123'")
 job_id, raw_data = res.fetchone()
-retrieved_data = json.loads(raw_data)
+retrieved_data = loads(raw_data)
 
 print(f"Job ID: {job_id}, Data: {retrieved_data}")
 
@@ -1140,14 +1138,13 @@ _Примечание: SQLite нативно поддерживает тип д�
 **Предварительная установка:** `pip install asyncpg`
 
 ```python
-import asyncio
-import asyncpg
-import json
+from asyncio import run
+from asyncpg import connect
 
 
 async def main():
     # Подключаемся к PostgreSQL
-    conn = await asyncpg.connect(user="user", password="password", database="db", host="127.0.0.1")
+    conn = await connect(user="user", password="password", database="db", host="127.0.0.1")
 
     # Создаем таблицу, используя нативный тип JSONB для эффективности
     await conn.execute("""
@@ -1179,7 +1176,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run(main())
 ```
 
 _Примечание: Использование `JSONB` в PostgreSQL предпочтительнее, чем `JSON`, так как он хранится в бинарном формате и позволяет создавать индексы по ключам внутри JSON-документа._

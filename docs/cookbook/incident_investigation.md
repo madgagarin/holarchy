@@ -92,7 +92,7 @@ Holarchy's automated classifier categorizes incidents into actionable operationa
 | Category | Typical Cause | Suggested Remediation |
 |---|---|---|
 | **Transient / Network** | Connection timeouts, DNS blips, 502/503/504 gateway errors | Trigger job retry or check worker networking. |
-| **Contract / Schema** | Missing required fields, Pydantic `ValidationError` | Verify worker skill version matches blueprint contract. |
+| **Contract / Schema** | Missing required fields, contract or schema validation error | Verify worker skill version matches blueprint contract. |
 | **Resource Quota** | Out of Memory (OOM), client token rate-limits | Scale worker replicas or adjust client concurrency quota. |
 | **Business Logic** | State decider non-candidate or uncaught exception | Inspect step code logic or check decider fallback state. |
 

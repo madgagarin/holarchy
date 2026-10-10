@@ -3,10 +3,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-from pydantic import BaseModel
+from msgspec import Struct
+from pytest import fixture, mark
 
 from holarchy.blueprint import Blueprint
 from holarchy.context import ActionFactory
@@ -23,16 +24,18 @@ class TestFlow(StatesGroup):
     rejected = State()
 
 
-class ReceiptModel(BaseModel):
+@dataclass
+class ReceiptModel:
     receipt_id: str
     total: float
 
 
-class OutputModel(BaseModel):
+@dataclass
+class OutputModel:
     result_code: int
 
 
-@pytest.fixture
+@fixture
 def test_executor():
     engine = MagicMock()
     history = AsyncMock()
@@ -53,8 +56,8 @@ def test_executor():
     return executor
 
 
-@pytest.mark.asyncio
-async def test_intermediate_step_return_saved_to_steps_and_state_history(test_executor):
+@mark.asyncio
+async def test_intermediate_step_return_saved_to_steps(test_executor):
     bp = Blueprint(name="ux_step_return_bp")
 
     @bp.start(TestFlow.start)
@@ -76,18 +79,16 @@ async def test_intermediate_step_return_saved_to_steps_and_state_history(test_ex
         "current_state": str(TestFlow.start),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
     }
     test_executor.storage.get_job_state.return_value = job_state
     test_executor.storage.ack_job = AsyncMock()
 
     await test_executor._process_job(job_id, "msg-1")
 
-    # Step 1 should have saved its return value to steps and state_history
+    # Step 1 should have saved its return value to steps
     assert job_state["steps"][str(TestFlow.start)] == {"amount": 100}
-    assert job_state["state_history"][str(TestFlow.start)] == {"amount": 100}
+    assert "state_history" not in job_state
     assert job_state["current_state"] == str(TestFlow.calc)
 
     # Now execute step 2 (calc)
@@ -99,7 +100,7 @@ async def test_intermediate_step_return_saved_to_steps_and_state_history(test_ex
     assert job_state["status"] == "finished"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_next_with_data_saved_to_steps(test_executor):
     bp = Blueprint(name="ux_next_data_bp")
 
@@ -121,9 +122,7 @@ async def test_next_with_data_saved_to_steps(test_executor):
         "current_state": str(TestFlow.start),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
     }
     test_executor.storage.get_job_state.return_value = job_state
     test_executor.storage.ack_job = AsyncMock()
@@ -134,7 +133,7 @@ async def test_next_with_data_saved_to_steps(test_executor):
     assert job_state["current_state"] == str(TestFlow.done)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_context_go_to_returns_next(test_executor):
     bp = Blueprint(name="ux_context_goto_bp")
 
@@ -156,9 +155,7 @@ async def test_context_go_to_returns_next(test_executor):
         "current_state": str(TestFlow.start),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
     }
     test_executor.storage.get_job_state.return_value = job_state
     test_executor.storage.ack_job = AsyncMock()
@@ -172,9 +169,9 @@ async def test_context_go_to_returns_next(test_executor):
     assert job_state["status"] == "finished"
 
 
-@pytest.mark.asyncio
-async def test_pydantic_return_value_serialization(test_executor):
-    bp = Blueprint(name="ux_pydantic_bp")
+@mark.asyncio
+async def test_model_return_value_serialization(test_executor):
+    bp = Blueprint(name="ux_model_bp")
 
     @bp.start(TestFlow.start)
     async def handle_start():
@@ -185,18 +182,16 @@ async def test_pydantic_return_value_serialization(test_executor):
         return ReceiptModel(receipt_id="rec-999", total=49.99)
 
     bp.validate()
-    test_executor.engine.blueprints["ux_pydantic_bp"] = bp
+    test_executor.engine.blueprints["ux_model_bp"] = bp
 
-    job_id = "job-ux-pydantic"
+    job_id = "job-ux-model"
     job_state = {
         "id": job_id,
-        "blueprint_name": "ux_pydantic_bp",
+        "blueprint_name": "ux_model_bp",
         "current_state": str(TestFlow.done),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
     }
     test_executor.storage.get_job_state.return_value = job_state
     test_executor.storage.ack_job = AsyncMock()
@@ -208,7 +203,7 @@ async def test_pydantic_return_value_serialization(test_executor):
     assert job_state["status"] == "finished"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_custom_terminal_status_from_bp_end(test_executor):
     bp = Blueprint(name="ux_custom_status_bp")
 
@@ -230,9 +225,7 @@ async def test_custom_terminal_status_from_bp_end(test_executor):
         "current_state": str(TestFlow.rejected),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
     }
     test_executor.storage.get_job_state.return_value = job_state
     test_executor.storage.ack_job = AsyncMock()
@@ -243,7 +236,7 @@ async def test_custom_terminal_status_from_bp_end(test_executor):
     assert job_state["output"] == {"reason": "insufficient_funds"}
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_output_schema_validation_success_and_failure(test_executor):
     bp = Blueprint(name="ux_schema_val_bp")
 
@@ -272,9 +265,7 @@ async def test_output_schema_validation_success_and_failure(test_executor):
         "current_state": str(TestFlow.done),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
     }
     test_executor.storage.get_job_state.return_value = job_state
     test_executor.storage.ack_job = AsyncMock()
@@ -311,9 +302,7 @@ async def test_output_schema_validation_success_and_failure(test_executor):
         "current_state": str(TestFlow.done),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
     }
     test_executor.storage.get_job_state.return_value = job_state_bad
 
@@ -322,7 +311,7 @@ async def test_output_schema_validation_success_and_failure(test_executor):
     assert "contract violation" in job_state_bad["error_message"].lower()
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_skill_invocation_dispatches_task(test_executor):
     ocr = Skill("document-ocr", timeout=25, fallback=TestFlow.rejected)
     bp = Blueprint(name="ux_skill_bp")
@@ -349,9 +338,7 @@ async def test_skill_invocation_dispatches_task(test_executor):
         "current_state": str(TestFlow.start),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
     }
     test_executor.storage.get_job_state.return_value = job_state
     test_executor.storage.ack_job = AsyncMock()
@@ -366,7 +353,7 @@ async def test_skill_invocation_dispatches_task(test_executor):
     assert job_state["current_task_info"]["transitions"]["failed"] == str(TestFlow.rejected)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_save_result_action_compatibility(test_executor):
     bp = Blueprint(name="ux_save_result_bp")
 
@@ -389,27 +376,26 @@ async def test_save_result_action_compatibility(test_executor):
         "current_state": str(TestFlow.start),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
     }
     test_executor.storage.get_job_state.return_value = job_state
     test_executor.storage.ack_job = AsyncMock()
 
     await test_executor._process_job(job_id, "msg-man")
     assert job_state["steps"][str(TestFlow.start)] == {"saved_manually": True}
-    assert job_state["state_history"][str(TestFlow.start)] == {"saved_manually": True}
+    assert "state_history" not in job_state
 
 
 # --- NEGATIVE & BOUNDARY CASES ---
 
 
-class UserModel(BaseModel):
+@dataclass
+class UserModel:
     user_id: str
     email: str
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_step_raising_exception_records_history_and_fails(test_executor):
     bp = Blueprint(name="ux_exception_bp")
 
@@ -434,9 +420,7 @@ async def test_step_raising_exception_records_history_and_fails(test_executor):
         "status": "running",
         "retry_count": 5,  # Exceed max retries to force failure
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
         "history": [],
     }
     test_executor.storage.get_job_state.return_value = job_state
@@ -452,7 +436,7 @@ async def test_step_raising_exception_records_history_and_fails(test_executor):
     assert last_event["status"] in ("failed", "quarantined")
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_output_schema_violation_missing_required_property(test_executor):
     bp = Blueprint(name="ux_missing_field_bp")
 
@@ -481,9 +465,7 @@ async def test_output_schema_violation_missing_required_property(test_executor):
         "current_state": str(TestFlow.done),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
     }
     test_executor.storage.get_job_state.return_value = job_state
     test_executor.storage.ack_job = AsyncMock()
@@ -493,8 +475,8 @@ async def test_output_schema_violation_missing_required_property(test_executor):
     assert "contract violation" in job_state["error_message"].lower()
 
 
-@pytest.mark.asyncio
-async def test_composite_pydantic_parameters_injection(test_executor):
+@mark.asyncio
+async def test_composite_model_parameters_injection(test_executor):
     bp = Blueprint(name="ux_composite_inject_bp")
 
     @bp.start(TestFlow.start)
@@ -515,12 +497,7 @@ async def test_composite_pydantic_parameters_injection(test_executor):
         "current_state": str(TestFlow.start),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {
-            "user": {"user_id": "u-42", "email": "alice@corp.io"},
-            "receipt": {"receipt_id": "rec-100", "total": 250.0},
-        },
-        "initial_data": {
             "user": {"user_id": "u-42", "email": "alice@corp.io"},
             "receipt": {"receipt_id": "rec-100", "total": 250.0},
         },
@@ -537,7 +514,7 @@ async def test_composite_pydantic_parameters_injection(test_executor):
     assert job_state["output"] == {"summary": "alice@corp.io:rec-100"}
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_step_returns_primitive_and_history_audit_trail(test_executor):
     bp = Blueprint(name="ux_audit_primitive_bp")
 
@@ -565,9 +542,7 @@ async def test_step_returns_primitive_and_history_audit_trail(test_executor):
         "current_state": str(TestFlow.start),
         "status": "running",
         "steps": {},
-        "state_history": {},
         "input": {},
-        "initial_data": {},
         "history": [],
     }
     test_executor.storage.get_job_state.return_value = job_state
@@ -594,3 +569,69 @@ async def test_step_returns_primitive_and_history_audit_trail(test_executor):
     assert len(job_state["history"]) == 3
     assert job_state["history"][2]["state"] == str(TestFlow.done)
 
+
+@mark.asyncio
+async def test_duck_typed_pydantic_and_msgspec_struct_coercion(test_executor):
+    # 1. Native msgspec.Struct
+    class MsgspecModel(Struct):
+        code: int
+        title: str
+
+    # 2. Duck-typed Pydantic model (with model_validate and model_dump)
+    class DuckPydanticModel:
+        def __init__(self, val: str):
+            self.val = val
+
+        @classmethod
+        def model_validate(cls, data):
+            if isinstance(data, dict):
+                return cls(val=data["val"])
+            raise ValueError()
+
+        def model_dump(self):
+            return {"val": self.val}
+
+    bp = Blueprint(name="duck_msgspec_bp")
+
+    captured = {}
+
+    @bp.start(TestFlow.start)
+    async def handle_start(actions: ActionFactory):
+        actions.go_to(str(TestFlow.done))
+        return DuckPydanticModel(val="pydantic_ok")
+
+    @bp.end(TestFlow.done)
+    async def handle_done(duck: DuckPydanticModel, m: MsgspecModel):
+        captured["duck"] = duck
+        captured["m"] = m
+        return MsgspecModel(code=200, title="done")
+
+    bp.validate()
+    test_executor.engine.blueprints["duck_msgspec_bp"] = bp
+
+    job_id = "job-duck-msgspec"
+    job_state = {
+        "id": job_id,
+        "blueprint_name": "duck_msgspec_bp",
+        "current_state": str(TestFlow.start),
+        "status": "running",
+        "steps": {},
+        "input": {"m": {"code": 100, "title": "initial"}},
+        "history": [],
+    }
+    test_executor.storage.get_job_state.return_value = job_state
+    test_executor.storage.ack_job = AsyncMock()
+
+    # Step 1: start returns DuckPydanticModel -> serialized via model_dump
+    await test_executor._process_job(job_id, "msg-1")
+    assert job_state["steps"][str(TestFlow.start)] == {"val": "pydantic_ok"}
+
+    # Step 2: done receives DuckPydanticModel coerced from step, MsgspecModel coerced from input
+    await test_executor._process_job(job_id, "msg-2")
+    assert job_state["status"] == "finished"
+    assert isinstance(captured["duck"], DuckPydanticModel)
+    assert captured["duck"].val == "pydantic_ok"
+    assert isinstance(captured["m"], MsgspecModel)
+    assert captured["m"].code == 100
+    assert captured["m"].title == "initial"
+    assert job_state["output"] == {"code": 200, "title": "done"}

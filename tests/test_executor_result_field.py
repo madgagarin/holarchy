@@ -7,7 +7,8 @@
 from unittest.mock import AsyncMock, MagicMock
 
 from pytest import mark
-from src.holarchy.executor import JobExecutor
+
+from holarchy.executor import JobExecutor
 
 
 @mark.asyncio
@@ -43,7 +44,8 @@ async def test_executor_updates_result_field_multi_step():
         "blueprint_name": "test_bp",
         "current_state": "step_1",
         "status": "running",
-        "state_history": {},
+        "input": {},
+        "steps": {},
         "step": 0,
     }
     storage.get_job_state.return_value = job_state
@@ -54,7 +56,7 @@ async def test_executor_updates_result_field_multi_step():
 
     # Step 1 execution
     async def handler_1(context):
-        context.state_history["step_1"] = {"val": 1}
+        context.steps["step_1"] = {"val": 1}
         return context.actions.go_to("step_2")
 
     bp.find_handler.return_value = handler_1
@@ -78,7 +80,7 @@ async def test_executor_updates_result_field_multi_step():
     storage.get_job_state.return_value = job_state
 
     async def handler_2(context):
-        context.state_history["finished"] = {"val": 2}
+        context.steps["finished"] = {"val": 2}
         return context.actions.go_to(None)  # Final
 
     bp.find_handler.return_value = handler_2
@@ -95,13 +97,13 @@ async def test_executor_updates_result_field_multi_step():
     args, _ = executor._handle_terminal_reached.call_args
     state_after_2 = args[0]
     assert state_after_2["result"] == {"val": 2}
-    assert state_after_2["state_history"]["step_1"] == {"val": 1}
+    assert state_after_2["steps"]["step_1"] == {"val": 1}
 
 
 @mark.asyncio
 async def test_executor_result_field_empty_history_safe():
     """
-    Verifies that the executor doesn't crash if state_history is empty.
+    Verifies that the executor doesn't crash if steps is empty.
     """
     engine = MagicMock()
     history = AsyncMock()
@@ -130,7 +132,8 @@ async def test_executor_result_field_empty_history_safe():
         "blueprint_name": "test_bp",
         "current_state": "start",
         "status": "running",
-        "state_history": {},
+        "input": {},
+        "steps": {},
         "step": 0,
     }
     storage.get_job_state.return_value = job_state

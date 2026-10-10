@@ -10,7 +10,8 @@ from unittest.mock import AsyncMock
 
 from aiohttp import ClientSession
 from pytest import mark
-from src.holarchy.utils.webhook_sender import WebhookPayload, WebhookSender
+
+from holarchy.utils.webhook_sender import WebhookPayload, WebhookSender
 
 
 @mark.asyncio
@@ -67,7 +68,7 @@ async def test_webhook_sender_retry_failure(mocker):
     sender.max_retries = 2
 
     # Patch asyncio.sleep where it is used (in the module) to avoid waiting during tests
-    mock_sleep = mocker.patch("src.holarchy.utils.webhook_sender.sleep", new_callable=AsyncMock)
+    mock_sleep = mocker.patch("holarchy.utils.webhook_sender.sleep", new_callable=AsyncMock)
 
     payload = WebhookPayload(
         event="job_failed",

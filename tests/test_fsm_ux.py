@@ -3,11 +3,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import json
+from json import dumps, loads
 from typing import Any
 
-import pytest
 from fast_filter import F
+from pytest import raises
 
 from holarchy import Blueprint, Next, Skill, SkillInvocation, State, StatesGroup, StepScope
 
@@ -168,20 +168,17 @@ def test_blueprint_step_without_args_uses_function_name():
 
 def test_state_json_serialization_and_hashability():
     s = OrderFlow.init
-    # State is directly JSON-serializable because it inherits from str!
-    serialized = json.dumps({"state": s})
+    serialized = dumps({"state": s})
     assert serialized == '{"state": "OrderFlow:init"}'
-    deserialized = json.loads(serialized)
+    deserialized = loads(serialized)
     assert deserialized["state"] == s
     assert deserialized["state"] == "OrderFlow:init"
 
-    # Set and dict hashing
     state_set = {OrderFlow.init, OrderFlow.payment, OrderFlow.init}
     assert len(state_set) == 2
     assert OrderFlow.init in state_set
 
     state_dict = {OrderFlow.init: "first", "OrderFlow:init": "second"}
-    # Because State is a subclass of str with identical hash and equality, keys collide cleanly
     assert len(state_dict) == 1
     assert state_dict[OrderFlow.init] == "second"
 
@@ -204,7 +201,7 @@ def test_blueprint_integrity_negative_missing_start():
     async def s1(ctx: Any):
         pass
 
-    with pytest.raises(ValueError, match="must have exactly one start state"):
+    with raises(ValueError, match="must have exactly one start state"):
         bp.validate()
 
 
@@ -215,7 +212,7 @@ def test_blueprint_integrity_negative_unknown_transition_target():
     async def start(ctx: Any):
         return Next("non_existent_destination")
 
-    with pytest.raises(ValueError, match="non_existent_destination"):
+    with raises(ValueError, match="non_existent_destination"):
         bp.validate()
 
 
@@ -234,7 +231,7 @@ def test_blueprint_integrity_negative_unreachable_orphaned_state():
     async def orphaned(ctx: Any):
         pass
 
-    with pytest.raises(ValueError, match="unreachable states"):
+    with raises(ValueError, match="unreachable states"):
         bp.validate()
 
 
@@ -273,4 +270,3 @@ def test_skill_edge_cases_falsy_params_and_repr():
     assert inv.next_state is None
     assert inv.on_failure is None
     assert inv.timeout is None
-

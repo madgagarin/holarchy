@@ -10,10 +10,11 @@
 
 ## 🚀 Основные возможности
 
-- **Современный типизированный FSM**: Декларативные декораторы `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end`, классы `StatesGroup`, `State` и нативная валидация схем через Pydantic.
+- **Современный типизированный FSM**: Декларативные декораторы `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end`, классы `StatesGroup`, `State`, нативные модели `@dataclass` и `msgspec.Struct` (с прозрачной поддержкой Pydantic через duck-typing).
 - **5 чистых зон хранения**: Четкое разделение доменных зон `input`, `steps`, `history`, `meta` и `output`.
-- **Консультативная AI-маршрутизация и Replay-тестирование**: Принцип Host-Owned Choice, безопасный fallback, чеки выполнения `ExecutionReceipt` и офлайн-оценка дрейфа моделей.
+- **Консультативная AI-маршрутизация и Replay-тестирование**: Принцип Host-Owned Choice, безопасный fallback, чеки выполнения `ExecutionReceipt` и CLI офлайн-оценки дрейфа решений (`holarchy replay evaluate`).
 - **Автогенерация OpenAPI 3.1 и брендовая документация**: Спецификация на `/openapi.json` и интерактивный UI тестирования на `/docs`.
+- **4-уровневое In-Memory кэширование и мемоизация**: Субмиллисекундная отдача спецификаций и графов благодаря потокобезопасному LRU/FIFO кэшу схем в `rxon`, кэшированию пространственной топологии DAG в `Blueprint`, а также предсериализованным байтам OpenAPI 3.1 JSON и HTML документации в `OrchestratorEngine` с автоматической инвалидацией при регистрации блупринтов.
 - **Zero-Trust карточки инцидентов (Evidence Cards)**: Мгновенный постмортем-анализ через `GET /jobs/{id}/evidence?format=md` с классификацией первопричин.
 - **Высокая производительность**: Индексация очередей через **ZSET**, механизм **Work Stealing** (кража задач) на Lua и атомарные переходы состояний.
 - **Безопасность Zero Trust и слой политик**: Полная реализация `SecurityContext`, криптографическое подписание задач HMAC-SHA256 (`sig`) через `ORCHESTRATOR_SECRET_KEY`, проверка цепочек идентичности (Identity Chains) и гранулярные политики выполнения скиллов (`allowed_skills`).
@@ -31,7 +32,7 @@
 
 ## Оглавление
 
-- [Основная концепция: Оркестратор, Блупринты и Воркеры](#основная-концепция-оркестратор-блупринты-и-воркеры)
+- [Архитектура: Оркестратор, Блупринты и Воркеры](#архитектура-оркестратор-блупринты-и-воркеры)
 - [Установка](#установка)
 - [Быстрый старт: Использование в качестве библиотеки](#быстрый-старт-использование-в-качестве-библиотеки)
 - [Ключевые концепции: JobContext и Actions](#ключевые-концепции-jobcontext-и-actions)
@@ -54,17 +55,15 @@
   - [Настройка окружения](#настройка-окружения)
   - [Запуск тестов](#запуск-тестов)
 
-## Основная концепция: Оркестратор, Блупринты и Воркеры
+## Архитектура: Оркестратор, Блупринты и Воркеры
 
-Проект основан на простом, но мощном архитектурном паттерне, который отделяет логику процесса от логики выполнения.
+Holarchy разделяет логику управления рабочими процессами и распределенное выполнение вычислений на три основных компонента:
 
-- **Оркестратор (OrchestratorEngine)** — Режиссёр. Он управляет всем процессом от начала до конца, отслеживает состояние, обрабатывает ошибки и решает, что должно произойти дальше. Он не выполняет бизнес-задачи сам.
-- **Блупринты (Blueprint)** — Сценарий. Каждый блупринт — это детальный план (конечный автомат) для конкретного бизнес-процесса. Он описывает шаги (состояния) и правила перехода между ними.
-- **Воркеры (Worker)** — Команда специалистов. Это независимые, специализированные исполнители. Каждый воркер знает, как выполнять определенный набор задач (например, "обработать видео", "отправить email") и отчитывается перед Оркестратором.
+- **Оркестратор (`OrchestratorEngine`)**: Центральный координатор, управляющий персистентным состоянием задач, маршрутизацией, валидацией схем данных, повторными попытками и распределением задач через потоки Redis.
+- **Блупринты (`Blueprint`)**: Декларативные графы состояний (конечные автоматы), определяющие этапы выполнения, правила переходов, схемы агрегации данных и обработчики шагов бизнес-процесса.
+- **Воркеры (`Worker`)**: Автономные узлы выполнения, подключающиеся к оркестратору по модели обратного опроса через HTTP. Воркеры регистрируют поддерживаемые навыки и аппаратные ресурсы, получают задачи, выполняют вычислительную логику в изолированных каталогах и возвращают результаты.
 
-### Почему это важно?
-
-В рамках архитектуры **HLN**, Оркестратор выступает в роли «Призрака» (Ghost — внутренняя логика), а Воркеры — в роли «Оболочек» (Shell — интерфейс исполнения). Благодаря принципу **Shell-Stacking**, любой Оркестратор может быть сам обернут в оболочку воркера, позволяя строить бесконечные фрактальные сети (Холархии).
+В архитектуре HLN (Holarchical Logic Network) оркестратор отвечает за управление графом состояний, а воркеры предоставляют стандартизированные оболочки выполнения. Благодаря рекурсивной композиции экземпляр оркестратора может быть запущен внутри воркера, формируя многоуровневые иерархические кластеры.
 
 ## Экосистема
 
@@ -149,69 +148,68 @@ pip install "holarchy[telemetry]"
 
 Вы можете легко интегрировать и запустить движок оркестратора внутри вашего собственного приложения.
 
-> **Совет:** Имя состояния в `@bp.handler()` и `@bp.aggregator()` теперь необязательно. Если оно не указано, в качестве имени состояния будет использовано имя функции.
+> **Совет:** В v1.0.0 используйте декларативные декораторы `@bp.start(State)`, `@bp.step(State, condition=...)` и `@bp.end(State)`. Легаси-декоратор `@bp.handler(state_name)` сохраняется для полной обратной совместимости.
 
 ```python
 # my_app.py
-import asyncio
-from holarchy import OrchestratorEngine, Blueprint
-from holarchy.context import ActionFactory
-from holarchy.storage import MemoryStorage
+from asyncio import Event, run
+from dataclasses import dataclass
+
+from holarchy import Blueprint, OrchestratorEngine
 from holarchy.config import Config
+from holarchy.context import ActionFactory
+from holarchy.fsm import State, StatesGroup
+from holarchy.storage import MemoryStorage
 
-# 1. Общая конфигурация
+
+@dataclass
+class OrderInput:
+    order_id: int
+    amount: float
+
+
+class OrderFlow(StatesGroup):
+    start = State()
+    finalize = State()
+
+
 storage = MemoryStorage()
-config = Config()  # Загружает конфигурацию из переменных окружения
-
-# Явно задаем токены для этого примера
-# Токен клиента должен быть отправлен в заголовке 'X-Client-Token'.
+config = Config()
 config.CLIENT_TOKEN = "my-secret-client-token"
-# Токен воркера должен быть отправлен в заголовке 'X-Worker-Token'.
 config.GLOBAL_WORKER_TOKEN = "my-secret-worker-token"
 
-# 2. Определение Блупринта рабочего процесса
-bp = Blueprint(name="bp", api_version="v1", api_endpoint="/jobs/my_flow")
+bp = Blueprint(name="order_pipeline", api_version="v1", api_endpoint="/jobs/order")
 
 
-# Используйте внедрение зависимостей, чтобы получить только нужные данные.
-@bp.handler(is_start=True)
-async def start(job_id: str, initial_data: dict, actions: ActionFactory):
+@bp.start(OrderFlow.start)
+async def process_start(data: OrderInput, actions: ActionFactory) -> State:
     """Начальное состояние для каждого нового задания."""
-    print(f"Job {job_id} | Start: {initial_data}")
-    actions.go_to("end")
+    print(f"Заказ #{data.order_id} принят, сумма: {data.amount}")
+    return OrderFlow.finalize
 
 
-# Вы все еще можете запросить полный объект контекста, если предпочитаете.
-@bp.handler(is_end=True)
-async def end(context):
+@bp.end(OrderFlow.finalize)
+async def process_finalize(context) -> dict[str, str]:
     """Конечное состояние. Пайплайн заканчивается здесь."""
-    print(f"Job {context.job_id} | Complete.")
+    print(f"Задание {context.job_id} завершено.")
+    return {"status": "completed"}
 
 
-# 3. Инициализация движка Оркестратора
 engine = OrchestratorEngine(storage, config)
 engine.register_blueprint(bp)
 
-# 4. Доступ к компонентам (Опционально)
-# Вы можете получить доступ к внутреннему приложению aiohttp и компонентам через AppKey
-# из holarchy.app_keys импортируйте ENGINE_KEY, DISPATCHER_KEY и др.
-# app = engine.app
-# dispatcher = app[DISPATCHER_KEY]
 
-
-# 5. Определение главной точки входа для запуска сервера
-async def main():
+async def main() -> None:
     await engine.start()
-
     try:
-        await asyncio.Event().wait()
+        await Event().wait()
     finally:
         await engine.stop()
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        run(main())
     except KeyboardInterrupt:
         print("\nОстановка сервера.")
 ```
@@ -253,7 +251,7 @@ Holarchy спроектирована для высоконагруженных 
   - **STS (Security Token Service)**: Механизм ротации токенов.
   - **Атомарное управление состоянием**: Использование Lua-скриптов и транзакций Redis для обеспечения консистентности при экстремальных параллельных нагрузках.
 - **Архитектура на базе контрактов**:
-  - **Валидация API**: Строгая проверка `initial_data` против контрактов Блюпринтов.
+  - **Валидация API**: Строгая проверка входных данных (`input`) против контрактов Блюпринтов.
   - **Контроль результатов**: Автоматическая проверка ответов воркеров на соответствие их `output_schema`.
   - **Ghost Signaling**: Блюпринты могут генерировать кастомные события через `actions.send_event()`.
 - **Network Visibility**:
@@ -268,28 +266,35 @@ Holarchy спроектирована для высоконагруженных 
 
 ### 1. Условные переходы
 
-Передавайте условия напрямую в `@bp.handler()` для создания ветвлений условной логики. Условия задаются как **`FastF`-выражения** из библиотеки `fast-filter` — они компилируются в нативные Python-лямбды при первом вычислении, что обеспечивает максимальную производительность.
+Передавайте условия напрямую в `@bp.step()` (или `@bp.handler()`) для создания ветвлений условной логики. Условия задаются как декларативные **`FastF`-выражения** из библиотеки `fast-magic-filter` и разрешаются через 4-уровневый каскад `StepScope` (текущий скоуп $\rightarrow$ `input` $\rightarrow$ `steps`).
 
 ```python
-from holarchy import F  # F реэкспортируется из fast-filter
+from holarchy import Blueprint, Context, F, State, StatesGroup
 
 
-# Простая проверка равенства initial_data (имя состояния выводится автоматически: "decision_step")
-@bp.handler(F.initial_data["type"] == "urgent")
-async def decision_step(actions):
-    actions.go_to("urgent_processing")
+class Flow(StatesGroup):
+    decision = State()
+    urgent_processing = State()
+    priority_lane = State()
+    normal_processing = State()
 
 
-# Составное условие с логическим И (кастомное имя состояния: "decision_step")
-@bp.handler("decision_step", (F.initial_data["priority"] >= 8) & (F.initial_data["active"] == True))
-async def high_priority_step(actions):
-    actions.go_to("priority_lane")
+# Прямое сопоставление полей input через StepScope
+@bp.step(Flow.decision, condition=F.type == "urgent")
+async def handle_urgent(ctx: Context):
+    ctx.actions.go_to(Flow.urgent_processing)
 
 
-# Обработчик по умолчанию, если ни одно условие не совпало.
-@bp.handler
-async def decision_step(actions):
-    actions.go_to("normal_processing")
+# Составное условие с логическим И
+@bp.step(Flow.decision, condition=(F.priority >= 8) & (F.active == True))
+async def handle_priority(ctx: Context):
+    ctx.actions.go_to(Flow.priority_lane)
+
+
+# Шаг по умолчанию, если ни одно предыдущее условие не совпало
+@bp.step(Flow.decision)
+async def handle_default(ctx: Context):
+    ctx.actions.go_to(Flow.normal_processing)
 ```
 
 **Поддерживаемый синтаксис условий:**
@@ -312,11 +317,11 @@ async def decision_step(actions):
 Это основная функция для делегирования работы. Оркестратор поставит задачу в очередь и будет ждать, пока воркер заберет ее и вернет результат.
 
 ```python
-@bp.handler
-async def transcode_video(initial_data, actions):
+@bp.step
+async def transcode_video(input: dict, actions: ActionFactory):
     actions.dispatch_task(
         task_type="video_transcoding",
-        params={"input_path": initial_data.get("path")},
+        params={"input_path": input.get("path")},
         # Определяем следующий шаг на основе статуса ответа воркера
         transitions={
             "success": "publish_video",
@@ -334,11 +339,9 @@ async def transcode_video(initial_data, actions):
 
 ```python
 # 1. Fan-out: Отправка нескольких задач для агрегации в одно состояние
-@bp.handler
-async def process_files(initial_data, actions):
-    tasks_to_dispatch = [
-        {"task_type": "file_analysis", "params": {"file": file}} for file in initial_data.get("files", [])
-    ]
+@bp.step
+async def process_files(input: dict, actions: ActionFactory):
+    tasks_to_dispatch = [{"task_type": "file_analysis", "params": {"file": file}} for file in input.get("files", [])]
     # Используйте dispatch_parallel, чтобы отправить все задачи сразу.
     # Все успешные задачи неявно приведут к состоянию 'aggregate_into'.
     actions.dispatch_parallel(tasks=tasks_to_dispatch, aggregate_into="aggregate_results")
@@ -346,13 +349,13 @@ async def process_files(initial_data, actions):
 
 # 2. Fan-in: Сбор результатов с помощью декоратора @aggregator
 @bp.aggregator
-async def aggregate_results(aggregation_results, state_history, actions):
+async def aggregate_results(aggregation_results, steps, actions):
     # Этот обработчик выполнится ТОЛЬКО ПОСЛЕ ТОГО, как ВСЕ задачи,
     # отправленные через dispatch_parallel, будут завершены.
 
     # aggregation_results это словарь {task_id: result_dict}
     summary = [res.get("data") for res in aggregation_results.values()]
-    state_history["summary"] = summary
+    steps["summary"] = summary
     actions.go_to("processing_complete")
 ```
 
@@ -361,15 +364,15 @@ async def aggregate_results(aggregation_results, state_history, actions):
 Предоставление обработчикам доступа к внешним ресурсам (например, кэшу или клиенту БД).
 
 ```python
-import redis.asyncio as redis
+from redis.asyncio import Redis
 
 # 1. Инициализация и регистрация вашего DataStore
-redis_client = redis.Redis(decode_responses=True)
+redis_client = Redis(decode_responses=True)
 bp = Blueprint("blueprint_with_datastore", data_stores={"cache": redis_client})
 
 
 # 2. Использование его в обработчике через внедрение зависимостей
-@bp.handler
+@bp.step
 async def get_from_cache(data_stores):
     # Доступ к redis_client по имени "cache"
     user_data = await data_stores.cache.get("user:123")
@@ -406,7 +409,7 @@ dispatch_timeout = 60 # Отмена, если ни один воркер не �
 - **Внедрение зависимостей**: Используйте аргумент `task_files` в ваших хендлерах.
 
 ```python
-@bp.handler
+@bp.step
 async def process_data(task_files, actions):
     # Потоковое скачивание большого файла
     local_path = await task_files.download("large_dataset.csv")
@@ -433,13 +436,14 @@ async def process_data(task_files, actions):
 ```http
 POST /api/v1/jobs/my_flow
 {
-    "initial_data": {
+    "input": {
         "video_url": "..."
     },
     "webhook_url": "https://my-app.com/webhooks/holarchy",
     "dispatch_timeout": 30,
     "result_timeout": 120
 }
+
 ```
 
 **Пример вебхука:**
@@ -516,7 +520,7 @@ POST /api/v1/jobs/my_flow
 ```http
 POST /api/v1/jobs/my_flow
 {
-    "initial_data": {"input_val": 42},
+    "input": {"input_val": 42},
     "policy": {
         "allowed_skills": ["data_extractor", "pdf_generator"]
     },
@@ -547,6 +551,18 @@ from holarchy.cli.audit import verify_d_dna_integrity
 is_valid, error = verify_d_dna_integrity(job_history_events, audit_salt="my_secret_salt")
 if not is_valid:
     print(f"Обнаружена подмена данных истории: {error}")
+```
+
+#### Детерминированный Replay CLI (`holarchy replay evaluate`):
+
+Офлайн-оценка исторических чеков выполнения (`ExecutionReceipt`) против обновленной логики блупринта для контроля дрейфа решений перед выкаткой в прод:
+
+```bash
+# Оценка исторических решений
+holarchy replay evaluate --app my_module:bp --cases .holarchy/replay/cases.jsonl
+
+# Строгий режим для CI (код возврата 1 при любом обнаруженном дрейфе)
+holarchy replay evaluate --app my_module:bp --cases .holarchy/replay/cases.jsonl --strict
 ```
 
 ### Лимитирование запросов

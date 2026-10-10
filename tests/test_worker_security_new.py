@@ -12,10 +12,10 @@ from pytest import fixture, mark, raises
 from rxon.models import Heartbeat, TaskResult, WorkerEventPayload, WorkerRegistration
 from rxon.security import sign_payload
 from rxon.utils import to_dict
-from src.holarchy.config import Config
-from src.holarchy.services.worker_service import WorkerService
 
+from holarchy.config import Config
 from holarchy.security import verify_worker_auth
+from holarchy.services.worker_service import WorkerService
 from holarchy.storage.memory import MemoryStorage
 
 

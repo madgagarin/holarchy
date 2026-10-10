@@ -10,10 +10,11 @@
 
 ## 🚀 Características Principales
 
-- **FSM moderno fuertemente tipado**: Decoradores declarativos `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end`, clases `StatesGroup`, `State` y validación nativa de esquemas con Pydantic.
+- **FSM moderno fuertemente tipado**: Decoradores declarativos `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end`, clases `StatesGroup`, `State` y modelos nativos `@dataclass` / `msgspec.Struct` (con soporte transparente para Pydantic vía duck-typing).
 - **5 Zonas limpias de almacenamiento**: Separación estricta de dominios entre `input`, `steps`, `history`, `meta` y `output`.
-- **Enrutamiento consultivo de IA y Replay determinista**: Principio Host-Owned Choice, fallback seguro, comprobantes `ExecutionReceipt` y pruebas offline de deriva de modelos.
+- **Enrutamiento consultivo de IA y Replay determinista**: Principio Host-Owned Choice, fallback seguro, comprobantes `ExecutionReceipt` y CLI de evaluación de deriva offline (`holarchy replay evaluate`).
 - **Autogeneración de OpenAPI 3.1 y documentación interactiva**: Especificación en `/openapi.json` e interfaz UI de pruebas en `/docs`.
+- **Caché en memoria de 4 niveles y memoización**: Entrega sub-milisegundo con caché seguro para hilos LRU/FIFO de esquemas en `rxon`, caché de topología espacial DAG en `Blueprint`, y bytes pre-serializados de OpenAPI 3.1 JSON y HTML de documentación en `OrchestratorEngine` con invalidación automática basada en revisiones.
 - **Tarjetas de evidencia de incidentes (Zero-Trust Evidence Cards)**: Diagnóstico post-mortem instantáneo en `GET /jobs/{id}/evidence?format=md` con clasificación de causas raíz.
 - **Alto Rendimiento**: Indexación de colas vía **ZSET**, mecanismo de **Work Stealing** (robo de tareas) en Lua y transiciones de estado atómicas.
 - **Seguridad Zero Trust y Capa de Políticas**: Implementación completa de `SecurityContext`, firma criptográfica de tareas HMAC-SHA256 (`sig`) mediante `ORCHESTRATOR_SECRET_KEY`, verificación de cadenas de identidad (Identity Chains) y políticas granulares para habilidades (`allowed_skills`).
@@ -31,7 +32,7 @@ Este documento sirve como una guía completa para desarrolladores que buscan con
 
 ## Tabla de Contenidos
 
-- [Concepto Principal: Orquestador, Blueprints y Workers](#concepto-principal-orquestador-blueprints-y-workers)
+- [Arquitectura Central: Orquestador, Blueprints y Workers](#arquitectura-central-orquestador-blueprints-y-workers)
 - [Instalación](#instalación)
 - [Inicio Rápido: Uso como Librería](#inicio-rápido-uso-como-librería)
 - [Conceptos Clave: JobContext y Actions](#conceptos-clave-jobcontext-and-actions)
@@ -51,17 +52,15 @@ Este documento sirve como una guía completa para desarrolladores que buscan con
   - [Configuración del Entorno](#configuración-del-entorno)
   - [Ejecución de Pruebas](#ejecución-de-pruebas)
 
-## Concepto Principal: Orquestador, Blueprints y Workers
+## Arquitectura Central: Orquestador, Blueprints y Workers
 
-El proyecto se basa en un patrón arquitectónico simple pero poderoso que separa la lógica del proceso de la lógica de ejecución.
+Holarchy desacopla la lógica de orquestación de flujos del procesamiento computacional distribuido a través de tres componentes principales:
 
-- **Orquestador (OrchestratorEngine)** — El Director. Gestiona todo el proceso de principio a fin, rastrea el estado, maneja errores y decide qué debe suceder a continuación. No realiza tareas comerciales por sí mismo.
-- **Blueprints (Blueprint)** — El Guion. Cada blueprint es un plan detallado (una máquina de estados) para un proceso comercial específico. Describe los pasos (estados) y las reglas para la transición entre ellos.
-- **Workers (Worker)** — El Equipo de Especialistas. Estos son ejecutores independientes y especializados. Cada worker sabe cómo realizar un conjunto específico de tareas (por ejemplo, "procesar video", "enviar correo electrónico") e informa al Orquestador.
+- **Orquestador (`OrchestratorEngine`)**: Coordinador central que mantiene el estado persistente de los trabajos, resuelve decisiones de enrutamiento, valida esquemas de datos, gestiona reintentos y despacha tareas mediante flujos de Redis.
+- **Blueprints (`Blueprint`)**: Máquinas de estados declarativas que definen grafos de ejecución, políticas de transición, estrategias de agregación de datos y rutinas de manejo para flujos comerciales.
+- **Workers (`Worker`)**: Nodos de ejecución autónomos conectados al orquestador mediante sondeo inverso por HTTP. Los workers registran habilidades y capacidades de hardware admitidas, extraen tareas asignadas, ejecutan lógica computacional en directorios aislados y reportan resultados.
 
-### ¿Por qué es esto importante?
-
-En el marco de la arquitectura **HLN**, el Orquestador actúa como un "Ghost" (Fantasma — lógica interna), mientras que los Workers actúan como "Shells" (Cáscaras — interfaz de ejecución). Gracias al principio de **Shell-Stacking**, cualquier Orquestador puede ser envuelto en una cáscara de worker, permitiendo construir redes fractales infinitas (Holarquías).
+Bajo la arquitectura HLN (Holarchical Logic Network), los orquestadores administran el ciclo de vida del estado, mientras que los workers proporcionan capas estandarizadas de ejecución. Mediante composición recursiva, una instancia de orquestador puede ejecutarse dentro de un worker, facilitando clústeres jerárquicos multinivel.
 
 ## Ecosistema
 
@@ -148,65 +147,64 @@ Puedes integrar y ejecutar fácilmente el motor del orquestador dentro de tu pro
 
 ```python
 # mi_app.py
-import asyncio
-from holarchy import OrchestratorEngine, Blueprint
-from holarchy.context import ActionFactory
-from holarchy.storage import MemoryStorage
+from asyncio import Event, run
+from dataclasses import dataclass
+
+from holarchy import Blueprint, OrchestratorEngine
 from holarchy.config import Config
+from holarchy.context import ActionFactory
+from holarchy.fsm import State, StatesGroup
+from holarchy.storage import MemoryStorage
 
-# 1. Configuración General
+
+@dataclass
+class OrderInput:
+    order_id: int
+    amount: float
+
+
+class OrderFlow(StatesGroup):
+    start = State()
+    finalize = State()
+
+
 storage = MemoryStorage()
-config = Config()  # Carga la configuración desde variables de entorno
-
-# Establecer tokens explícitamente para este ejemplo
-# El token del cliente debe enviarse en el encabezado 'X-Client-Token'.
+config = Config()
 config.CLIENT_TOKEN = "my-secret-client-token"
-# El token del worker debe enviarse en el encabezado 'X-Worker-Token'.
 config.GLOBAL_WORKER_TOKEN = "my-secret-worker-token"
 
-# 2. Definir el Blueprint del Flujo de Trabajo
-bp = Blueprint(name="bp", api_version="v1", api_endpoint="/jobs/my_flow")
+bp = Blueprint(name="order_pipeline", api_version="v1", api_endpoint="/jobs/order")
 
 
-# Usar inyección de dependencias para obtener solo los datos que necesitas.
-@bp.handler(is_start=True)
-async def start(job_id: str, initial_data: dict, actions: ActionFactory):
+@bp.start(OrderFlow.start)
+async def process_start(data: OrderInput, actions: ActionFactory) -> State:
     """El estado inicial para cada nuevo trabajo."""
-    print(f"Job {job_id} | Inicio: {initial_data}")
-    actions.go_to("end")
+    print(f"Pedido #{data.order_id} recibido, importe: {data.amount}")
+    return OrderFlow.finalize
 
 
-# Todavía puedes solicitar el objeto de contexto completo si lo prefieres.
-@bp.handler(is_end=True)
-async def end(context):
+@bp.end(OrderFlow.finalize)
+async def process_finalize(context) -> dict[str, str]:
     """El estado final. El pipeline termina aquí."""
-    print(f"Job {context.job_id} | Completo.")
+    print(f"Trabajo {context.job_id} | Completo.")
+    return {"status": "completed"}
 
 
-# 3. Inicializar el Motor del Orquestador
 engine = OrchestratorEngine(storage, config)
 engine.register_blueprint(bp)
 
-# 4. Acceso a Componentes (Opcional)
-# Puedes acceder a la app aiohttp interna y a los componentes principales usando AppKeys
-# from holarchy.app_keys import ENGINE_KEY, DISPATCHER_KEY
-# app = engine.app
-# dispatcher = app[DISPATCHER_KEY]
 
-
-# 5. Definir el punto de entrada principal para ejecutar el servidor
-async def main():
+async def main() -> None:
     await engine.start()
-
     try:
-        await asyncio.Event().wait()
+        await Event().wait()
     finally:
         await engine.stop()
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        run(main())
     except KeyboardInterrupt:
         print("\nDeteniendo servidor.")
 ```
@@ -225,14 +223,15 @@ El `OrchestratorEngine` ofrece dos formas de iniciar el servidor:
 
 State handlers son el núcleo de la lógica de tu flujo de trabajo. Holarchy proporciona un potente sistema de inyección de dependencias.
 
-> **Consejo:** El nombre del estado en `@bp.handler()` y `@bp.aggregator()` ahora es opcional. Si se omite, se utilizará el nombre de la función.
+> **Consejo:** En v1.0.0, utiliza los decoradores declarativos `@bp.start(State)`, `@bp.step(State, condition=...)` y `@bp.end(State)`. El decorador `@bp.handler(state_name)` se mantiene para compatibilidad con versiones anteriores.
 
 Los siguientes argumentos se pueden inyectar por nombre:
 
 - **Desde el contexto principal del trabajo:**
   - `job_id` (str): El ID del trabajo actual.
-  - `initial_data` (dict): Los datos iniciales.
-  - `state_history` (dict): Diccionario de datos entre pasos.
+  - `input` (dict): Los datos de entrada iniciales.
+  - `steps` (dict): Diccionario de resultados entre pasos.
+  - `history` (list): Eventos cronológicos de auditoría.
   - `actions` (ActionFactory): Control de flujo del orquestador.
   - `client` (ClientConfig): Información del cliente API.
   - `data_stores` (SimpleNamespace): Acceso a recursos compartidos.
@@ -242,11 +241,11 @@ Los siguientes argumentos se pueden inyectar por nombre:
 ### Ejemplo: Inyección de Dependencias
 
 ```python
-@bp.handler
+@bp.step
 async def publish_video(
     job_id: str,
-    output_path: str,  # Inyectado desde state_history
-    duration: int,  # Inyectado desde state_history
+    output_path: str,  # Inyectado desde steps
+    duration: int,  # Inyectado desde steps
     actions: ActionFactory,
 ):
     print(f"Job {job_id}: Publicando video en {output_path} ({duration}s).")
@@ -282,7 +281,7 @@ Holarchy está diseñada para entornos de alta carga con miles de workers concur
   - **Penalizaciones**: Reducción inmediata por violaciones de contrato (-0.2) o fallos (-0.05).
   - **Trusted Guard**: Parámetro `REPUTATION_MIN_THRESHOLD` para ignorar nodos poco fiables.
 - **Arquitectura basada en Contratos**:
-  - **Validación de API**: Verificación de `initial_data` antes de crear el trabajo.
+  - **Validación de API**: Verificación de datos de entrada (`input`) antes de crear el trabajo.
   - **Validación de Resultados**: Verificación de las respuestas de los workers contra su esquema.
 - **Heartbeats Bi-direccionales**: Canal de comunicación robusto con Jitter para evitar tormentas de peticiones.
 - **Seguridad de Confianza Cero**:
@@ -296,28 +295,35 @@ Holarchy está diseñada para entornos de alta carga con miles de workers concur
 
 ### 1. Transiciones Condicionales
 
-Pasa condiciones directamente a `@bp.handler()` para crear ramas de lógica condicional. Las condiciones se definen como **expresiones `FastF`** de la biblioteca `fast-filter`, compiladas a lambdas nativas de Python para máximo rendimiento.
+Pasa condiciones directamente a `@bp.step()` (o `@bp.handler()`) para crear ramas de lógica condicional. Las condiciones se definen como **expresiones `FastF`** de la biblioteca `fast-magic-filter` y se resuelven a través de la cascada de 4 niveles `StepScope` (ámbito actual $\rightarrow$ `input` $\rightarrow$ `steps`).
 
 ```python
-from holarchy import F  # F se re-exporta desde fast-filter
+from holarchy import Blueprint, Context, F, State, StatesGroup
 
 
-# Comparación simple sobre initial_data (nombre de estado inferido "decision_step")
-@bp.handler(F.initial_data["type"] == "urgent")
-async def decision_step(actions):
-    actions.go_to("urgent_processing")
+class Flow(StatesGroup):
+    decision = State()
+    urgent_processing = State()
+    priority_lane = State()
+    normal_processing = State()
 
 
-# Condición compuesta con AND lógico (nombre de estado personalizado "decision_step")
-@bp.handler("decision_step", (F.initial_data["priority"] >= 8) & (F.initial_data["active"] == True))
-async def high_priority_step(actions):
-    actions.go_to("priority_lane")
+# Coincidencia directa sobre input a través de StepScope
+@bp.step(Flow.decision, condition=F.type == "urgent")
+async def handle_urgent(ctx: Context):
+    ctx.actions.go_to(Flow.urgent_processing)
 
 
-# Manejador por defecto si ninguna condición coincide
-@bp.handler
-async def decision_step(actions):
-    actions.go_to("normal_processing")
+# Condición compuesta con AND lógico
+@bp.step(Flow.decision, condition=(F.priority >= 8) & (F.active == True))
+async def handle_priority(ctx: Context):
+    ctx.actions.go_to(Flow.priority_lane)
+
+
+# Paso por defecto si ninguna condición previa coincide
+@bp.step(Flow.decision)
+async def handle_default(ctx: Context):
+    ctx.actions.go_to(Flow.normal_processing)
 ```
 
 **Sintaxis soportada:** acceso a atributos (`F.status == "done"`), acceso a dict (`F.data["key"]`), lógica AND/OR/NOT (`&`, `|`, `~`), `in_()`, `regexp()`, agregadores de lista (`.any()`, `.all()`).
@@ -327,11 +333,11 @@ async def decision_step(actions):
 ### 2. Delegar Tareas a Workers (`dispatch_task`)
 
 ```python
-@bp.handler
-async def transcode_video(initial_data, actions):
+@bp.step
+async def transcode_video(input: dict, actions: ActionFactory):
     actions.dispatch_task(
         task_type="video_transcoding",
-        params={"input_path": initial_data.get("path")},
+        params={"input_path": input.get("path")},
         transitions={"success": "publish_video", "failure": "retry"},
     )
 ```
@@ -345,9 +351,9 @@ actions.dispatch_parallel(tasks=tasks_to_dispatch, aggregate_into="aggregate_res
 
 
 @bp.aggregator
-async def aggregate_results(aggregation_results, state_history, actions):
+async def aggregate_results(aggregation_results, steps, actions):
     summary = [res.get("data") for res in aggregation_results.values()]
-    state_history["summary"] = summary
+    steps["summary"] = summary
     actions.go_to("complete")
 ```
 
@@ -357,7 +363,7 @@ async def aggregate_results(aggregation_results, state_history, actions):
 bp = Blueprint("bp", data_stores={"cache": redis_client})
 
 
-@bp.handler
+@bp.step
 async def get_from_cache(data_stores):
     user_data = await data_stores.cache.get("user:123")
 ```
@@ -384,7 +390,7 @@ Notificaciones asíncronas para `job_finished`, `job_failed` o `job_quarantined`
 - **Gestionado**: Limpieza automática de objetos S3.
 
 ```python
-@bp.handler
+@bp.step
 async def process_data(task_files, actions):
     local_path = await task_files.download("large_dataset.csv")
     await task_files.write_json("results.json", {"status": "done"})
@@ -400,10 +406,11 @@ Todos los endpoints externos están prefijados con `/api/v1/`.
 ```http
 POST /api/v1/jobs/my_flow
 {
-    "initial_data": { "video_url": "..." },
+    "input": { "video_url": "..." },
     "webhook_url": "https://my-app.com/webhooks/holarchy",
     "dispatch_timeout": 30
 }
+
 ```
 
 ## Configuración de Producción
@@ -445,12 +452,13 @@ Para más detalles, consulta la [**Guía de Configuración**](https://github.com
 ```http
 POST /api/v1/jobs/my_flow
 {
-    "initial_data": {"input_val": 42},
+    "input": {"input_val": 42},
     "policy": {
         "allowed_skills": ["data_extractor", "pdf_generator"]
     },
     "max_transitions": 50
 }
+
 ```
 
 #### Ejemplo de Middleware Personalizado (`MiddlewareChain`):
@@ -476,6 +484,18 @@ from holarchy.cli.audit import verify_d_dna_integrity
 is_valid, error = verify_d_dna_integrity(job_history_events, audit_salt="mi_clave_secreta")
 if not is_valid:
     print(f"Alteración del historial detectada: {error}")
+```
+
+#### CLI de Replay Determinista (`holarchy replay evaluate`):
+
+Evalúa comprobantes históricos de ejecución offline contra la lógica actualizada del blueprint para detectar la deriva de decisiones antes de pasar a producción:
+
+```bash
+# Evaluar decisiones históricas
+holarchy replay evaluate --app mi_modulo:bp --cases .holarchy/replay/cases.jsonl
+
+# Modo estricto para CI (código de salida 1 si se detecta alguna deriva)
+holarchy replay evaluate --app mi_modulo:bp --cases .holarchy/replay/cases.jsonl --strict
 ```
 
 ### Límite de Tasa

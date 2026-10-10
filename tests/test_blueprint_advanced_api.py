@@ -16,7 +16,7 @@ def test_combine_condition_and_default_handler():
     """Verifies that condition and a default handler can be used together for the same state."""
     bp = Blueprint("test")
 
-    @bp.handler("process", F.initial_data["x"] == 1)
+    @bp.handler("process", F.input["x"] == 1)
     async def process_special(actions):
         pass
 
@@ -36,7 +36,7 @@ def test_combine_condition_and_default_handler_reverse_order():
     async def process_default(actions):
         pass
 
-    @bp.handler("process", F.initial_data["x"] == 1)
+    @bp.handler("process", F.input["x"] == 1)
     async def process_special(actions):
         pass
 
@@ -48,12 +48,12 @@ def test_no_handler_matches_error_message():
     """Verifies the error message when all conditions fail and no default handler exists."""
     bp = Blueprint("test")
 
-    @bp.handler("start", F.initial_data["x"] == 1)
+    @bp.handler("start", F.input["x"] == 1)
     async def start_cond(actions):
         pass
 
     context = MagicMock()
-    context.initial_data = {"x": 2}
+    context.input = {"x": 2}
 
     with raises(ValueError, match="All conditions failed and no default handler registered"):
         bp.find_handler("start", context)
@@ -105,20 +105,20 @@ def test_multiple_conditions():
     """Verifies that multiple conditions can be registered for the same state."""
     bp = Blueprint("test")
 
-    @bp.handler("step", F.initial_data["v"] == 1)
+    @bp.handler("step", F.input["v"] == 1)
     async def handler1(actions):
         return 1
 
-    @bp.handler("step", F.initial_data["v"] == 2)
+    @bp.handler("step", F.input["v"] == 2)
     async def handler2(actions):
         return 2
 
     context = MagicMock()
 
-    context.initial_data = {"v": 1}
+    context.input = {"v": 1}
     assert bp.find_handler("step", context) == handler1
 
-    context.initial_data = {"v": 2}
+    context.input = {"v": 2}
     assert bp.find_handler("step", context) == handler2
 
 

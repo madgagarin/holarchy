@@ -114,7 +114,7 @@ def test_action_factory_update_context_problematic_input():
 
 @mark.asyncio
 async def test_executor_applies_context_updates(engine):
-    """HAPPY PATH: JobExecutor should apply updates to job_state['initial_data']."""
+    """HAPPY PATH: JobExecutor should apply updates to job_state['input']."""
     storage = MemoryStorage()
     history = AsyncMock()
 
@@ -127,7 +127,7 @@ async def test_executor_applies_context_updates(engine):
         "blueprint_name": "sync_bp",
         "current_state": "start",
         "status": "running",
-        "initial_data": {"existing": "val"},
+        "input": {"existing": "val"},
         "client_config": {},
     }
     await storage.save_job_state(job_id, job_state)
@@ -149,13 +149,14 @@ async def test_executor_applies_context_updates(engine):
     await executor._process_job(job_id, "msg-1")
 
     updated_state = await storage.get_job_state(job_id)
-    assert updated_state["initial_data"]["new_key"] == "secret"
-    assert updated_state["initial_data"]["existing"] == "overwritten"
+    assert updated_state["input"]["new_key"] == "secret"
+    assert updated_state["input"]["existing"] == "overwritten"
+    assert "initial_data" not in updated_state
 
 
 @mark.asyncio
 async def test_executor_context_update_persistence(engine):
-    """HAPPY PATH: ensure context updates are persisted even if transition fails later."""
+    """HAPPY PATH: ensure context updates are persisted to input even if transition fails later."""
     storage = MemoryStorage()
     history = AsyncMock()
     executor = JobExecutor(engine, history, metrics=MagicMock())
@@ -167,7 +168,7 @@ async def test_executor_context_update_persistence(engine):
         "blueprint_name": "persist_bp",
         "current_state": "start",
         "status": "running",
-        "initial_data": {"v": 1},
+        "input": {"v": 1},
         "client_config": {},
     }
     await storage.save_job_state(job_id, job_state)
@@ -188,4 +189,5 @@ async def test_executor_context_update_persistence(engine):
     await executor._process_job(job_id, "msg-1")
 
     updated_state = await storage.get_job_state(job_id)
-    assert updated_state["initial_data"]["v"] == 2
+    assert updated_state["input"]["v"] == 2
+    assert "initial_data" not in updated_state

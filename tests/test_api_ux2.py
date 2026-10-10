@@ -6,9 +6,9 @@
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-import pytest
 from aiohttp import web
 from orjson import loads as orjson_loads
+from pytest import fixture, mark, raises
 
 from holarchy.api.handlers import create_job_handler_factory, get_job_status_handler
 from holarchy.app_keys import CLIENT_CONFIG_KEY, ENGINE_KEY
@@ -19,19 +19,19 @@ from holarchy.storage.memory import MemoryStorage
 from holarchy.storage.redis import RedisStorage
 
 
-@pytest.fixture
+@fixture
 def config():
     cfg = Config()
     cfg.DETAILED_API_RESPONSES = True
     return cfg
 
 
-@pytest.fixture
+@fixture
 def storage():
     return MemoryStorage()
 
 
-@pytest.fixture
+@fixture
 def engine(storage, config):
     eng = OrchestratorEngine(storage, config)
     eng.ws_manager = AsyncMock()
@@ -61,11 +61,11 @@ def make_request(
     return req
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_headers_extraction_and_meta(engine):
     bp = Blueprint("order_flow")
 
-    @bp.handler("init", is_start=True, is_end=True)
+    @bp.start("init", is_end=True)
     async def init(actions):
         actions.save_result({"status": "ok"})
 
@@ -102,11 +102,11 @@ async def test_headers_extraction_and_meta(engine):
     assert job_state["meta"]["headers"]["X-Correlation-ID"] == "corr-uuid-12345"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_idempotency_key_prevents_duplicate_jobs(engine):
     bp = Blueprint("payment_flow")
 
-    @bp.handler("pay", is_start=True, is_end=True)
+    @bp.start("pay", is_end=True)
     async def pay(actions):
         actions.save_result({"paid": True})
 
@@ -165,11 +165,11 @@ async def test_idempotency_key_prevents_duplicate_jobs(engine):
     assert data4["job_id"] != job_id_1
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_clean_request_body_input_variations(engine):
     bp = Blueprint("variations_flow")
 
-    @bp.handler("start", is_start=True, is_end=True)
+    @bp.start("start", is_end=True)
     async def start(actions):
         pass
 
@@ -190,13 +190,13 @@ async def test_clean_request_body_input_variations(engine):
     state = await engine.storage.get_job_state(job_id)
     assert state["input"] == {"nested": "value"}
 
-    # C: Legacy "initial_data" key
-    req_legacy = make_request(engine, json_body={"initial_data": {"legacy": True}})
-    resp_legacy = await handler(req_legacy)
-    job_id = orjson_loads(resp_legacy.body)["job_id"]
+    # C: Explicit "input" with multiple fields
+    req_multi = make_request(engine, json_body={"input": {"order_id": 1, "dry_run": True}})
+    resp_multi = await handler(req_multi)
+    job_id = orjson_loads(resp_multi.body)["job_id"]
     state = await engine.storage.get_job_state(job_id)
-    assert state["input"] == {"legacy": True}
-    assert state["initial_data"] == {"legacy": True}
+    assert state["input"] == {"order_id": 1, "dry_run": True}
+    assert "initial_data" not in state
 
     # D: Empty body
     req_empty = make_request(engine, json_body={})
@@ -206,7 +206,7 @@ async def test_clean_request_body_input_variations(engine):
     assert state["input"] == {}
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_get_job_status_5_zones_response(engine):
     job_id = f"job-{uuid4()}"
     job_state = {
@@ -254,11 +254,11 @@ async def test_get_job_status_5_zones_response(engine):
     assert data_filtered["output"] == {"total": 42.0}
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_idempotency_purged_job_creates_new(engine):
     bp = Blueprint("purge_test_bp")
 
-    @bp.handler("start", is_start=True, is_end=True)
+    @bp.start("start", is_end=True)
     async def start(actions):
         pass
 
@@ -286,11 +286,11 @@ async def test_idempotency_purged_job_creates_new(engine):
     assert current_key_val == new_job_id
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_invalid_header_types_graceful_fallback(engine):
     bp = Blueprint("malformed_headers_bp")
 
-    @bp.handler("step", is_start=True, is_end=True)
+    @bp.start("step", is_end=True)
     async def step(actions):
         pass
 
@@ -317,7 +317,7 @@ async def test_invalid_header_types_graceful_fallback(engine):
     assert job_state["meta"]["priority"] == "normal"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_job_status_not_found_and_isolation(engine):
     # 1. Non-existent job
     req_not_found = make_request(
@@ -346,11 +346,11 @@ async def test_job_status_not_found_and_isolation(engine):
         token="attacker-token",
         path_params={"job_id": job_id},
     )
-    with pytest.raises(web.HTTPForbidden):
+    with raises(web.HTTPForbidden):
         await get_job_status_handler(req_other_client)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_redis_storage_idempotency_unit():
     mock_redis = AsyncMock()
     storage = RedisStorage(mock_redis)
@@ -369,4 +369,3 @@ async def test_redis_storage_idempotency_unit():
     # set_idempotent_job_id
     await storage.set_idempotent_job_id("tok", "key1", "job-999", ttl=3600)
     mock_redis.set.assert_called_with("orchestrator:idempotency:tok:key1", "job-999", ex=3600)
-

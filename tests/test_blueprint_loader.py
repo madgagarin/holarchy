@@ -19,11 +19,11 @@ from holarchy.blueprint import Blueprint
 
 dynamic_bp = Blueprint(name="dynamic_test_blueprint", api_endpoint="/jobs/dynamic_test")
 
-@dynamic_bp.handler("start", is_start=True)
+@dynamic_bp.start("start")
 async def start_handler(actions):
     actions.go_to("end")
 
-@dynamic_bp.handler("end", is_end=True)
+@dynamic_bp.end("end")
 async def end_handler():
     pass
 """

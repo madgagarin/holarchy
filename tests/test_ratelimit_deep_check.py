@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 from aiohttp import web
 from pytest import mark
-from src.holarchy.ratelimit import rate_limit_middleware_factory
+
+from holarchy.ratelimit import rate_limit_middleware_factory
 
 
 @mark.asyncio

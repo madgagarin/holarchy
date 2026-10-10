@@ -211,7 +211,7 @@ The system supports two levels of detail for the `GET /api/v1/jobs/{id}` endpoin
    _Note:_ The `?fields=...` parameter in this mode is restricted only to these 4 fields.
 
 2. **Detailed Mode** (`DETAILED_API_RESPONSES=true`):
-   Returns the full job state object, including `state_history`, `initial_data`, `client_config`, etc. In this mode, the `?fields` parameter can be used to request any field.
+   Returns the full job state object, including `input`, `steps`, `output`, `history`, `params`, `client_config`, etc. In this mode, the `?fields` parameter can be used to request any field.
 
 ### Security & TLS (mTLS)
 

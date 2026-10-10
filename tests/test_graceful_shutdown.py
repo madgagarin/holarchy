@@ -8,7 +8,8 @@ from asyncio import CancelledError, Event, create_task, sleep
 from unittest.mock import AsyncMock, MagicMock
 
 from pytest import mark
-from src.holarchy.app_keys import (
+
+from holarchy.app_keys import (
     EXECUTOR_KEY,
     EXECUTOR_TASK_KEY,
     HEALTH_CHECKER_KEY,
@@ -21,7 +22,7 @@ from src.holarchy.app_keys import (
     WATCHER_KEY,
     WATCHER_TASK_KEY,
 )
-from src.holarchy.engine import OrchestratorEngine
+from holarchy.engine import OrchestratorEngine
 
 
 @mark.asyncio

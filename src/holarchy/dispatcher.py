@@ -128,11 +128,9 @@ class Dispatcher:
                     f"(expected version {req_skill.version}, type {req_skill.type})",
                 )
 
-            # Check explicit skill parameter requirements
             if skill_reqs := requirements.get("skill"):
                 my_props = target_skill.properties or {}
                 for field, expected_value in skill_reqs.items():
-                    # Check both direct fields and properties
                     actual_value = getattr(target_skill, field, None)
                     if actual_value is None:
                         actual_value = my_props.get(field)
@@ -140,15 +138,12 @@ class Dispatcher:
                     if actual_value != expected_value:
                         return False, f"skill_param_mismatch: {field} (expected {expected_value}, got {actual_value})"
 
-            # Check if current params match worker's input_schema
             if (params_to_check := requirements.get("params")) and target_skill.input_schema:
                 is_valid, error_msg = validate_data(params_to_check, target_skill.input_schema)
                 if not is_valid:
                     return False, f"schema_validation_failed: {error_msg}"
 
-            # Check if worker supports all required output statuses
             if (transitions := requirements.get("transitions")) and target_skill.output_statuses:
-                # Ignore standard statuses
                 STANDARD_STATUSES = {"success", "failure", "cancelled"}
                 required_custom = {s for s in transitions if s not in STANDARD_STATUSES}
 
@@ -286,13 +281,11 @@ class Dispatcher:
 
         soft_limit = getattr(self.config, "DISPATCHER_SOFT_LIMIT", 3)
 
-        # Try to find the cheapest worker with a small queue
         for w in sorted_workers:
             wid = w["worker_id"]
             if worker_queue_lens[wid] < soft_limit:
                 return w
 
-        # Find the one with the minimum queue among candidates
         return min(sorted_workers, key=lambda w: worker_queue_lens[w["worker_id"]])
 
     async def dispatch(self, job_state: dict[str, Any], task_info: dict[str, Any]) -> dict[str, Any]:
@@ -308,12 +301,9 @@ class Dispatcher:
         if "transitions" not in resource_requirements:
             resource_requirements["transitions"] = task_info.get("transitions") or {}
 
-        # Add skill version and type to requirements so _check_worker_compliance can find them
-        # Fallback to job_state if missing in task_info
         resource_requirements["skill_version"] = task_info.get("skill_version") or job_state.get("skill_version")
         resource_requirements["skill_type"] = task_info.get("skill_type") or job_state.get("skill_type")
 
-        # Hot Skill awareness
         capable_workers = []
 
         hot_skill_ids = await self.storage.find_workers_by_hot_skill(task_type)
@@ -334,8 +324,6 @@ class Dispatcher:
 
             capable_workers = await self._get_workers_cached(candidate_ids)
             if not capable_workers:
-                # If IDs are in index but data is missing,
-                # it's a stale index. We just treat it as "no workers" and let it retry.
                 logger.debug(f"HLN: Stale index detected for '{task_type}'. IDs {candidate_ids} have no data.")
                 raise RuntimeError(f"No suitable workers for task type '{task_type}'")
 
@@ -343,16 +331,13 @@ class Dispatcher:
             compliant_workers = []
             rejection_reasons: dict[str, int] = defaultdict(int)
 
-            # Optimization - only check up to DISPATCHER_MAX_CANDIDATES
             max_candidates = getattr(self.config, "DISPATCHER_MAX_CANDIDATES", 50)
             if not isinstance(max_candidates, int):
                 max_candidates = 50
             candidate_count = 0
 
-            # Pre-parse requirements to avoid O(N) parsing overhead
             parsed_resources = None
             if req_res_dict := resource_requirements.get("resources"):
-                # Ensure it has properties if it came from flat structure
                 if "properties" not in req_res_dict and ("cpu_cores" in req_res_dict or "ram_gb" in req_res_dict):
                     req_res_dict = {"properties": req_res_dict}
 
@@ -487,7 +472,9 @@ class Dispatcher:
         payload = to_dict(payload_obj)
 
         secret = getenv("ORCHESTRATOR_SECRET_KEY") or getattr(self.config, "ORCHESTRATOR_SECRET_KEY", "")
-        if secret and isinstance(secret, (str, bytes)):
+        if secret and isinstance(secret, bytes):
+            secret = secret.decode("utf-8")
+        if secret and isinstance(secret, str):
             payload["sig"] = sign_payload(payload, secret, ignore_fields=["sig", "orchestrator_signature"])
 
         if (
@@ -521,7 +508,6 @@ class Dispatcher:
                     branch_dispatched[task_id] = now_ts
                     state["branch_dispatched_at"] = branch_dispatched
 
-                    # ALSO save task info so it's not lost between parallel dispatches
                     tasks_info = state.setdefault("parallel_tasks_info", {}) or {}
                     tasks_info[task_id] = task_info
                     state["parallel_tasks_info"] = tasks_info
@@ -538,21 +524,16 @@ class Dispatcher:
             if isinstance(updated_state, dict):
                 job_state.update(updated_state)
 
-            # 4. Add to Watcher
-            # For parallel branches, we watch the specific branch task ID
-            # to allow independent timeouts and avoid field collisions.
             is_parallel = task_id in (job_state.get("active_branches") or [])
             watch_key = f"{job_id}:{task_id}" if is_parallel else job_id
 
-            # Recalculate timeout relative to this specific dispatch
             timeout_val = job_state.get("result_deadline")
             if timeout_val is not None:
                 try:
                     timeout_at = float(timeout_val)
                 except (TypeError, ValueError):
-                    timeout_at = now_ts + 30.0  # Emergency fallback
+                    timeout_at = now_ts + 30.0
             else:
-                # Fallback to local worker timeout from dispatch time
                 raw_timeout = task_info.get("timeout_seconds")
                 if raw_timeout is not None:
                     execution_timeout = float(raw_timeout)

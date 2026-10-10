@@ -20,22 +20,25 @@ pip install "holonode[pydantic,s3]"
 
 ## 2. Definición de habilidades fuertemente tipadas
 
-Un worker registra sus habilidades mediante el decorador `@worker.skill`. El uso de modelos Pydantic garantiza la validación automática de parámetros de entrada:
+Un worker registra sus habilidades mediante el decorador `@worker.skill`. Se admiten modelos `@dataclass`, `msgspec.Struct` o Pydantic:
 
 ```python
-import asyncio
-from pydantic import BaseModel, Field
+from asyncio import sleep
+from dataclasses import asdict, dataclass
+
 from holonode import Worker
 
 
-class ImageResizeParams(BaseModel):
-    image_url: str = Field(..., description="URL o clave S3 de la imagen de origen")
-    width: int = Field(default=800, ge=16, le=4096)
-    height: int = Field(default=600, ge=16, le=4096)
-    format: str = Field(default="webp", pattern="^(webp|jpeg|png)$")
+@dataclass
+class ImageResizeParams:
+    image_url: str
+    width: int = 800
+    height: int = 600
+    format: str = "webp"
 
 
-class ImageResizeResult(BaseModel):
+@dataclass
+class ImageResizeResult:
     processed_url: str
     original_size_kb: float
     compressed_size_kb: float
@@ -54,15 +57,17 @@ async def handle_resize(params: ImageResizeParams, **kwargs) -> dict:
     task_id = kwargs.get("task_id")
     print(f"[{task_id}] Redimensionando {params.image_url} a {params.width}x{params.height}")
 
-    await asyncio.sleep(0.5)
+    await sleep(0.5)
 
     return {
         "status": "success",
-        "data": ImageResizeResult(
-            processed_url=f"{params.image_url}_resized.{params.format}",
-            original_size_kb=1024.0,
-            compressed_size_kb=312.5,
-        ).model_dump(),
+        "data": asdict(
+            ImageResizeResult(
+                processed_url=f"{params.image_url}_resized.{params.format}",
+                original_size_kb=1024.0,
+                compressed_size_kb=312.5,
+            )
+        ),
     }
 
 
@@ -121,11 +126,12 @@ MAX_CONCURRENT_TASKS=4
 Pruebe sus habilidades en `pytest` directamente:
 
 ```python
-import pytest
+from pytest import mark
+
 from my_worker import ImageResizeParams, handle_resize
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_resize_handler_success():
     params = ImageResizeParams(
         image_url="https://storage.example.com/banner.png",

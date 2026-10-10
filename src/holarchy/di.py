@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-import types
+from types import UnionType
 from typing import Annotated, Any, Union, get_args, get_origin
 
 from rxon.schema import Header
@@ -69,7 +69,7 @@ def cast_header_value(val: Any, target_type: Any, default: Any = ...) -> Any:
 
     # Handle Union types (e.g. str | None, int | None, Union[int, None])
     origin = get_origin(target_type)
-    if origin in (Union, types.UnionType):
+    if origin in (Union, UnionType):
         args = [arg for arg in get_args(target_type) if arg is not type(None)]
         if len(args) == 1:
             target_type = args[0]

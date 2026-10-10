@@ -7,7 +7,8 @@
 from asyncio import sleep
 
 from pytest import mark
-from src.holarchy.storage.memory import MemoryStorage
+
+from holarchy.storage.memory import MemoryStorage
 
 
 @mark.asyncio

@@ -14,7 +14,7 @@ Holarchy adopta los principios de **Host-Owned Choice** (elección controlada po
 Utilice `@bp.decide` para declarar un paso de enrutamiento inteligente:
 
 ```python
-from pydantic import BaseModel
+from dataclasses import dataclass
 from holarchy import Blueprint, Context, State, StatesGroup
 
 
@@ -27,7 +27,8 @@ class OrderFlow(StatesGroup):
     finalize = State()
 
 
-class OrderInput(BaseModel):
+@dataclass
+class OrderInput:
     order_id: int
     amount: float
     user_tier: str
@@ -136,23 +137,28 @@ Las pruebas de reproducción evalúan modelos de decisión contra registros hist
 
 ```python
 from pathlib import Path
+
 from holarchy.testing.replay import ReplayTestRunner, record_execution_receipt
 
 cases_file = Path("test_cases/order_routing.jsonl")
 
-runner = ReplayTestRunner(blueprint=order_bp, cases_file=str(cases_file))
-report = await runner.run()
+runner = ReplayTestRunner(order_bp)
+report = runner.evaluate(str(cases_file))
 
 print(f"Total de casos: {report.total_cases}")
-print(f"Precisión respecto al patrón: {report.accuracy_rate:.2%}")
-print(f"Activaciones de Fallback: {report.fallback_count}")
-print(f"Latencia media de decisión: {report.avg_latency_ms} ms")
+print(f"Decisiones coincidentes: {report.matched_cases}")
+print(f"Tasa de deriva: {report.drift_rate:.1%}")
+print(f"Activaciones de Fallback: {report.fallback_cases}")
 
-assert report.accuracy_rate >= 0.98
+assert report.drift_cases == 0
 ```
 
 ### Herramienta CLI de Replay
 
 ```bash
-holarchy replay --blueprint intelligent_orders --cases test_cases/order_routing.jsonl --tolerance 0.05
+# Evaluar decisiones históricas frente a la lógica del blueprint
+holarchy replay evaluate --app mi_modulo:order_bp --cases test_cases/order_routing.jsonl
+
+# Modo estricto para CI (código de salida 1 si se detecta alguna deriva)
+holarchy replay evaluate --app mi_modulo:order_bp --cases test_cases/order_routing.jsonl --strict
 ```

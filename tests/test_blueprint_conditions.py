@@ -8,11 +8,10 @@ from unittest.mock import MagicMock
 
 from fast_filter import F
 from pytest import fixture, raises
-from src.holarchy.blueprint import Blueprint, ConditionalHandler
 
-# ---------------------------------------------------------------------------
-# ConditionalHandler with FastF
-# ---------------------------------------------------------------------------
+from holarchy.blueprint import Blueprint, ConditionalHandler
+from holarchy.context import ActionFactory
+from holarchy.data_types import ClientConfig, JobContext
 
 
 @fixture
@@ -22,20 +21,20 @@ def mock_blueprint():
 
 @fixture
 def conditional_handler(mock_blueprint):
-    """Handler that passes when initial_data.status == 'completed'."""
-    condition = F.initial_data["status"] == "completed"
+    """Handler that passes when input.status == 'completed'."""
+    condition = F.input["status"] == "completed"
     return ConditionalHandler(mock_blueprint, "start", lambda: None, condition)
 
 
 def test_conditional_handler_evaluate_true(conditional_handler):
     context = MagicMock()
-    context.initial_data = {"status": "completed"}
+    context.input = {"status": "completed"}
     assert conditional_handler.evaluate(context) is True
 
 
 def test_conditional_handler_evaluate_false(conditional_handler):
     context = MagicMock()
-    context.initial_data = {"status": "pending"}
+    context.input = {"status": "pending"}
     assert conditional_handler.evaluate(context) is False
 
 
@@ -47,7 +46,7 @@ def test_conditional_handler_evaluate_missing_area(conditional_handler):
 
 def test_conditional_handler_evaluate_missing_field(conditional_handler):
     context = MagicMock()
-    context.initial_data = {}
+    context.input = {}
     assert conditional_handler.evaluate(context) is False
 
 
@@ -65,18 +64,13 @@ def test_conditional_handler_evaluate_complex_condition(mock_blueprint):
     assert handler.evaluate(context_fail) is False
 
 
-# ---------------------------------------------------------------------------
-# Blueprint.handler with direct FastF condition
-# ---------------------------------------------------------------------------
-
-
 @fixture
 def blueprint():
     return Blueprint("test_bp")
 
 
 def test_handler_decorator_condition_with_fastf(blueprint):
-    @blueprint.handler("start", F.initial_data["status"] == "completed")
+    @blueprint.handler("start", F.input["status"] == "completed")
     def handler(context, actions):
         pass
 
@@ -112,11 +106,6 @@ def test_handler_decorator_condition_invert(blueprint):
     assert blueprint.conditional_handlers[0].evaluate(ctx2) is True
 
 
-# ---------------------------------------------------------------------------
-# Other Blueprint decorator tests (unchanged logic)
-# ---------------------------------------------------------------------------
-
-
 def test_handler_decorator_duplicate_handler(blueprint):
     @blueprint.handler("start")
     def handler1(context, actions):
@@ -130,13 +119,13 @@ def test_handler_decorator_duplicate_handler(blueprint):
 
 
 def test_handler_decorator_duplicate_start_state(blueprint):
-    @blueprint.handler("start", is_start=True)
+    @blueprint.start("start")
     def handler1(context, actions):
         pass
 
     with raises(ValueError, match="Blueprint 'test_bp' already has a start state: 'start'."):
 
-        @blueprint.handler("another_start", is_start=True)
+        @blueprint.start("another_start")
         def handler2(context, actions):
             pass
 
@@ -172,11 +161,11 @@ def test_find_handler_no_handler(blueprint):
 
 
 def test_render_graph_with_filename(blueprint, tmp_path):
-    @blueprint.handler("start", is_start=True)
+    @blueprint.start("start")
     def handler(context, actions):
         actions.go_to("end")
 
-    @blueprint.handler("end", is_end=True)
+    @blueprint.end("end")
     def end_handler(context, actions):
         pass
 
@@ -186,11 +175,11 @@ def test_render_graph_with_filename(blueprint, tmp_path):
 
 
 def test_render_graph_no_filename(blueprint):
-    @blueprint.handler("start", is_start=True)
+    @blueprint.start("start")
     def handler(context, actions):
         actions.go_to("end")
 
-    @blueprint.handler("end", is_end=True)
+    @blueprint.end("end")
     def end_handler(context, actions):
         pass
 
@@ -198,13 +187,8 @@ def test_render_graph_no_filename(blueprint):
     assert "digraph" in source
 
 
-# ---------------------------------------------------------------------------
-# Direct condition arguments tests
-# ---------------------------------------------------------------------------
-
-
 def test_handler_decorator_direct_condition_with_state_name(blueprint):
-    @blueprint.handler("start", F.initial_data["status"] == "completed")
+    @blueprint.step("start", F.input["status"] == "completed")
     def handler(context, actions):
         pass
 
@@ -212,13 +196,13 @@ def test_handler_decorator_direct_condition_with_state_name(blueprint):
     assert blueprint.conditional_handlers[0].state == "start"
 
     ctx_true = MagicMock()
-    ctx_true.result = {}
-    ctx_true.initial_data = {"status": "completed"}
+    ctx_true.output = {}
+    ctx_true.input = {"status": "completed"}
     assert blueprint.conditional_handlers[0].evaluate(ctx_true) is True
 
 
 def test_handler_decorator_direct_condition_inferred_name(blueprint):
-    @blueprint.handler(F.initial_data["status"] == "completed")
+    @blueprint.step(condition=F.input["status"] == "completed")
     def my_custom_state(context, actions):
         pass
 
@@ -226,12 +210,12 @@ def test_handler_decorator_direct_condition_inferred_name(blueprint):
     assert blueprint.conditional_handlers[0].state == "my_custom_state"
 
     ctx_true = MagicMock()
-    ctx_true.initial_data = {"status": "completed"}
+    ctx_true.input = {"status": "completed"}
     assert blueprint.conditional_handlers[0].evaluate(ctx_true) is True
 
 
 def test_handler_decorator_direct_condition_keyword_arg(blueprint):
-    @blueprint.handler(condition=F.initial_data["status"] == "completed")
+    @blueprint.step(condition=F.input["status"] == "completed")
     def my_custom_state(context, actions):
         pass
 
@@ -240,9 +224,98 @@ def test_handler_decorator_direct_condition_keyword_arg(blueprint):
 
 
 def test_handler_decorator_direct_condition_with_is_start(blueprint):
-    @blueprint.handler("start", F.initial_data["status"] == "completed", is_start=True)
-    def handler(context, actions):
+    @blueprint.start(condition=F.input["status"] == "completed")
+    def start_handler(context, actions):
         pass
 
     assert len(blueprint.conditional_handlers) == 1
-    assert blueprint.start_state == "start"
+    assert blueprint.start_state == "start_handler"
+
+
+def test_step_decorator_with_condition_and_explicit_transitions(blueprint):
+    @blueprint.step("validate", F.score >= 80, on_success="vip_processing", on_error="reject")
+    def vip_validator(context, actions):
+        pass
+
+    assert len(blueprint.conditional_handlers) == 1
+    ch = blueprint.conditional_handlers[0]
+    assert ch.state == "validate"
+    assert vip_validator._on_success == "vip_processing"
+    assert vip_validator._on_error == "reject"
+    assert "vip_processing" in blueprint._explicit_transitions["validate"]
+    assert "reject" in blueprint._explicit_transitions["validate"]
+
+    # Verify to_dag contains the edges generated by on_success/on_error
+    dag = blueprint.to_dag()
+    edge_pairs = {(e["from"], e["to"]) for e in dag["edges"]}
+    assert ("validate", "vip_processing") in edge_pairs
+    assert ("validate", "reject") in edge_pairs
+
+
+def test_first_match_wins_precedence_order(blueprint):
+    @blueprint.handler("route", F.score >= 50)
+    def handle_medium(actions):
+        return "medium"
+
+    @blueprint.handler("route", F.score >= 80)
+    def handle_high(actions):
+        return "high"
+
+    @blueprint.handler("route")
+    def handle_fallback(actions):
+        return "fallback"
+
+    # Score 90 matches both F.score >= 50 and F.score >= 80
+    # First-match-wins ensures the first registered handler is chosen
+    ctx_high = MagicMock()
+    ctx_high.score = 90
+    assert blueprint.find_handler("route", ctx_high) is handle_medium
+
+    # Score 60 matches only first handler
+    ctx_med = MagicMock()
+    ctx_med.score = 60
+    assert blueprint.find_handler("route", ctx_med) is handle_medium
+
+    # Score 30 matches neither handler -> falls back to default handler
+    ctx_low = MagicMock()
+    ctx_low.score = 30
+    assert blueprint.find_handler("route", ctx_low) is handle_fallback
+
+
+def test_conditional_handlers_with_real_job_context(blueprint):
+    @blueprint.handler("eval_step", F.input["amount"] > 1000)
+    def handle_large(context, actions):
+        return "large"
+
+    @blueprint.handler("eval_step", F.steps["prev_task"]["passed"] == True)  # noqa: E712
+    def handle_passed(context, actions):
+        return "passed"
+
+    client_cfg = ClientConfig(token="tok-1", plan="enterprise", params={})
+    actions = ActionFactory("job-42")
+
+    job_ctx_large = JobContext(
+        job_id="job-42",
+        current_state="eval_step",
+        input={"amount": 2000},
+        steps={},
+        output=None,
+        history=[],
+        params={},
+        client=client_cfg,
+        actions=actions,
+    )
+    assert blueprint.find_handler("eval_step", job_ctx_large) is handle_large
+
+    job_ctx_passed = JobContext(
+        job_id="job-42",
+        current_state="eval_step",
+        input={"amount": 500},
+        steps={"prev_task": {"passed": True}},
+        output=None,
+        history=[],
+        params={},
+        client=client_cfg,
+        actions=actions,
+    )
+    assert blueprint.find_handler("eval_step", job_ctx_passed) is handle_passed

@@ -15,22 +15,25 @@ pip install "holonode[pydantic,s3]"
 
 ---
 
-## 2. Определение навыков (Skills) с валидацией Pydantic
+## 2. Определение навыков (Skills) с моделями предметной области
 
-Объявляйте навыки через декоратор `@worker.skill` с указанием уровня риска и требуемых прав доступа:
+Объявляйте навыки через декоратор `@worker.skill` с указанием уровня риска и прав доступа. В качестве параметров и результатов поддерживаются стандартные `@dataclass`, `msgspec.Struct` или Pydantic-модели:
 
 ```python
-import asyncio
-from pydantic import BaseModel, Field
+from asyncio import sleep
+from dataclasses import asdict, dataclass
+
 from holonode import Worker
 
 
-class InventoryCheckParams(BaseModel):
-    sku: str = Field(..., description="Артикул товара")
-    quantity: int = Field(..., gt=0, description="Запрашиваемое количество")
+@dataclass
+class InventoryCheckParams:
+    sku: str
+    quantity: int
 
 
-class InventoryCheckResult(BaseModel):
+@dataclass
+class InventoryCheckResult:
     in_stock: bool
     available_quantity: int
     warehouse_code: str
@@ -49,17 +52,18 @@ async def check_inventory(params: InventoryCheckParams, **kwargs) -> dict:
     task_id = kwargs.get("task_id")
     print(f"Проверка артикула {params.sku} для задачи {task_id}")
 
-    # Прикладная логика
     available = 42
     in_stock = available >= params.quantity
 
     return {
         "status": "success",
-        "data": InventoryCheckResult(
-            in_stock=in_stock,
-            available_quantity=available,
-            warehouse_code="WH-US-EAST",
-        ).model_dump(),
+        "data": asdict(
+            InventoryCheckResult(
+                in_stock=in_stock,
+                available_quantity=available,
+                warehouse_code="WH-US-EAST",
+            )
+        ),
     }
 ```
 
@@ -79,7 +83,7 @@ async def render_video(params: dict, **kwargs) -> dict:
             print(f"Поступил сигнал отмены для задачи {task_id}. Очистка ресурсов...")
             return {"status": "cancelled", "message": "Рендеринг остановлен оркестратором"}
 
-        await asyncio.sleep(0.01)
+        await sleep(0.01)
 
     return {"status": "success", "data": {"frames_rendered": 1000}}
 ```

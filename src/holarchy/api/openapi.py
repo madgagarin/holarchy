@@ -5,22 +5,45 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from ..engine import OrchestratorEngine
 
 
+def invalidate_openapi_spec_cache(engine: OrchestratorEngine) -> None:
+    """Invalidates the memoized OpenAPI 3.1 specification and pre-serialized JSON on the engine."""
+    cache = getattr(engine, "_openapi_spec_cache", None)
+    if isinstance(cache, dict):
+        cache.clear()
+    if hasattr(engine, "_openapi_json_bytes"):
+        engine._openapi_json_bytes = None
+    if hasattr(engine, "_docs_html_cache"):
+        engine._docs_html_cache = None
+
+
 def generate_openapi_spec(
     engine: OrchestratorEngine,
     title: str = "Holarchy Orchestrator API",
-    version: str = "1.0b31",
+    version: str = "1.0.0",
     description: str = (
         "High-performance distributed workflow orchestration engine with FSM, "
         "Advisory Routing, and Zero-Trust Evidence Cards."
     ),
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
-    """Dynamically generates an OpenAPI 3.1.0 specification dictionary from the engine's blueprints and routes."""
+    """Dynamically generates an OpenAPI 3.1.0 specification dictionary from the engine's blueprints and routes.
+
+    Uses engine-level memoization for high-throughput serving, returning cached specs
+    unless invalidated by blueprint registration or forced refresh.
+    """
+    cache_key = (title, version, description)
+    spec_cache = getattr(engine, "_openapi_spec_cache", None)
+    if not force_refresh and isinstance(spec_cache, dict):
+        cached = spec_cache.get(cache_key)
+        if cached is not None:
+            return cast(dict[str, Any], cached)
+
     paths: dict[str, Any] = {}
 
     # Common parameters for orchestrator headers
@@ -121,9 +144,7 @@ def generate_openapi_spec(
                 "required": True,
                 "description": "Pure business payload for the job (input).",
                 "content": {
-                    "application/json": {
-                        "schema": {"type": "object", "description": "Arbitrary business payload"}
-                    }
+                    "application/json": {"schema": {"type": "object", "description": "Arbitrary business payload"}}
                 },
             },
             "responses": {
@@ -166,11 +187,7 @@ def generate_openapi_spec(
             "responses": {
                 "200": {
                     "description": "Job state retrieved",
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/JobState"}
-                        }
-                    },
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobState"}}},
                 },
                 "404": {"description": "Job not found"},
             },
@@ -198,9 +215,7 @@ def generate_openapi_spec(
                         "application/json": {
                             "schema": {
                                 "type": "object",
-                                "properties": {
-                                    "status": {"type": "string", "example": "cancellation_request_sent"}
-                                },
+                                "properties": {"status": {"type": "string", "example": "cancellation_request_sent"}},
                             }
                         }
                     },
@@ -237,12 +252,8 @@ def generate_openapi_spec(
                 "200": {
                     "description": "Incident Evidence Card",
                     "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/IncidentEvidence"}
-                        },
-                        "text/markdown": {
-                            "schema": {"type": "string"}
-                        },
+                        "application/json": {"schema": {"$ref": "#/components/schemas/IncidentEvidence"}},
+                        "text/markdown": {"schema": {"type": "string"}},
                     },
                 },
                 "404": {"description": "Job not found"},
@@ -267,11 +278,7 @@ def generate_openapi_spec(
             "responses": {
                 "200": {
                     "description": "Event history list",
-                    "content": {
-                        "application/json": {
-                            "schema": {"type": "array", "items": {"type": "object"}}
-                        }
-                    },
+                    "content": {"application/json": {"schema": {"type": "array", "items": {"type": "object"}}}},
                 }
             },
         }
@@ -307,11 +314,7 @@ def generate_openapi_spec(
             "responses": {
                 "200": {
                     "description": "Quarantined job IDs",
-                    "content": {
-                        "application/json": {
-                            "schema": {"type": "array", "items": {"type": "string"}}
-                        }
-                    },
+                    "content": {"application/json": {"schema": {"type": "array", "items": {"type": "string"}}}},
                 }
             },
         }
@@ -336,11 +339,7 @@ def generate_openapi_spec(
             "responses": {
                 "200": {
                     "description": "DAG topology object",
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/DAGTopology"}
-                        }
-                    },
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DAGTopology"}}},
                 },
                 "404": {"description": "Blueprint not found"},
             },
@@ -390,11 +389,7 @@ def generate_openapi_spec(
             "responses": {
                 "200": {
                     "description": "Detailed skill schema",
-                    "content": {
-                        "application/json": {
-                            "schema": {"type": "object"}
-                        }
-                    },
+                    "content": {"application/json": {"schema": {"type": "object"}}},
                 },
                 "404": {"description": "Skill not found"},
             },
@@ -409,11 +404,7 @@ def generate_openapi_spec(
             "responses": {
                 "200": {
                     "description": "Worker instances list",
-                    "content": {
-                        "application/json": {
-                            "schema": {"type": "array", "items": {"type": "object"}}
-                        }
-                    },
+                    "content": {"application/json": {"schema": {"type": "array", "items": {"type": "object"}}}},
                 }
             },
         }
@@ -433,9 +424,7 @@ def generate_openapi_spec(
         output_schema = contract.get("output_schema") or {"type": "object"}
 
         sec_meta = (
-            bp.get_security_metadata()
-            if hasattr(bp, "get_security_metadata")
-            else {"risk": "low", "permissions": []}
+            bp.get_security_metadata() if hasattr(bp, "get_security_metadata") else {"risk": "low", "permissions": []}
         )
 
         paths[route_path] = {
@@ -447,11 +436,7 @@ def generate_openapi_spec(
                 "requestBody": {
                     "required": True,
                     "description": "Pure business input payload validated against the blueprint's start step contract.",
-                    "content": {
-                        "application/json": {
-                            "schema": input_schema
-                        }
-                    },
+                    "content": {"application/json": {"schema": input_schema}},
                 },
                 "responses": {
                     "202": {
@@ -575,7 +560,7 @@ def generate_openapi_spec(
         },
     }
 
-    return {
+    spec = {
         "openapi": "3.1.0",
         "info": {
             "title": title,
@@ -587,3 +572,8 @@ def generate_openapi_spec(
         "paths": paths,
         "components": components,
     }
+
+    if isinstance(spec_cache, dict):
+        spec_cache[cache_key] = spec
+
+    return spec

@@ -10,10 +10,11 @@
 
 ## 🚀 Key Features
 
-- **Modern Type-Safe FSM**: Declarative `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end` decorators, `StatesGroup`, `State`, and native Pydantic schema validation.
+- **Modern Type-Safe FSM**: Declarative `@bp.start`, `@bp.step`, `@bp.decide`, `@bp.end` decorators, `StatesGroup`, `State`, and native `@dataclass` / `msgspec.Struct` models (with transparent duck-typing for Pydantic).
 - **5 Clean Storage Zones**: Explicit domain boundaries separating `input`, `steps`, `history`, `meta`, and `output`.
-- **Advisory AI Routing & Deterministic Replay**: Host-Owned Choice and fail-open routing with auditable `ExecutionReceipt` and offline drift evaluation.
+- **Advisory AI Routing & Deterministic Replay**: Host-Owned Choice and fail-open routing with auditable `ExecutionReceipt` and offline drift evaluation CLI (`holarchy replay evaluate`).
 - **Auto-Generated OpenAPI 3.1 & Branded Docs**: Machine-readable specification at `/openapi.json` and custom dark-mode test harness UI at `/docs`.
+- **4-Tier In-Memory Caching & Memoization**: Sub-millisecond serving with thread-safe LRU/FIFO schema cache in `rxon`, spatial DAG topological caching in `Blueprint`, pre-serialized OpenAPI 3.1 JSON bytes and pre-rendered docs HTML in `OrchestratorEngine` with automatic revision-based invalidation.
 - **Zero-Trust Incident Evidence Cards**: Instant diagnostic post-mortems via `GET /jobs/{id}/evidence?format=md` with automated root cause classification.
 - **High-Performance**: **ZSET-based** queue indexing, **Work Stealing** mechanism (Lua), and atomic state transitions.
 - **Zero Trust Security & Policy Enforcement**: Full `SecurityContext` implementation, cryptographic HMAC-SHA256 task signing (`sig`) via `ORCHESTRATOR_SECRET_KEY`, identity chain verification, and granular skill execution policies (`allowed_skills`).
@@ -31,7 +32,7 @@ This document serves as a comprehensive guide for developers looking to build pi
 
 ## Table of Contents
 
-- [Core Concept: Orchestrator, Blueprints, and Workers](#core-concept-orchestrator-blueprints-and-workers)
+- [Core Architecture: Orchestrator, Blueprints, and Workers](#core-architecture-orchestrator-blueprints-and-workers)
 - [Installation](#installation)
 - [Quick Start: Usage as a Library](#quick-start-usage-as-a-library)
 - [Key Concepts: JobContext and Actions](#key-concepts-jobcontext-and-actions)
@@ -51,17 +52,15 @@ This document serves as a comprehensive guide for developers looking to build pi
   - [Setup Environment](#setup-environment)
   - [Running Tests](#running-tests)
 
-## Core Concept: Orchestrator, Blueprints, and Workers
+## Core Architecture: Orchestrator, Blueprints, and Workers
 
-The project is based on a simple yet powerful architectural pattern that separates process logic from execution logic.
+Holarchy decouples process orchestration from distributed computational execution across three primary components:
 
-- **Orchestrator (OrchestratorEngine)** — The Director. It manages the entire process from start to finish, tracks state, handles errors, and decides what should happen next. It does not perform business tasks itself.
-- **Blueprints (Blueprint)** — The Script. Each blueprint is a detailed plan (a state machine) for a specific business process. It describes the steps (states) and the rules for transitioning between them.
-- **Workers (Worker)** — The Team of Specialists. These are independent, specialized executors. Each worker knows how to perform a specific set of tasks (e.g., "process video," "send email") and reports back to the Orchestrator.
+- **Orchestrator (`OrchestratorEngine`)**: Central coordinator maintaining persistent job states, resolving routing decisions, validating schemas, handling retries, and dispatching work over Redis streams.
+- **Blueprints (`Blueprint`)**: Declarative state machines defining execution graphs, transition policies, data aggregation strategies, and handler routines for business workflows.
+- **Workers (`Worker`)**: Autonomous execution nodes connecting to the orchestrator via reverse polling over HTTP. Workers register supported capabilities, pull assigned tasks, execute compute-intensive or domain-specific logic, and report results back.
 
-### Why does this matter?
-
-In the **HLN** architecture, the Orchestrator acts as a "Ghost" (Internal logic), while Workers act as "Shells" (Execution interface). Thanks to the **Shell-Stacking** principle, any Orchestrator can be encased in a worker shell, allowing for the construction of infinite fractal networks (**Holarchies**).
+Under the Holarchical Logic Network (HLN) architecture, orchestrators handle workflow state management while workers provide standardized execution wrappers. Through recursive composition, an orchestrator instance can execute behind a worker interface, enabling nested multi-tier hierarchical clusters.
 
 ## Ecosystem
 
@@ -148,65 +147,64 @@ You can easily integrate and run the orchestrator engine within your own applica
 
 ```python
 # my_app.py
-import asyncio
-from holarchy import OrchestratorEngine, Blueprint
-from holarchy.context import ActionFactory
-from holarchy.storage import MemoryStorage
+from asyncio import Event, run
+from dataclasses import dataclass
+
+from holarchy import Blueprint, OrchestratorEngine
 from holarchy.config import Config
+from holarchy.context import ActionFactory
+from holarchy.fsm import State, StatesGroup
+from holarchy.storage import MemoryStorage
 
-# 1. General Configuration
+
+@dataclass
+class OrderInput:
+    order_id: int
+    amount: float
+
+
+class OrderFlow(StatesGroup):
+    start = State()
+    finalize = State()
+
+
 storage = MemoryStorage()
-config = Config()  # Loads configuration from environment variables
-
-# Explicitly set tokens for this example
-# Client token must be sent in the 'X-Client-Token' header.
+config = Config()
 config.CLIENT_TOKEN = "my-secret-client-token"
-# Worker token must be sent in the 'X-Worker-Token' header.
 config.GLOBAL_WORKER_TOKEN = "my-secret-worker-token"
 
-# 2. Define the Workflow Blueprint
-bp = Blueprint(name="bp", api_version="v1", api_endpoint="/jobs/my_flow")
+bp = Blueprint(name="order_pipeline", api_version="v1", api_endpoint="/jobs/order")
 
 
-# Use dependency injection to get only the data you need.
-@bp.handler(is_start=True)
-async def start(job_id: str, initial_data: dict, actions: ActionFactory):
+@bp.start(OrderFlow.start)
+async def process_start(data: OrderInput, actions: ActionFactory) -> State:
     """The initial state for each new job."""
-    print(f"Job {job_id} | Start: {initial_data}")
-    actions.go_to("end")
+    print(f"Order #{data.order_id} received, amount: {data.amount}")
+    return OrderFlow.finalize
 
 
-# You can still request the full context object if you prefer.
-@bp.handler(is_end=True)
-async def end(context):
+@bp.end(OrderFlow.finalize)
+async def process_finalize(context) -> dict[str, str]:
     """The final state. The pipeline ends here."""
     print(f"Job {context.job_id} | Complete.")
+    return {"status": "completed"}
 
 
-# 3. Initialize the Orchestrator Engine
 engine = OrchestratorEngine(storage, config)
 engine.register_blueprint(bp)
 
-# 4. Accessing Components (Optional)
-# You can access the internal aiohttp app and core components using AppKeys
-# from holarchy.app_keys import ENGINE_KEY, DISPATCHER_KEY
-# app = engine.app
-# dispatcher = app[DISPATCHER_KEY]
 
-
-# 5. Define the main entrypoint to run the server
-async def main():
+async def main() -> None:
     await engine.start()
-
     try:
-        await asyncio.Event().wait()
+        await Event().wait()
     finally:
         await engine.stop()
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        run(main())
     except KeyboardInterrupt:
         print("\nStopping server.")
 ```
@@ -228,66 +226,50 @@ State handlers are the core of your workflow logic. Holarchy provides a powerful
 
 Instead of receiving a single, large `context` object, your handler can ask for exactly what it needs as function arguments. The engine will automatically provide them.
 
-> **Tip:** The state name in `@bp.handler()` and `@bp.aggregator()` is now optional. If omitted, the name of the function will be used as the state name.
+> **Tip:** In v1.0.0, use declarative `@bp.start(State)`, `@bp.step(State, condition=...)`, and `@bp.end(State)`. The legacy `@bp.handler(state_name)` decorator remains fully supported for backward compatibility.
 
-The following arguments can be injected by name:
+### 5 Clean Storage Zones (Pure Data Architecture)
 
+Holarchy v1.0.0 replaces monolithic state blobs with 5 cleanly partitioned storage zones:
+- **`input`** (dict or typed model): The immutable business data the job was started with.
+- **`output`** (Any): The final business outcome returned by the `@bp.end` handler.
+- **`steps`** (dict): Intermediate results returned by preceding steps (`steps[step_name]`) and worker task outcomes.
+- **`history`** (list): Chronological execution audit events with latencies and timestamps.
+- **`params`** (dict): Client plan parameters and static configuration.
+
+*(Clean Slate Architecture: Zero legacy aliases or backward compatibility bridges; the 5 storage zones are the sole canonical memory model).*
+
+The following arguments can be injected by name, type, or decorator:
+
+- **By Type:** Any Pydantic v2 `BaseModel`, `msgspec.Struct`, or `@dataclass` matching the input or a previous step's return value.
 - **From the core job context:**
+  - `ctx` (Context): The full runtime context with `ctx.actions`, `ctx.input`, `ctx.steps`, and `ctx.decide()`.
+  - `actions` (ActionFactory): Control object for transitions and task dispatch.
+  - `input` (dict): The job's input payload.
   - `job_id` (str): The ID of the current job.
-  - `initial_data` (dict): The data the job was created with.
-  - `state_history` (dict): A dictionary for storing and passing data between steps. Data returned by workers is automatically merged into this dictionary.
-  - `actions` (ActionFactory): The object used to tell the orchestrator what to do next (e.g., `actions.go_to(...)`).
-  - `client` (ClientConfig): Information about the API client that started the job.
-  - `data_stores` (SimpleNamespace): Access to shared resources like database connections or caches.
-- **From worker results:**
-  - Any key from a dictionary returned by a previous worker can be injected by name.
+  - `task_files`: Access to S3/local workspace files for the job.
+- **From HTTP Headers:**
+  - `Annotated[T, Header("Header-Name")]`: Automatically extracts and converts HTTP request headers.
 
 ### Example: Dependency Injection
 
-This is the recommended way to write handlers.
+This is the recommended modern way to write handlers:
 
 ```python
-# A worker for this task returned: {"output_path": "/videos/123.mp4", "duration": 95}
-# This dictionary was automatically merged into `state_history`.
-
-
-@bp.handler
+@bp.step(OrderFlow.process)
 async def publish_video(
     job_id: str,
-    output_path: str,  # Injected from state_history
-    duration: int,  # Injected from state_history
-    actions: ActionFactory,
+    output_path: str,  # Injected by name or from preceding steps
+    ctx: Context,
 ):
-    print(f"Job {job_id}: Publishing video at {output_path} ({duration}s).")
-    actions.go_to("complete")
-```
-
-### The `actions` Object
-
-This is the most important injected argument. It tells the orchestrator what to do next. **Only one** `actions` method can be called in a single handler.
-
-- `actions.go_to("next_state")`: Moves the job to a new state.
-- `actions.dispatch_task(...)`: Delegates work to a Worker.
-- `actions.dispatch_parallel(...)`: Runs multiple tasks at once.
-- `actions.await_human_approval(...)`: Pauses the workflow for external input.
-- `actions.run_blueprint(...)`: Starts a child workflow.
-
-### Granular Dependency Injection
-
-Holarchy uses modern dependency injection for handlers. Instead of receiving a single, large `context` object, your handler can ask for exactly what it needs as function arguments. The engine will automatically provide them.
-
-```python
-@bp.handler("analyze")
-async def analyze(initial_data, state_history, actions):
-    # Field names are automatically matched and injected
-    print(f"Processing {initial_data.get('file')}")
-    actions.go_to("done")
+    print(f"Job {job_id}: Publishing video at {output_path}.")
+    ctx.actions.go_to(OrderFlow.complete)
 ```
 
 Available arguments for injection:
 
 - `actions`: The `ActionFactory` (required for control).
-- `job_id`, `current_state`, `initial_data`, `state_history`: Core job fields.
+- `job_id`, `current_state`, `input`, `steps`, `output`, `history`, `params`: Core job fields.
 - `data_stores`: Access to shared memory/database stores.
 - `task_files`: Access to S3/Local files for the job.
 - `aggregation_results`: Results from parallel tasks.
@@ -319,28 +301,35 @@ Holarchy is engineered for high-load environments with thousands of concurrent w
 
 ### 1. Conditional Transitions
 
-Pass conditions directly to `@bp.handler()` to create conditional logic branches. Conditions are declarative **`FastF` expressions** from the `fast-filter` library, compiled into native Python lambdas on first evaluation for maximum performance.
+Pass conditions directly to `@bp.step()` (or `@bp.handler()`) to create conditional logic branches. Conditions are declarative **`FastF` expressions** from the `fast-magic-filter` library, resolving through the 4-tier `StepScope` cascade (current scope $\rightarrow$ `input` $\rightarrow$ `steps`).
 
 ```python
-from holarchy import F  # F is re-exported from fast-filter
+from holarchy import Blueprint, Context, F, State, StatesGroup
 
 
-# Simple equality check on initial_data (inferred state name "decision_step")
-@bp.handler(F.initial_data["type"] == "urgent")
-async def decision_step(actions):
-    actions.go_to("urgent_processing")
+class Flow(StatesGroup):
+    decision = State()
+    urgent_processing = State()
+    priority_lane = State()
+    normal_processing = State()
 
 
-# Compound condition with logical AND (custom state name "decision_step")
-@bp.handler("decision_step", (F.initial_data["priority"] >= 8) & (F.initial_data["active"] == True))
-async def high_priority_step(actions):
-    actions.go_to("priority_lane")
+# Direct property matching on input payload via StepScope
+@bp.step(Flow.decision, condition=F.type == "urgent")
+async def handle_urgent(ctx: Context):
+    ctx.actions.go_to(Flow.urgent_processing)
 
 
-# The default handler if no condition matches.
-@bp.handler
-async def decision_step(actions):
-    actions.go_to("normal_processing")
+# Compound condition with logical AND
+@bp.step(Flow.decision, condition=(F.priority >= 8) & (F.active == True))
+async def handle_priority(ctx: Context):
+    ctx.actions.go_to(Flow.priority_lane)
+
+
+# Fallback step if no prior condition matches
+@bp.step(Flow.decision)
+async def handle_default(ctx: Context):
+    ctx.actions.go_to(Flow.normal_processing)
 ```
 
 **Supported condition syntax:**
@@ -363,11 +352,11 @@ async def decision_step(actions):
 This is the primary function for delegating work. The orchestrator will queue the task and wait for a worker to pick it up and return a result.
 
 ```python
-@bp.handler
-async def transcode_video(initial_data, actions):
+@bp.step
+async def transcode_video(input: dict, actions: ActionFactory):
     actions.dispatch_task(
         task_type="video_transcoding",
-        params={"input_path": initial_data.get("path")},
+        params={"input_path": input.get("path")},
         # Define the next step based on the worker's response status
         transitions={
             "success": "publish_video",
@@ -385,11 +374,9 @@ Run multiple tasks simultaneously and gather their results. **Isolated branch st
 
 ```python
 # 1. Fan-out: Dispatch multiple tasks to be aggregated into a single state
-@bp.handler
-async def process_files(initial_data, actions):
-    tasks_to_dispatch = [
-        {"task_type": "file_analysis", "params": {"file": file}} for file in initial_data.get("files", [])
-    ]
+@bp.step
+async def process_files(input: dict, actions: ActionFactory):
+    tasks_to_dispatch = [{"task_type": "file_analysis", "params": {"file": file}} for file in input.get("files", [])]
     # Use dispatch_parallel to send all tasks at once.
     # All successful tasks will implicitly lead to the 'aggregate_into' state.
     actions.dispatch_parallel(tasks=tasks_to_dispatch, aggregate_into="aggregate_results")
@@ -397,13 +384,13 @@ async def process_files(initial_data, actions):
 
 # 2. Fan-in: Collect results using the @aggregator decorator
 @bp.aggregator
-async def aggregate_results(aggregation_results, state_history, actions):
+async def aggregate_results(aggregation_results, steps, actions):
     # This handler will only execute AFTER ALL tasks
     # dispatched by dispatch_parallel are complete.
 
     # aggregation_results is a dictionary of {task_id: result_dict}
     summary = [res.get("data") for res in aggregation_results.values()]
-    state_history["summary"] = summary
+    steps["summary"] = summary
     actions.go_to("processing_complete")
 ```
 
@@ -412,15 +399,15 @@ async def aggregate_results(aggregation_results, state_history, actions):
 Provide handlers with access to external resources (like a cache or DB client).
 
 ```python
-import redis.asyncio as redis
+from redis.asyncio import Redis
 
 # 1. Initialize and register your DataStore
-redis_client = redis.Redis(decode_responses=True)
+redis_client = Redis(decode_responses=True)
 bp = Blueprint("blueprint_with_datastore", data_stores={"cache": redis_client})
 
 
 # 2. Use it in a handler via dependency injection
-@bp.handler
+@bp.step
 async def get_from_cache(data_stores):
     # Access the redis_client by the name "cache"
     user_data = await data_stores.cache.get("user:123")
@@ -458,7 +445,7 @@ Orchestrator provides first-class support for handling large files via S3-compat
 - **Directory Support**: Supports recursive download and upload of entire directories.
 
 ```python
-@bp.handler
+@bp.step
 async def process_data(task_files, actions):
     # Streaming download of a large file
     local_path = await task_files.download("large_dataset.csv")
@@ -470,6 +457,7 @@ async def process_data(task_files, actions):
 
     actions.go_to("finished")
 ```
+
 
 ## API Groups & Versioning
 
@@ -485,7 +473,7 @@ All external API endpoints are strictly versioned and prefixed with `/api/v1/`.
 ```http
 POST /api/v1/jobs/my_flow
 {
-    "initial_data": {
+    "input": {
         "video_url": "..."
     },
     "webhook_url": "https://my-app.com/webhooks/holarchy",
@@ -575,7 +563,7 @@ Multiple Orchestrator instances can run behind a load balancer.
 ```http
 POST /api/v1/jobs/my_flow
 {
-    "initial_data": {"input_val": 42},
+    "input": {"input_val": 42},
     "policy": {
         "allowed_skills": ["data_extractor", "pdf_generator"]
     },
@@ -606,6 +594,18 @@ from holarchy.cli.audit import verify_d_dna_integrity
 is_valid, error = verify_d_dna_integrity(job_history_events, audit_salt="my_secret_salt")
 if not is_valid:
     print(f"History tampering detected: {error}")
+```
+
+#### Deterministic Replay CLI (`holarchy replay evaluate`):
+
+Evaluate historical advisory execution receipts offline against updated blueprint routing logic to catch decision drift before production deployment:
+
+```bash
+# Evaluate historical execution receipts
+holarchy replay evaluate --app my_module:bp --cases .holarchy/replay/cases.jsonl
+
+# Enforce zero drift in CI pipelines (exits with code 1 if drift detected)
+holarchy replay evaluate --app my_module:bp --cases .holarchy/replay/cases.jsonl --strict
 ```
 
 ### Rate Limiting

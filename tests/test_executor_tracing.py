@@ -7,8 +7,9 @@
 from unittest.mock import AsyncMock, MagicMock
 
 from pytest import mark
-from src.holarchy import executor as executor_mod
-from src.holarchy.executor import JobExecutor
+
+from holarchy import executor as executor_mod
+from holarchy.executor import JobExecutor
 
 
 @mark.asyncio

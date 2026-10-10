@@ -10,9 +10,9 @@ from unittest.mock import MagicMock
 from pytest import fixture, raises
 
 from holarchy import F, FastF
-from holarchy import F as avt_F
-from holarchy import FastF as avt_FastF
-from holarchy import __all__ as avt_all
+from holarchy import F as spirit_F
+from holarchy import FastF as spirit_FastF
+from holarchy import __all__ as spirit_all
 from holarchy.blueprint import Blueprint, ConditionalHandler
 
 
@@ -28,17 +28,17 @@ def make_handler(condition: FastF, state: str = "s") -> ConditionalHandler:
 
 class TestPublicApi:
     def test_F_is_importable_from_holarchy(self):
-        assert avt_F is F
+        assert spirit_F is F
 
     def test_FastF_is_importable_from_holarchy(self):
-        assert avt_FastF is FastF
+        assert spirit_FastF is FastF
 
     def test_F_is_FastF_instance(self):
         assert isinstance(F, FastF)
 
     def test_FastF_in_all(self):
-        assert "F" in avt_all
-        assert "FastF" in avt_all
+        assert "F" in spirit_all
+        assert "FastF" in spirit_all
 
     def test_custom_filter_is_fastf(self):
         f = F.some.attr == "value"

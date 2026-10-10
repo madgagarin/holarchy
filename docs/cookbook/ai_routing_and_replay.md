@@ -14,7 +14,7 @@ Holarchy embraces the **Host-Owned Choice** and **Fail-Open Guarantee** principl
 Use `@bp.decide` to declare an intelligent routing step:
 
 ```python
-from pydantic import BaseModel
+from dataclasses import dataclass
 from holarchy import Blueprint, Context, State, StatesGroup
 
 
@@ -27,7 +27,8 @@ class OrderFlow(StatesGroup):
     finalize = State()
 
 
-class OrderInput(BaseModel):
+@dataclass
+class OrderInput:
     order_id: int
     amount: float
     user_tier: str
@@ -136,22 +137,23 @@ Replay testing evaluates decision models against historic production receipts wi
 
 ```python
 from pathlib import Path
+
 from holarchy.testing.replay import ReplayTestRunner, record_execution_receipt
 
 # 1. Record production or synthetic cases
 cases_file = Path("test_cases/order_routing.jsonl")
 
-# 2. Run replay suite against updated blueprint
-runner = ReplayTestRunner(blueprint=order_bp, cases_file=str(cases_file))
-report = await runner.run()
+# 2. Run replay evaluation synchronously in memory
+runner = ReplayTestRunner(order_bp)
+report = runner.evaluate(str(cases_file))
 
 print(f"Total Cases: {report.total_cases}")
-print(f"Accuracy vs Baseline: {report.accuracy_rate:.2%}")
-print(f"Fallback Invocations: {report.fallback_count}")
-print(f"Average Decision Latency: {report.avg_latency_ms} ms")
+print(f"Matched Decisions: {report.matched_cases}")
+print(f"Drift Rate: {report.drift_rate:.1%}")
+print(f"Fallback Invocations: {report.fallback_cases}")
 
-# Ensure no regressions
-assert report.accuracy_rate >= 0.98
+# Ensure no regression drift
+assert report.drift_cases == 0
 ```
 
 ### CLI Replay Tool
@@ -159,5 +161,9 @@ assert report.accuracy_rate >= 0.98
 Run replay tests directly from your terminal or CI/CD pipeline:
 
 ```bash
-holarchy replay --blueprint intelligent_orders --cases test_cases/order_routing.jsonl --tolerance 0.05
+# Evaluate historical execution receipts
+holarchy replay evaluate --app my_module:order_bp --cases test_cases/order_routing.jsonl
+
+# Fail CI if drift is detected
+holarchy replay evaluate --app my_module:order_bp --cases test_cases/order_routing.jsonl --strict
 ```

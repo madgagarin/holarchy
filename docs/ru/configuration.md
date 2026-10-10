@@ -211,7 +211,7 @@ input_data = { compression = "max" }
    _Примечание:_ Использование параметра `?fields=...` в этом режиме ограничено только этими 4 полями.
 
 2. **Детальный режим** (`DETAILED_API_RESPONSES=true`):
-   Возвращается полный объект состояния задачи, включая `state_history`, `initial_data`, `client_config` и др.
+   Возвращается полный объект состояния задачи, включая `input`, `steps`, `output`, `history`, `params`, `client_config` и др.
 
 ### Безопасность и TLS (mTLS)
 

@@ -7,7 +7,8 @@
 from asyncio import sleep
 
 from pytest import mark
-from src.holarchy.storage.base import StorageBackend
+
+from holarchy.storage.base import StorageBackend
 
 
 @mark.asyncio

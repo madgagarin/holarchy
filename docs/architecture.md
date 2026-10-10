@@ -98,7 +98,7 @@ A critical element of protection is the strict validation of input and output da
 
 1.  **Two-Level Validation**:
     - **Worker-side**: The Worker SDK validates the result before sending, preventing the transmission of obviously incorrect data.
-    - **Orchestrator-side**: The Orchestrator core re-validates the data before saving it to `state_history`. Any deviation moves the task to `failed` status with a `CONTRACT_VIOLATION` code.
+    - **Orchestrator-side**: The Orchestrator core re-validates the data before saving it to `steps`. Any deviation moves the task to `failed` status with a `CONTRACT_VIOLATION` code.
 
 2.  **Schema Hierarchy (Schema Priority)**:
     - **Blueprint Priority**: If a schema is explicitly defined in the blueprint (`actions.dispatch_task(..., output_schema=...)`), it has absolute priority. The Orchestrator will ignore worker declarations and apply the "law of the blueprint."

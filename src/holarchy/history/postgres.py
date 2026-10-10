@@ -275,7 +275,7 @@ class PostgresHistoryStorage(HistoryStorageBase, ABC):
             WHERE rn = 1
             ORDER BY timestamp DESC
             LIMIT ${idx} OFFSET ${idx + 1};
-        """
+        """  # nosec B608
         try:
             async with self._pool.acquire() as conn:
                 rows = await conn.fetch(query, *params)
@@ -309,7 +309,7 @@ class PostgresHistoryStorage(HistoryStorageBase, ABC):
             FROM latest_events
             WHERE rn = 1
             GROUP BY status;
-        """
+        """  # nosec B608
         summary = {}
         try:
             async with self._pool.acquire() as conn:

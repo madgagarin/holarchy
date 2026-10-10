@@ -1,3 +1,5 @@
+**EN** | [ES](https://github.com/madgagarin/holarchy/blob/main/docs/es/CONTRIBUTING.md) | [RU](https://github.com/madgagarin/holarchy/blob/main/docs/ru/CONTRIBUTING.md)
+
 # Contributing to Holarchy Orchestrator
 
 We welcome contributions! Please follow these guidelines:

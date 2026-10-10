@@ -9,9 +9,10 @@ from unittest.mock import Mock
 
 from aiohttp import web
 from pytest import mark
-from src.holarchy import compression as compression_module
-from src.holarchy.compression import _compress_gzip, compression_middleware
 from zstandard import ZstdDecompressor
+
+from holarchy import compression as compression_module
+from holarchy.compression import _compress_gzip, compression_middleware
 
 
 @mark.asyncio

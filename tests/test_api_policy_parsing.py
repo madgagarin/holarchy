@@ -26,7 +26,7 @@ async def test_api_policy_parsing_happy_path(aiohttp_client):
 
     bp = Blueprint("test_bp")
 
-    @bp.handler("start", is_start=True, is_end=True)
+    @bp.start("start", is_end=True)
     async def start():
         pass
 
@@ -40,7 +40,7 @@ async def test_api_policy_parsing_happy_path(aiohttp_client):
     client = await aiohttp_client(app)
 
     valid_payload = {
-        "initial_data": {"x": 1},
+        "input": {"x": 1},
         "policy": {"allowed_skills": ["skill_a", "skill_b"], "rate_limit": 10},
         "max_transitions": 50,
     }
@@ -68,7 +68,7 @@ async def test_api_policy_parsing_invalid_policy_type(aiohttp_client):
 
     bp = Blueprint("test_bp")
 
-    @bp.handler("start", is_start=True, is_end=True)
+    @bp.start("start", is_end=True)
     async def start():
         pass
 
@@ -101,7 +101,7 @@ async def test_api_policy_parsing_invalid_allowed_skills(aiohttp_client):
 
     bp = Blueprint("test_bp")
 
-    @bp.handler("start", is_start=True, is_end=True)
+    @bp.start("start", is_end=True)
     async def start():
         pass
 
@@ -137,7 +137,7 @@ async def test_api_policy_parsing_oversized_policy(aiohttp_client):
 
     bp = Blueprint("test_bp")
 
-    @bp.handler("start", is_start=True, is_end=True)
+    @bp.start("start", is_end=True)
     async def start():
         pass
 
@@ -170,7 +170,7 @@ async def test_api_policy_parsing_invalid_max_transitions(aiohttp_client):
 
     bp = Blueprint("test_bp")
 
-    @bp.handler("start", is_start=True, is_end=True)
+    @bp.start("start", is_end=True)
     async def start():
         pass
 

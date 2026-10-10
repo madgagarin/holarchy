@@ -15,22 +15,25 @@ pip install "holonode[pydantic,s3]"
 
 ---
 
-## 2. Defining Skills with Pydantic & Security Metadata
+## 2. Defining Skills with Domain Models & Security Metadata
 
-Declare your skills using the `@worker.skill` decorator with risk levels and permissions:
+Declare your skills using the `@worker.skill` decorator with risk levels and permissions. Parameters and return types support standard `@dataclass`, `msgspec.Struct`, or Pydantic models:
 
 ```python
-import asyncio
-from pydantic import BaseModel, Field
+from asyncio import sleep
+from dataclasses import asdict, dataclass
+
 from holonode import Worker
 
 
-class InventoryCheckParams(BaseModel):
-    sku: str = Field(..., description="Stock Keeping Unit identifier")
-    quantity: int = Field(..., gt=0, description="Quantity requested")
+@dataclass
+class InventoryCheckParams:
+    sku: str
+    quantity: int
 
 
-class InventoryCheckResult(BaseModel):
+@dataclass
+class InventoryCheckResult:
     in_stock: bool
     available_quantity: int
     warehouse_code: str
@@ -49,17 +52,18 @@ async def check_inventory(params: InventoryCheckParams, **kwargs) -> dict:
     task_id = kwargs.get("task_id")
     print(f"Checking SKU {params.sku} for task {task_id}")
 
-    # Domain logic
     available = 42
     in_stock = available >= params.quantity
 
     return {
         "status": "success",
-        "data": InventoryCheckResult(
-            in_stock=in_stock,
-            available_quantity=available,
-            warehouse_code="WH-US-EAST",
-        ).model_dump(),
+        "data": asdict(
+            InventoryCheckResult(
+                in_stock=in_stock,
+                available_quantity=available,
+                warehouse_code="WH-US-EAST",
+            )
+        ),
     }
 ```
 
@@ -79,7 +83,7 @@ async def render_video(params: dict, **kwargs) -> dict:
             print(f"Cancellation requested for task {task_id}. Cleaning up...")
             return {"status": "cancelled", "message": "Render halted by orchestrator"}
 
-        await asyncio.sleep(0.01)
+        await sleep(0.01)
 
     return {"status": "success", "data": {"frames_rendered": 1000}}
 ```

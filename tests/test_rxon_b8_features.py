@@ -153,7 +153,7 @@ async def test_b8_executor_event_timestamps(engine, storage):
             "blueprint_name": "bp1",
             "current_state": "start",
             "status": "running",
-            "initial_data": {},
+            "input": {},
             "client_config": {},
         },
     )

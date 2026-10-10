@@ -3,10 +3,10 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from dataclasses import dataclass
 from uuid import uuid4
 
-import pytest
-from pydantic import BaseModel
+from pytest import fixture, mark
 
 from holarchy import Blueprint, Context
 from holarchy.config import Config
@@ -14,29 +14,31 @@ from holarchy.engine import OrchestratorEngine
 from holarchy.storage.memory import MemoryStorage
 
 
-class CalcInput(BaseModel):
+@dataclass
+class CalcInput:
     x: int
     y: int
 
 
-class CalcOutput(BaseModel):
+@dataclass
+class CalcOutput:
     result: int
     operation: str
 
 
-@pytest.fixture
+@fixture
 def engine():
     storage = MemoryStorage()
     config = Config()
     return OrchestratorEngine(storage, config)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_sub_blueprint_e2e_dataflow(engine):
     # 1. Child Blueprint
     child_bp = Blueprint("multiplier_bp")
 
-    @child_bp.handler("calc", is_start=True, is_end=True)
+    @child_bp.start("calc", is_end=True)
     async def calc(calc_input: CalcInput, actions):
         res = calc_input.x * calc_input.y
         actions.save_result(CalcOutput(result=res, operation="multiplication"))
@@ -45,7 +47,7 @@ async def test_sub_blueprint_e2e_dataflow(engine):
     parent_bp = Blueprint("main_flow_bp")
     parent_captured = {}
 
-    @parent_bp.handler("invoke_child", is_start=True)
+    @parent_bp.start("invoke_child")
     async def invoke_child(ctx: Context):
         ctx.run_blueprint(
             "multiplier_bp",
@@ -53,7 +55,7 @@ async def test_sub_blueprint_e2e_dataflow(engine):
             transitions={"success": "handle_result", "failure": "failed"},
         )
 
-    @parent_bp.handler("handle_result", is_end=True)
+    @parent_bp.end("handle_result")
     async def handle_result(
         multiplier_bp: CalcOutput,  # DI matching by sub-blueprint name
         result_typed: CalcOutput,  # DI matching by model type from steps Blackboard
@@ -61,7 +63,7 @@ async def test_sub_blueprint_e2e_dataflow(engine):
         parent_captured["by_name"] = multiplier_bp
         parent_captured["by_type"] = result_typed
 
-    @parent_bp.handler("failed", is_end=True)
+    @parent_bp.end("failed", status="failed")
     async def failed():
         pass
 
@@ -107,12 +109,12 @@ async def test_sub_blueprint_e2e_dataflow(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_sub_blueprint_failure_transition(engine):
     # Child Blueprint that fails
     child_bp = Blueprint("failing_child_bp")
 
-    @child_bp.handler("do_fail", is_start=True)
+    @child_bp.start("do_fail")
     async def do_fail(actions):
         raise RuntimeError("Something went wrong inside child!")
 
@@ -120,7 +122,7 @@ async def test_sub_blueprint_failure_transition(engine):
     parent_bp = Blueprint("parent_with_fallback_bp")
     parent_captured = {}
 
-    @parent_bp.handler("start", is_start=True)
+    @parent_bp.start("start")
     async def start(ctx: Context):
         ctx.run_blueprint(
             "failing_child_bp",
@@ -128,11 +130,11 @@ async def test_sub_blueprint_failure_transition(engine):
             transitions={"success": "happy_path", "failure": "fallback_path"},
         )
 
-    @parent_bp.handler("happy_path", is_end=True)
+    @parent_bp.end("happy_path")
     async def happy_path():
         pass
 
-    @parent_bp.handler("fallback_path", is_end=True)
+    @parent_bp.end("fallback_path")
     async def fallback_path(ctx: Context):
         parent_captured["fallback_called"] = True
         parent_captured["sub_job_key"] = f"sub_job_{ctx.steps.get('child_job_id', '')}"
@@ -165,12 +167,12 @@ async def test_sub_blueprint_failure_transition(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_sub_blueprint_primitive_output(engine):
     # Child returns raw primitive int
     child_bp = Blueprint("primitive_child_bp")
 
-    @child_bp.handler("do_work", is_start=True, is_end=True)
+    @child_bp.start("do_work", is_end=True)
     async def do_work(actions):
         actions.save_result(12345)
 
@@ -178,11 +180,11 @@ async def test_sub_blueprint_primitive_output(engine):
     parent_bp = Blueprint("parent_primitive_bp")
     parent_captured = {}
 
-    @parent_bp.handler("invoke", is_start=True)
+    @parent_bp.start("invoke")
     async def invoke(ctx: Context):
         ctx.run_blueprint("primitive_child_bp", transitions={"success": "done"})
 
-    @parent_bp.handler("done", is_end=True)
+    @parent_bp.end("done")
     async def done(ctx: Context):
         parent_captured["child_res"] = ctx.steps.get("primitive_child_bp")
 
@@ -203,18 +205,18 @@ async def test_sub_blueprint_primitive_output(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_sub_blueprint_input_contract_validation_failure(engine):
     # Child Blueprint with input schema requiring int
     child_bp = Blueprint("contract_child_bp")
 
-    @child_bp.handler("step", is_start=True, is_end=True)
+    @child_bp.start("step", is_end=True)
     async def step(val: int, actions):
         pass
 
     parent_bp = Blueprint("parent_bad_contract_bp")
 
-    @parent_bp.handler("start", is_start=True)
+    @parent_bp.start("start")
     async def start(ctx: Context):
         # Pass invalid input (string instead of int)
         ctx.run_blueprint(
@@ -223,11 +225,11 @@ async def test_sub_blueprint_input_contract_validation_failure(engine):
             transitions={"success": "ok", "failure": "failed"},
         )
 
-    @parent_bp.handler("ok", is_end=True)
+    @parent_bp.end("ok")
     async def ok():
         pass
 
-    @parent_bp.handler("failed", is_end=True)
+    @parent_bp.end("failed")
     async def failed():
         pass
 
@@ -246,21 +248,21 @@ async def test_sub_blueprint_input_contract_validation_failure(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_sub_blueprint_max_depth_quarantine(engine):
     child_bp = Blueprint("depth_child_bp")
 
-    @child_bp.handler("work", is_start=True, is_end=True)
+    @child_bp.start("work", is_end=True)
     async def work(actions):
         pass
 
     parent_bp = Blueprint("depth_parent_bp")
 
-    @parent_bp.handler("start", is_start=True)
+    @parent_bp.start("start")
     async def start(ctx: Context):
         ctx.run_blueprint("depth_child_bp", transitions={"success": "done"})
 
-    @parent_bp.handler("done", is_end=True)
+    @parent_bp.end("done")
     async def done():
         pass
 
@@ -280,19 +282,19 @@ async def test_sub_blueprint_max_depth_quarantine(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_chained_sub_blueprints_e2e(engine):
     # Sub BP 1: add 10
     bp1 = Blueprint("add_ten_bp")
 
-    @bp1.handler("add", is_start=True, is_end=True)
+    @bp1.start("add", is_end=True)
     async def add(actions):
         actions.save_result({"val": 10})
 
     # Sub BP 2: multiply by 3
     bp2 = Blueprint("mult_three_bp")
 
-    @bp2.handler("mult", is_start=True, is_end=True)
+    @bp2.start("mult", is_end=True)
     async def mult(actions):
         actions.save_result({"val": 30})
 
@@ -300,17 +302,17 @@ async def test_chained_sub_blueprints_e2e(engine):
     parent_bp = Blueprint("orchestrator_bp")
     parent_captured = {}
 
-    @parent_bp.handler("step1", is_start=True)
+    @parent_bp.start("step1")
     async def step1(ctx: Context):
         ctx.run_blueprint("add_ten_bp", transitions={"success": "step2"})
 
-    @parent_bp.handler("step2")
+    @parent_bp.step("step2")
     async def step2(ctx: Context):
         # bp1 result is in ctx.steps["add_ten_bp"]
         assert ctx.steps["add_ten_bp"]["val"] == 10
         ctx.run_blueprint("mult_three_bp", transitions={"success": "step3"})
 
-    @parent_bp.handler("step3", is_end=True)
+    @parent_bp.end("step3")
     async def step3(ctx: Context):
         parent_captured["bp1_res"] = ctx.steps["add_ten_bp"]["val"]
         parent_captured["bp2_res"] = ctx.steps["mult_three_bp"]["val"]
@@ -345,4 +347,3 @@ async def test_chained_sub_blueprints_e2e(engine):
     assert parent_captured["bp2_res"] == 30
 
     await engine.on_shutdown(engine.app)
-

@@ -1,3 +1,5 @@
+**EN** | [ES](https://github.com/madgagarin/holarchy/blob/main/docs/es/SECURITY.md) | [RU](https://github.com/madgagarin/holarchy/blob/main/docs/ru/SECURITY.md)
+
 # Security Policy
 
 ## Reporting a Vulnerability

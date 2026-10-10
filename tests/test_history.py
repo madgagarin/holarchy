@@ -12,11 +12,12 @@ from aiosqlite import Error as aiosqlite_Error
 from fakeredis.aioredis import FakeRedis
 from pytest import mark, raises
 from pytest_asyncio import fixture
-from src.holarchy.blueprint import Blueprint
-from src.holarchy.config import Config
-from src.holarchy.executor import JobExecutor
-from src.holarchy.history.sqlite import SQLiteHistoryStorage
-from src.holarchy.storage.redis import RedisStorage
+
+from holarchy.blueprint import Blueprint
+from holarchy.config import Config
+from holarchy.executor import JobExecutor
+from holarchy.history.sqlite import SQLiteHistoryStorage
+from holarchy.storage.redis import RedisStorage
 
 # Mark all tests in this file as asyncio
 pytestmark = mark.asyncio
@@ -84,7 +85,7 @@ async def test_initialize_fails(mocker):
     async def mock_connect(*args, **kwargs):
         raise aiosqlite_Error("mock error")
 
-    mocker.patch("src.holarchy.history.sqlite.connect", mock_connect)
+    mocker.patch("holarchy.history.sqlite.connect", mock_connect)
     storage = SQLiteHistoryStorage(":memory:")
     with raises(aiosqlite_Error):
         await storage.initialize()
@@ -192,18 +193,18 @@ async def redis_client():
 test_bp = Blueprint("test_bp")
 
 
-@test_bp.handler("start", is_start=True)
+@test_bp.start("start")
 async def start_handler(context, actions):
     actions.go_to("step_one")
 
 
-@test_bp.handler("step_one")
+@test_bp.step("step_one")
 async def step_one_handler(context, actions):
     # Use a dispatch action to test that event type
     actions.dispatch_task("some_task", params={}, transitions={"success": "finished"})
 
 
-@test_bp.handler("finished")
+@test_bp.end("finished")
 async def finished_handler(context, actions):
     pass  # Terminal state
 
@@ -234,8 +235,8 @@ async def test_executor_logs_history_integration(sqlite_storage: SQLiteHistorySt
         "id": job_id,
         "blueprint_name": "test_bp",
         "current_state": "start",
-        "initial_data": {},
-        "state_history": {},
+        "input": {},
+        "steps": {},
         "status": "pending",
     }
     await job_storage.save_job_state(job_id, job_state)

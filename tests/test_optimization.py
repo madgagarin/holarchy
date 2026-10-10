@@ -30,11 +30,11 @@ async def test_signature_caching(engine):
     bp = Blueprint("test_bp")
 
     # Define a simple handler
-    @bp.handler("start", is_start=True)
+    @bp.start("start")
     async def start_handler(job_id, actions):
         actions.go_to("end")
 
-    @bp.handler("end", is_end=True)
+    @bp.end("end")
     async def end_handler():
         pass
 

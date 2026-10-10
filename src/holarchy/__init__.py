@@ -17,7 +17,7 @@ try:
 
     __version__ = distribution("holarchy").metadata.get("Version") or "0.0.0-dev"  # type: ignore[attr-defined]
 except Exception:
-    __version__ = "0.0.0-dev"
+    __version__ = "1.0.0"
 
 from fast_filter import F, FastF
 from rxon.validators import is_valid_identifier, validate_identifier

@@ -53,7 +53,6 @@ class TimezoneJsonFormatter(json.JsonFormatter):
         self.tz = ZoneInfo(tz_name)
 
     def formatTime(self, record: Any, datefmt: str | None = None) -> str:
-        # Override formatTime to use timezone-aware datetime
         dt = datetime.fromtimestamp(record.created, self.tz)
         if datefmt:
             return dt.strftime(datefmt)
@@ -95,7 +94,6 @@ class LogManager:
 
         queue_handler = QueueHandler(log_queue)
 
-        # Explicitly clear existing handlers to avoid duplicates
         logger = getLogger("holarchy")
         logger.setLevel(log_level)
         for h in logger.handlers[:]:

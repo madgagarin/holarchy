@@ -4,25 +4,25 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
-from src.holarchy.blueprint import Blueprint
+from holarchy.blueprint import Blueprint
 
 error_flow_bp = Blueprint(name="error_flow", api_endpoint="/jobs/error_flow", api_version="v1")
 
 
-@error_flow_bp.handler("start", is_start=True)
-async def start(context, actions):
+@error_flow_bp.start
+async def start(input, actions):
     actions.dispatch_task(
         task_type="error_task",
-        params={"error_type": context.initial_data.get("error_type", "SUCCESS")},
+        params={"error_type": input.get("error_type", "SUCCESS")},
         transitions={"success": "finished", "failure": "failed"},
     )
 
 
-@error_flow_bp.handler("finished", is_end=True)
-async def finished(context, actions):
+@error_flow_bp.end("finished")
+async def finished(actions):
     pass
 
 
-@error_flow_bp.handler("failed", is_end=True)
-async def failed(context, actions):
+@error_flow_bp.end("failed")
+async def failed(actions):
     pass

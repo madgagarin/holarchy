@@ -41,7 +41,7 @@ docker-compose up --build
 
 ### Running Tests
 
-It is **crucial** to run tests after making changes.
+Always run the test suite after introducing code changes.
 
 **1. Setup Test Environment:**
 

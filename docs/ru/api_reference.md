@@ -164,35 +164,45 @@
     "amount": 150.0,
     "is_vip": true
   },
-  "output": {
-    "receipt_id": "rcpt_42",
-    "status": "paid",
-    "amount": 150.0
+  "steps": {
+    "check_inventory": {
+      "in_stock": true,
+      "warehouse_code": "WH-US-EAST"
+    },
+    "charge_card": {
+      "transaction_id": "tx_9988",
+      "authorized": true
+    }
   },
+  "history": [
+    {
+      "state": "FlowStates:init",
+      "status": "success",
+      "duration_ms": 12.4,
+      "timestamp": 1715280001.0
+    },
+    {
+      "state": "FlowStates:finalize",
+      "status": "success",
+      "duration_ms": 5.1,
+      "timestamp": 1715280002.0
+    }
+  ],
   "meta": {
     "priority": "normal",
     "timeout": 300,
     "correlation_id": "corr-order-42",
+    "headers": {
+      "x-correlation-id": "corr-order-42"
+    },
     "created_at": 1715280000.0,
     "finished_at": 1715280004.2
   },
-  "artifacts": {
-    "invoice_pdf": "s3://bucket/invoices/inv_42.pdf"
-  },
-  "receipts": [
-    {
-      "step": "FlowStates:init",
-      "timestamp": 1715280001.0,
-      "status": "success",
-      "chosen": "FlowStates:decide_step"
-    },
-    {
-      "step": "FlowStates:decide_step",
-      "timestamp": 1715280002.0,
-      "status": "success",
-      "chosen": "FlowStates:vip_process"
-    }
-  ]
+  "output": {
+    "receipt_id": "rcpt_42",
+    "status": "paid",
+    "amount": 150.0
+  }
 }
 ```
 

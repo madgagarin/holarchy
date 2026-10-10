@@ -7,9 +7,10 @@
 from unittest.mock import AsyncMock, MagicMock
 
 from pytest import fixture, mark
-from src.holarchy.config import Config
-from src.holarchy.engine import OrchestratorEngine
-from src.holarchy.reputation import ReputationCalculator
+
+from holarchy.config import Config
+from holarchy.engine import OrchestratorEngine
+from holarchy.reputation import ReputationCalculator
 
 
 @fixture

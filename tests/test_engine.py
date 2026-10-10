@@ -8,9 +8,9 @@ from asyncio import Task
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pytest import fixture, mark
-from src.holarchy.blueprint import Blueprint
 
 from holarchy import engine as engine_mod
+from holarchy.blueprint import Blueprint
 from holarchy.config import Config
 from holarchy.engine import OrchestratorEngine
 from holarchy.history.noop import NoOpHistoryStorage
@@ -42,7 +42,7 @@ def engine(storage, config):
 async def test_register_blueprint(engine):
     bp = Blueprint(name="test_bp")
 
-    @bp.handler(is_start=True)
+    @bp.start
     async def start():
         pass
 
@@ -90,3 +90,28 @@ async def test_setup_history_storage_initialization_failure(engine, monkeypatch)
         monkeypatch.setattr(engine_mod, "import_module", mock_import)
         await engine._setup_history_storage()
         assert isinstance(engine.history_storage, NoOpHistoryStorage)
+
+
+@mark.asyncio
+async def test_create_job_initializes_clean_zones(engine):
+    bp = Blueprint("clean_bp")
+
+    @bp.start
+    async def start(actions):
+        pass
+
+    engine.register_blueprint(bp)
+
+    job_id = await engine.create_job("clean_bp", input={"msg": "hello", "count": 10})
+    engine.storage.save_job_state.assert_awaited_once()
+    called_job_id, saved_state = engine.storage.save_job_state.await_args[0]
+
+    assert called_job_id == job_id
+    assert saved_state is not None
+    assert saved_state["input"] == {"msg": "hello", "count": 10}
+    assert saved_state["output"] is None
+    assert saved_state["steps"] == {}
+    assert saved_state["history"] == []
+    assert isinstance(saved_state["params"], dict)
+    assert "initial_data" not in saved_state
+    assert saved_state["blueprint"] == "clean_bp"

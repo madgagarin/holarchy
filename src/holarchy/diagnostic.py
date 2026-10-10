@@ -5,9 +5,9 @@
 
 from __future__ import annotations
 
-import datetime
-import os
-import traceback
+from datetime import UTC, datetime
+from os import environ
+from traceback import format_exception
 from typing import Any
 
 
@@ -38,6 +38,24 @@ def _classify_remediation(error_str: str) -> list[str]:
     return advice
 
 
+def _sanitize_secrets(data: Any) -> Any:
+    """Recursively redacts sensitive keys (passwords, tokens, secrets) from diagnostic payloads."""
+    if isinstance(data, dict):
+        sanitized = {}
+        sensitive_patterns = ("password", "token", "secret", "api_key", "authorization", "auth", "private_key")
+        for k, v in data.items():
+            k_lower = str(k).lower()
+            if any(s in k_lower for s in sensitive_patterns):
+                sanitized[k] = "***REDACTED***"
+
+            else:
+                sanitized[k] = _sanitize_secrets(v)
+        return sanitized
+    elif isinstance(data, list):
+        return [_sanitize_secrets(item) for item in data]
+    return data
+
+
 def generate_evidence_card(
     job_state: dict[str, Any],
     error: Exception | str | None = None,
@@ -47,20 +65,19 @@ def generate_evidence_card(
 
     Ensures HOLARCHY_INTERNAL_AUDIT=1 is active to prevent recursive execution.
     """
-    old_audit_env = os.environ.get("HOLARCHY_INTERNAL_AUDIT")
-    os.environ["HOLARCHY_INTERNAL_AUDIT"] = "1"
+    old_audit_env = environ.get("HOLARCHY_INTERNAL_AUDIT")
+    environ["HOLARCHY_INTERNAL_AUDIT"] = "1"
     try:
         job_id = str(job_state.get("id") or "unknown_job")
         blueprint_name = str(job_state.get("blueprint_name") or "unknown_blueprint")
         status = str(job_state.get("status") or "failed")
         failed_step = str(current_state or job_state.get("current_state") or "unknown_step")
         worker_id = str(job_state.get("worker_id") or job_state.get("last_worker_id") or "local_orchestrator")
-        timestamp = datetime.datetime.now(datetime.UTC).isoformat()
+        timestamp = datetime.now(UTC).isoformat()
 
-        # Format Root Cause
         if isinstance(error, Exception):
             root_cause = f"{type(error).__name__}: {error}"
-            tb_lines = traceback.format_exception(type(error), error, error.__traceback__)
+            tb_lines = format_exception(type(error), error, error.__traceback__)
             stack_snippet = "".join(tb_lines[-4:]).strip()
         elif error:
             root_cause = str(error)
@@ -73,16 +90,15 @@ def generate_evidence_card(
 
         steps_data = job_state.get("steps")
         completed_steps = list(steps_data.keys()) if isinstance(steps_data, dict) else []
+        raw_input = job_state.get("input") or {}
         step_snapshot = {
-            "input": job_state.get("input") or job_state.get("initial_data") or {},
+            "input": _sanitize_secrets(raw_input),
             "completed_steps": completed_steps,
             "attempt": job_state.get("retries", 0) + 1,
         }
 
-        # D-DNA Hash
         d_dna_hash = str(job_state.get("current_hash") or job_state.get("parent_hash") or "genesis")
 
-        # Human-readable Markdown Box Card
         md_card = (
             f"```\n"
             f"┌────────────────────────────────────────────────────────────────────────┐\n"
@@ -112,10 +128,7 @@ def generate_evidence_card(
         for r in remediation_steps:
             md_card += f"│    • {r}\n"
 
-        md_card += (
-            "└────────────────────────────────────────────────────────────────────────┘\n"
-            "```"
-        )
+        md_card += "└────────────────────────────────────────────────────────────────────────┘\n```"
 
         json_data = {
             "job_id": job_id,
@@ -144,9 +157,9 @@ def generate_evidence_card(
         }
     finally:
         if old_audit_env is None:
-            os.environ.pop("HOLARCHY_INTERNAL_AUDIT", None)
+            environ.pop("HOLARCHY_INTERNAL_AUDIT", None)
         else:
-            os.environ["HOLARCHY_INTERNAL_AUDIT"] = old_audit_env
+            environ["HOLARCHY_INTERNAL_AUDIT"] = old_audit_env
 
 
 __all__ = [

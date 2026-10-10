@@ -105,9 +105,9 @@ python -m holarchy.engine
 
 Если логика вашего блюпринта содержит сложные вычисления, работу с внешними БД или API, вы можете детализировать трассировку, создавая кастомные под-спаны.
 
-### Почему это важно?
+### Профилирование с помощью под-спанов
 
-Автоматический спан `JobExecutor` показывает общее время выполнения шага. Кастомные спаны позволяют увидеть, сколько времени заняла конкретная операция (например, `Data:Fetch` или `LLM:Preprocessing`), что критично для оптимизации пайплайнов.
+Автоматический спан `JobExecutor` фиксирует общее время выполнения шага. Пользовательские под-спаны позволяют детализировать длительность отдельных операций (например, обращений к базам данных или сетевым сервисам), что помогает профилировать узкие места конвейера.
 
 ### Пример в обработчике блюпринта:
 
@@ -117,11 +117,11 @@ from holarchy.telemetry import trace
 tracer = trace.get_tracer("my_blueprint")
 
 
-@bp.handler
-async def process_data(initial_data, actions):
+@bp.step
+async def process_data(input: dict, actions):
     # 1. Создаем кастомный спан внутри шага
     with tracer.start_as_current_span("Internal:Transform") as span:
-        span.set_attribute("data.size", len(initial_data))
+        span.set_attribute("data.size", len(input))
         # ... ваша тяжелая логика трансформации ...
         result = {"status": "ok"}
 

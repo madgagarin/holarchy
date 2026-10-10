@@ -11,45 +11,50 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "holarchy"
-version = "0.78.0"
+version = "1.0.0"
 description = "A state-machine based orchestrator for long-running AI and other jobs."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MPL-2.0"
 authors = [
     { name = "Dmitry Gagarin aka madgagarin", email = "madgagarin@gmail.com" },
 ]
 keywords = ["orchestrator", "state-machine", "workflow", "distributed", "ai", "llm", "rxon", "hln"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
     "Typing :: Typed",
 ]
 dependencies = [
-    "rxon==1.0b18",
+    "rxon>=1.0.0,<2.0.0",
     "fast-magic-filter~=1.1.0",
     "aiohttp~=3.14.3",
     "python-json-logger~=4.2.0",
     "graphviz~=0.21.0",
     "zstandard~=0.25.0",
     "orjson~=3.12.0",
-    "cryptography~=50.0.1",
-    "cachebox~=6.2.7",
+    "cryptography>=50.0.1,<51.0.0",
+    "cachebox>=6.2.7,<7.0.0",
 ]
 
 [project.scripts]
 holarchy = "holarchy.cli.__main__:main"
 
 [project.optional-dependencies]
-redis = ["redis~=8.1.0"]
-s3 = ["obstore~=0.11.1", "aiofiles~=25.1.0"]
-history = ["aiosqlite~=0.22.1", "asyncpg~=0.31.0"]
+redis = ["redis>=8.1.0,<9.0.0"]
+s3 = ["obstore>=0.11.1,<1.0.0", "aiofiles>=25.1.0,<26.0.0"]
+history = ["aiosqlite>=0.22.1,<1.0.0", "asyncpg>=0.31.0,<1.0.0"]
 telemetry = [
-    "opentelemetry-api~=1.44.0",
-    "opentelemetry-sdk~=1.44.0",
-    "opentelemetry-exporter-otlp~=1.44.0",
-    "opentelemetry-instrumentation-aiohttp-client~=0.65b0",
+    "opentelemetry-api>=1.44.0,<2.0.0",
+    "opentelemetry-sdk>=1.44.0,<2.0.0",
+    "opentelemetry-exporter-otlp>=1.44.0,<2.0.0",
+    "opentelemetry-instrumentation-aiohttp-client>=0.65b0",
 ]
 all = [
     "holarchy[redis]",
@@ -66,6 +71,7 @@ test = [
     "pytest-mock~=3.15.1",
     "aioresponses~=0.7.9",
     "docker~=7.2.0",
+    "mutmut>=3.8.0",
 ]
 
 [project.urls]
@@ -83,7 +89,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-norecursedirs = ["new", ".venv", "build", "dist", "*.egg-info"]
+norecursedirs = ["new", ".venv", "build", "dist", "*.egg-info", "mutants", ".mutmut-cache"]
+pythonpath = "src"
 markers = [
     "e2e: marks tests as end-to-end tests",
 ]
@@ -95,12 +102,15 @@ filterwarnings = [
 
 [tool.ruff]
 src = ["src", "tests"]
-target-version = "0.78.0"
+target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "A", "SIM", "C4", "PLC", "UP", "TID"]
 ignore = ["TID252"]
+
+[tool.ruff.lint.flake8-builtins]
+builtins-ignorelist = ["input", "id"]
 
 [tool.ruff.lint.pyupgrade]
 keep-runtime-typing = false
@@ -113,7 +123,7 @@ quote-style = "double"
 skip-magic-trailing-comma = false
 
 [tool.mypy]
-python_version = "0.78.0"
+python_version = "3.11"
 packages = ["holarchy"]
 disallow_incomplete_defs = true
 disallow_untyped_calls = true
@@ -124,3 +134,10 @@ warn_unused_ignores = true
 warn_return_any = true
 disallow_any_unimported = false
 exclude = ["tests/"]
+
+[tool.mutmut]
+source_paths = ["src/holarchy"]
+pytest_add_cli_args_test_selection = ["tests/"]
+pytest_add_cli_args = ["-q", "--no-header", "--tb=no", "--ignore=mutants"]
+mutate_only_covered_lines = true
+use_git_change_detection = true

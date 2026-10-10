@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
+from pytest import mark
 
 from holarchy.blueprint import Blueprint
 
@@ -71,7 +71,7 @@ def test_blueprint_to_dag_linear_and_decider() -> None:
 def test_blueprint_to_dag_single_step() -> None:
     bp = Blueprint("single_step_bp")
 
-    @bp.handler("start_end", is_start=True, is_end=True)
+    @bp.start("start_end", is_end=True)
     async def start_end() -> None:
         pass
 
@@ -99,8 +99,8 @@ def create_dag_test_bp() -> Blueprint:
     return bp
 
 
-@pytest.mark.parametrize("app", [{"extra_blueprints": [create_dag_test_bp()]}], indirect=True)
-@pytest.mark.asyncio
+@mark.parametrize("app", [{"extra_blueprints": [create_dag_test_bp()]}], indirect=True)
+@mark.asyncio
 async def test_api_get_blueprint_dag(aiohttp_client, app) -> None:
     client = await aiohttp_client(app)
     headers = {"X-Client-Token": "user_token_vip"}

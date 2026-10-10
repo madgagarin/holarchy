@@ -7,12 +7,13 @@
 from unittest.mock import ANY, AsyncMock, MagicMock
 
 from pytest import fixture, mark
-from src.holarchy.app_keys import S3_SERVICE_KEY
-from src.holarchy.blueprint import Blueprint
-from src.holarchy.config import Config
-from src.holarchy.context import ActionFactory
-from src.holarchy.data_types import JobContext
-from src.holarchy.executor import JobExecutor
+
+from holarchy.app_keys import S3_SERVICE_KEY
+from holarchy.blueprint import Blueprint
+from holarchy.config import Config
+from holarchy.context import ActionFactory
+from holarchy.data_types import JobContext
+from holarchy.executor import JobExecutor
 
 
 @fixture
@@ -88,8 +89,8 @@ async def test_process_job_calls_webhook(job_executor):
         "id": job_id,
         "blueprint_name": "webhook-test-bp",
         "current_state": "finished",
-        "initial_data": {},
-        "state_history": {},
+        "input": {},
+        "steps": {},
         "client_config": {},
         "webhook_url": "http://example.com/webhook",
     }
@@ -111,7 +112,7 @@ async def test_process_job_calls_webhook(job_executor):
 @mark.asyncio
 async def test_process_job_blueprint_not_found(job_executor):
     job_executor.engine.config.JOB_MAX_RETRIES = 3
-    job_state = {"id": "test-job", "blueprint_name": "test-bp", "current_state": "start", "initial_data": {}}
+    job_state = {"id": "test-job", "blueprint_name": "test-bp", "current_state": "start", "input": {}, "steps": {}}
     job_executor.storage.get_job_state.return_value = job_state
     job_executor.storage.ack_job = AsyncMock()
     await job_executor._process_job("test-job", "msg-123")
@@ -121,7 +122,8 @@ async def test_process_job_blueprint_not_found(job_executor):
             "id": "test-job",
             "blueprint_name": "test-bp",
             "current_state": "start",
-            "initial_data": {},
+            "input": {},
+            "steps": {},
             "retry_count": 1,
             "step": 1,
             "status": "awaiting_retry",
@@ -138,7 +140,7 @@ async def test_process_job_handler_not_found(job_executor):
     bp.find_handler.side_effect = ValueError("Handler not found")
     job_executor.engine.blueprints["test-bp"] = bp
     job_executor.engine.config.JOB_MAX_RETRIES = 3
-    job_state = {"id": "test-job", "blueprint_name": "test-bp", "current_state": "start", "initial_data": {}}
+    job_state = {"id": "test-job", "blueprint_name": "test-bp", "current_state": "start", "input": {}, "steps": {}}
     job_executor.storage.get_job_state.return_value = job_state
     job_executor.storage.ack_job = AsyncMock()
     await job_executor._process_job("test-job", "msg-123")
@@ -148,7 +150,8 @@ async def test_process_job_handler_not_found(job_executor):
             "id": "test-job",
             "blueprint_name": "test-bp",
             "current_state": "start",
-            "initial_data": {},
+            "input": {},
+            "steps": {},
             "retry_count": 1,
             "step": 1,
             "status": "awaiting_retry",
@@ -162,27 +165,26 @@ async def test_process_job_handler_not_found(job_executor):
 @mark.asyncio
 async def test_process_job_handler_dependency_injection(job_executor, mocker):
     """
-    Tests that the new dependency injection for handlers works correctly.
-    It should inject fields from JobContext, state_history, and initial_data.
+    Tests that the dependency injection for handlers works correctly.
+    It should inject fields from JobContext, steps, and input.
     """
     bp = Blueprint(name="di-test-bp")
     captured_args = {}
 
-    # This handler uses the new dependency injection style
     async def di_handler(
         job_id: str,
         actions: ActionFactory,
-        initial_data: dict,
-        state_history: dict,
-        # This field comes from state_history
+        input: dict,
+        steps: dict,
+        # This field comes from steps
         worker_field: str,
-        # This field comes from initial_data
+        # This field comes from input
         initial_field: str,
     ):
         captured_args["job_id"] = job_id
         captured_args["actions"] = actions
-        captured_args["initial_data"] = initial_data
-        captured_args["state_history"] = state_history
+        captured_args["input"] = input
+        captured_args["steps"] = steps
         captured_args["worker_field"] = worker_field
         captured_args["initial_field"] = initial_field
         actions.go_to("end")
@@ -201,8 +203,8 @@ async def test_process_job_handler_dependency_injection(job_executor, mocker):
         "id": job_id,
         "blueprint_name": "di-test-bp",
         "current_state": "start",
-        "initial_data": {"initial_field": "initial_value"},
-        "state_history": {"worker_field": "worker_value"},
+        "input": {"initial_field": "initial_value"},
+        "steps": {"worker_field": "worker_value"},
         "client_config": {},
     }
     job_executor.storage.get_job_state.return_value = job_state
@@ -213,8 +215,8 @@ async def test_process_job_handler_dependency_injection(job_executor, mocker):
     # --- Assertions ---
     assert captured_args["job_id"] == job_id
     assert isinstance(captured_args["actions"], ActionFactory)
-    assert captured_args["initial_data"] == {"initial_field": "initial_value"}
-    assert captured_args["state_history"] == {"worker_field": "worker_value"}
+    assert captured_args["input"] == {"initial_field": "initial_value"}
+    assert captured_args["steps"] == {"worker_field": "worker_value"}
     assert captured_args["worker_field"] == "worker_value"
     assert captured_args["initial_field"] == "initial_value"
 
@@ -224,8 +226,8 @@ async def test_process_job_handler_dependency_injection(job_executor, mocker):
             "id": job_id,
             "blueprint_name": "di-test-bp",
             "current_state": "end",  # Check for transition
-            "initial_data": {"initial_field": "initial_value"},
-            "state_history": {"worker_field": "worker_value"},
+            "input": {"initial_field": "initial_value"},
+            "steps": {"worker_field": "worker_value"},
             "client_config": {},
             "retry_count": 0,
             "step": 1,
@@ -265,8 +267,8 @@ async def test_process_job_handler_backward_compatibility(job_executor):
         "id": job_id,
         "blueprint_name": "compat-test-bp",
         "current_state": "start",
-        "initial_data": {},
-        "state_history": {},
+        "input": {},
+        "steps": {},
         "client_config": {},
     }
     job_executor.storage.get_job_state.return_value = job_state
@@ -289,8 +291,8 @@ async def test_process_job_handler_backward_compatibility(job_executor):
             "id": job_id,
             "blueprint_name": "compat-test-bp",
             "current_state": "end",
-            "initial_data": {},
-            "state_history": {},
+            "input": {},
+            "steps": {},
             "client_config": {},
             "retry_count": 0,
             "step": 1,
@@ -306,7 +308,7 @@ async def test_process_job_handler_backward_compatibility(job_executor):
 @mark.asyncio
 async def test_di_name_collision_precedence(job_executor, mocker):
     """
-    Tests that JobContext fields take precedence over state_history and initial_data
+    Tests that JobContext fields take precedence over steps and input
     when there is a name collision during dependency injection.
     """
     bp = Blueprint(name="precedence-test-bp")
@@ -314,13 +316,13 @@ async def test_di_name_collision_precedence(job_executor, mocker):
 
     async def precedence_handler(
         job_id: str,  # Should come from JobContext
-        initial_data: dict,  # Should come from JobContext
-        state_history: dict,  # Should come from JobContext
+        input: dict,  # Should come from JobContext
+        steps: dict,  # Should come from JobContext
         actions: ActionFactory,
     ):
         captured_args["job_id"] = job_id
-        captured_args["initial_data"] = initial_data
-        captured_args["state_history"] = state_history
+        captured_args["input"] = input
+        captured_args["steps"] = steps
         captured_args["actions"] = actions
         actions.go_to("end")
 
@@ -341,8 +343,8 @@ async def test_di_name_collision_precedence(job_executor, mocker):
         "id": job_id_context,
         "blueprint_name": "precedence-test-bp",
         "current_state": "start",
-        "initial_data": {"job_id": job_id_initial, "key_from_initial": "value_initial"},
-        "state_history": {"job_id": job_id_history, "key_from_history": "value_history"},
+        "input": {"job_id": job_id_initial, "key_from_initial": "value_initial"},
+        "steps": {"job_id": job_id_history, "key_from_history": "value_history"},
         "client_config": {},
     }
     job_executor.storage.get_job_state.return_value = job_state
@@ -351,10 +353,10 @@ async def test_di_name_collision_precedence(job_executor, mocker):
     await job_executor._process_job(job_id_context, "msg-123")
 
     # --- Assertions ---
-    # job_id should come from JobContext, not state_history or initial_data
+    # job_id should come from JobContext, not steps or input
     assert captured_args["job_id"] == job_id_context
-    assert captured_args["initial_data"] == {"job_id": job_id_initial, "key_from_initial": "value_initial"}
-    assert captured_args["state_history"] == {"job_id": job_id_history, "key_from_history": "value_history"}
+    assert captured_args["input"] == {"job_id": job_id_initial, "key_from_initial": "value_initial"}
+    assert captured_args["steps"] == {"job_id": job_id_history, "key_from_history": "value_history"}
     assert isinstance(captured_args["actions"], ActionFactory)
 
     job_executor.storage.save_job_state.assert_called_with(
@@ -363,8 +365,8 @@ async def test_di_name_collision_precedence(job_executor, mocker):
             "id": job_id_context,
             "blueprint_name": "precedence-test-bp",
             "current_state": "end",
-            "initial_data": {"job_id": job_id_initial, "key_from_initial": "value_initial"},
-            "state_history": {"job_id": job_id_history, "key_from_history": "value_history"},
+            "input": {"job_id": job_id_initial, "key_from_initial": "value_initial"},
+            "steps": {"job_id": job_id_history, "key_from_history": "value_history"},
             "client_config": {},
             "retry_count": 0,
             "step": 1,
@@ -405,8 +407,8 @@ async def test_di_missing_argument_fails_job(job_executor, caplog):
         "id": job_id,
         "blueprint_name": "missing-arg-test-bp",
         "current_state": "start",
-        "initial_data": {},
-        "state_history": {},
+        "input": {},
+        "steps": {},
         "client_config": {},
     }
     job_executor.storage.get_job_state.return_value = job_state
@@ -425,8 +427,8 @@ async def test_di_missing_argument_fails_job(job_executor, caplog):
             "id": job_id,
             "blueprint_name": "missing-arg-test-bp",
             "current_state": "start",  # Still in the same state, as handler failed
-            "initial_data": {},
-            "state_history": {},
+            "input": {},
+            "steps": {},
             "client_config": {},
             "retry_count": 1,  # Should be incremented
             "step": 1,
@@ -453,9 +455,9 @@ async def test_process_job_handles_none_fields_gracefully(job_executor):
     bp = Blueprint(name="none-fields-test-bp")
 
     @bp.handler("start", is_start=True)
-    async def start_handler(state_history, aggregation_results, webhook_url, actions):
+    async def start_handler(steps, aggregation_results, webhook_url, actions):
         # Verify that these are empty dicts, not None
-        assert state_history == {}
+        assert steps == {}
         assert aggregation_results == {}
         # Verify webhook_url is None as expected (it doesn't have 'or {}')
         assert webhook_url is None
@@ -474,8 +476,8 @@ async def test_process_job_handles_none_fields_gracefully(job_executor):
         "id": job_id,
         "blueprint_name": "none-fields-test-bp",
         "current_state": "start",
-        "initial_data": {},
-        "state_history": None,
+        "input": {},
+        "steps": None,
         "aggregation_results": None,
         "tracing_context": None,
         "client_config": {},
@@ -493,8 +495,8 @@ async def test_process_job_handles_none_fields_gracefully(job_executor):
             "id": job_id,
             "blueprint_name": "none-fields-test-bp",
             "current_state": "end",
-            "initial_data": {},
-            "state_history": {},  # Saved back as empty dict
+            "input": {},
+            "steps": {},  # Saved back as empty dict
             "aggregation_results": {},
             "tracing_context": ANY,
             "client_config": {},
@@ -530,7 +532,8 @@ async def test_data_stores_attribute_access(job_executor):
         "id": job_id,
         "blueprint_name": "ds-attr-bp",
         "current_state": "start",
-        "initial_data": {},
+        "input": {},
+        "steps": {},
         "client_config": {},
     }
     job_executor.storage.get_job_state.return_value = job_state
@@ -559,8 +562,8 @@ async def test_executor_injection_deep():
     async def start(
         job_id,
         current_state,
-        initial_data,
-        state_history,
+        input,
+        steps,
         actions,
         task_files,
         context,
@@ -569,8 +572,8 @@ async def test_executor_injection_deep():
     ):
         injected_values["job_id"] = job_id
         injected_values["current_state"] = current_state
-        injected_values["initial_data"] = initial_data
-        injected_values["state_history"] = state_history
+        injected_values["input"] = input
+        injected_values["steps"] = steps
         injected_values["actions"] = actions
         injected_values["task_files"] = task_files
         injected_values["context"] = context
@@ -590,8 +593,11 @@ async def test_executor_injection_deep():
         "blueprint_name": "test_bp",
         "current_state": "start",
         "status": "running",
-        "initial_data": {"some_field_from_initial": "val-init"},
-        "state_history": {"some_field_from_history": "val-hist"},
+        "input": {"some_field_from_initial": "val-init"},
+        "steps": {"some_field_from_history": "val-hist"},
+        "output": None,
+        "history": [],
+        "params": {},
         "client_config": {"token": "t1", "plan": "p1"},
     }
     storage.get_job_state.return_value = job_state
@@ -605,8 +611,8 @@ async def test_executor_injection_deep():
 
     assert injected_values["job_id"] == job_id
     assert injected_values["current_state"] == "start"
-    assert injected_values["initial_data"] == job_state["initial_data"]
-    assert injected_values["state_history"] == job_state["state_history"]
+    assert injected_values["input"] == job_state["input"]
+    assert injected_values["steps"] == job_state["steps"]
     assert injected_values["actions"] is not None
     assert injected_values["task_files"] == mock_task_files
     assert isinstance(injected_values["context"], JobContext)

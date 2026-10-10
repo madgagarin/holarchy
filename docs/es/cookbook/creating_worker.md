@@ -14,20 +14,25 @@ pip install "holonode[pydantic,s3]"
 
 ---
 
-## 2. Definición de habilidades con validación Pydantic
+## 2. Definición de habilidades con modelos de dominio
+
+Declare sus habilidades con el decorador `@worker.skill`. Se admiten `@dataclass`, `msgspec.Struct` o modelos Pydantic:
 
 ```python
-import asyncio
-from pydantic import BaseModel, Field
+from asyncio import sleep
+from dataclasses import asdict, dataclass
+
 from holonode import Worker
 
 
-class InventoryCheckParams(BaseModel):
-    sku: str = Field(..., description="Identificador del producto (SKU)")
-    quantity: int = Field(..., gt=0, description="Cantidad solicitada")
+@dataclass
+class InventoryCheckParams:
+    sku: str
+    quantity: int
 
 
-class InventoryCheckResult(BaseModel):
+@dataclass
+class InventoryCheckResult:
     in_stock: bool
     available_quantity: int
     warehouse_code: str
@@ -50,11 +55,13 @@ async def check_inventory(params: InventoryCheckParams, **kwargs) -> dict:
 
     return {
         "status": "success",
-        "data": InventoryCheckResult(
-            in_stock=in_stock,
-            available_quantity=available,
-            warehouse_code="WH-US-EAST",
-        ).model_dump(),
+        "data": asdict(
+            InventoryCheckResult(
+                in_stock=in_stock,
+                available_quantity=available,
+                warehouse_code="WH-US-EAST",
+            )
+        ),
     }
 ```
 
@@ -72,7 +79,7 @@ async def render_video(params: dict, **kwargs) -> dict:
             print(f"Cancelación recibida para {task_id}. Limpiando...")
             return {"status": "cancelled", "message": "Render detenido por el orquestador"}
 
-        await asyncio.sleep(0.01)
+        await sleep(0.01)
 
     return {"status": "success", "data": {"frames_rendered": 1000}}
 ```

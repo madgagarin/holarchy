@@ -7,7 +7,8 @@
 from itertools import permutations
 
 from pytest import fail, mark, raises
-from src.holarchy.context import ActionFactory
+
+from holarchy.context import ActionFactory
 
 
 def test_action_factory_go_to():

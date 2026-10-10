@@ -187,8 +187,8 @@ def get_tracer(name: str) -> Any:
 
 def setup_telemetry(service_name: str = "holarchy") -> Any:
     """Configures OpenTelemetry for the application if installed."""
-    if not TELEMETRY_ENABLED:
-        logger.info("opentelemetry-sdk not found. Telemetry is disabled.")
+    if not TELEMETRY_ENABLED or getenv("OTEL_SDK_DISABLED", "false").lower() == "true":
+        logger.info("Telemetry is disabled.")
         return trace.get_tracer(__name__)
 
     # Avoid re-initializing if provider is already set

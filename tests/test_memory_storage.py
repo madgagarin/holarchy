@@ -5,7 +5,8 @@
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
 from pytest import fixture
-from src.holarchy.storage.memory import MemoryStorage
+
+from holarchy.storage.memory import MemoryStorage
 
 from .storage_test_suite import StorageTestSuite
 

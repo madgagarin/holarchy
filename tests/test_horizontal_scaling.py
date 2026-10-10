@@ -50,7 +50,7 @@ async def test_horizontal_scaling_scheduler_locks():
 
         bp = Blueprint("scheduled_bp")
 
-        @bp.handler("start", is_start=True)
+        @bp.start("start")
         async def start(actions):
             pass
 

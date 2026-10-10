@@ -7,8 +7,7 @@ from dataclasses import dataclass
 from typing import Annotated
 from uuid import uuid4
 
-import pytest
-from pydantic import BaseModel
+from pytest import fixture, mark
 
 from holarchy import Blueprint, Context, Header, JobContext
 from holarchy.config import Config
@@ -16,31 +15,33 @@ from holarchy.engine import OrchestratorEngine
 from holarchy.storage.memory import MemoryStorage
 
 
-class PaymentResult(BaseModel):
+@dataclass
+class PaymentResult:
     transaction_id: str
     amount: float
     status: str
 
 
-class ShippingResult(BaseModel):
+@dataclass
+class ShippingResult:
     tracking_number: str
     carrier: str
 
 
-@pytest.fixture
+@fixture
 def engine():
     storage = MemoryStorage()
     config = Config()
     return OrchestratorEngine(storage, config)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_header_injection_primitives_and_defaults(engine):
     bp = Blueprint("header_test_bp")
 
     captured = {}
 
-    @bp.handler("start", is_start=True, is_end=True)
+    @bp.start("start", is_end=True)
     async def start(
         corr_id: Annotated[str | None, Header("X-Correlation-ID")] = None,
         job_timeout: Annotated[int, Header("X-Job-Timeout")] = 30,
@@ -80,19 +81,19 @@ async def test_header_injection_primitives_and_defaults(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_context_and_ctx_aliases(engine):
     bp = Blueprint("context_test_bp")
 
     captured = {}
 
-    @bp.handler("start", is_start=True)
+    @bp.start("start")
     async def step1(ctx: Context, actions):
         assert isinstance(ctx, JobContext)
         captured["step1_job_id"] = ctx.job_id
         actions.go_to("step2")
 
-    @bp.handler("step2", is_end=True)
+    @bp.end("step2")
     async def step2(context: JobContext, my_ctx: Context):
         assert isinstance(context, JobContext)
         assert isinstance(my_ctx, JobContext)
@@ -113,13 +114,13 @@ async def test_context_and_ctx_aliases(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_blackboard_type_matching_from_steps(engine):
     bp = Blueprint("type_matching_bp")
 
     captured = {}
 
-    @bp.handler("process_payment", is_start=True)
+    @bp.start("process_payment")
     async def process_payment(actions):
         # Step 1 returns dict matching PaymentResult
         actions.save_result({"transaction_id": "tx_42", "amount": 199.99, "status": "approved"})
@@ -162,12 +163,12 @@ async def test_blackboard_type_matching_from_steps(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_header_injection_edge_cases(engine):
     bp = Blueprint("header_edge_cases_bp")
     captured = {}
 
-    @bp.handler("step", is_start=True, is_end=True)
+    @bp.start("step", is_end=True)
     async def step(
         invalid_int: Annotated[int, Header("X-Bad-Int")] = 999,
         bool_str: Annotated[bool, Header("X-Bool-Str")] = False,
@@ -196,12 +197,12 @@ async def test_header_injection_edge_cases(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_header_injection_missing_required_no_default(engine):
     bp = Blueprint("missing_req_bp")
     captured = {}
 
-    @bp.handler("step", is_start=True, is_end=True)
+    @bp.start("step", is_end=True)
     async def step(
         required_auth: Annotated[str, Header("X-Required-Auth")],
     ):
@@ -219,12 +220,12 @@ async def test_header_injection_missing_required_no_default(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_header_boolean_variants_and_delimiters(engine):
     bp = Blueprint("bool_variants_bp")
     captured = {}
 
-    @bp.handler("step", is_start=True, is_end=True)
+    @bp.start("step", is_end=True)
     async def step(
         b_true1: Annotated[bool, Header("x-flag-true1")],
         b_true2: Annotated[bool, Header("x-flag-true2")],
@@ -263,18 +264,18 @@ async def test_header_boolean_variants_and_delimiters(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_blackboard_incompatible_model_negative(engine):
     bp = Blueprint("incompatible_model_bp")
     captured = {}
 
-    @bp.handler("step1", is_start=True)
+    @bp.start("step1")
     async def step1(actions):
         # Step returns dict that lacks required fields for PaymentResult
         actions.save_result({"random_field": "unrelated"})
         actions.go_to("step2")
 
-    @bp.handler("step2", is_end=True)
+    @bp.end("step2")
     async def step2(
         payment: PaymentResult | None = None,
     ):
@@ -293,7 +294,7 @@ async def test_blackboard_incompatible_model_negative(engine):
     await engine.on_shutdown(engine.app)
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_blackboard_dataclass_injection(engine):
     @dataclass
     class InventoryItem:
@@ -303,12 +304,12 @@ async def test_blackboard_dataclass_injection(engine):
     bp = Blueprint("dataclass_di_bp")
     captured = {}
 
-    @bp.handler("step1", is_start=True)
+    @bp.start("step1")
     async def step1(actions):
         actions.save_result({"sku": "WIDGET-01", "quantity": 15})
         actions.go_to("step2")
 
-    @bp.handler("step2", is_end=True)
+    @bp.end("step2")
     async def step2(item: InventoryItem):
         captured["item"] = item
 
@@ -324,4 +325,3 @@ async def test_blackboard_dataclass_injection(engine):
     assert captured["item"].quantity == 15
 
     await engine.on_shutdown(engine.app)
-

@@ -5,11 +5,11 @@
 
 from __future__ import annotations
 
-import asyncio
-import inspect
-import os
+from asyncio import get_running_loop, iscoroutine, run, wait_for
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field, is_dataclass
+from inspect import signature
+from os.path import exists
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +51,7 @@ def record_execution_receipt(
         line = msgspec_encode(receipt_val).decode("utf-8") + "\n"
     elif isinstance(receipt_val, dict):
         line = orjson_dumps(receipt_val).decode("utf-8") + "\n"
-    elif is_dataclass(receipt_val):
+    elif is_dataclass(receipt_val) and not isinstance(receipt_val, type):
         line = orjson_dumps(asdict(receipt_val)).decode("utf-8") + "\n"
     else:
         line = orjson_dumps(dict(receipt_val)).decode("utf-8") + "\n"
@@ -84,8 +84,8 @@ class ReplayTestRunner:
         self,
         case: dict[str, Any],
     ) -> tuple[str, bool]:
-        step = case.get("step")
-        decider_name = case.get("decider_name") or step
+        step = str(case.get("step") or "")
+        decider_name = str(case.get("decider_name") or step)
         candidates = case.get("candidates") or []
         fallback = case.get("fallback")
 
@@ -98,10 +98,15 @@ class ReplayTestRunner:
         fallback_str = str(fallback) if fallback else (candidates[0] if candidates else "unknown")
 
         func = decider_info.get("func") if isinstance(decider_info, dict) else None
-        if not func:
-            handlers = self.blueprint.handlers.get(step, [])
-            if handlers:
-                func = handlers[0].func
+        if not func and step:
+            h = self.blueprint.handlers.get(step)
+            if callable(h):
+                func = h
+            elif isinstance(h, list) and h:
+                first = h[0]
+                cand_func = getattr(first, "func", first)
+                if callable(cand_func):
+                    func = cand_func
 
         if not func:
             return fallback_str, True
@@ -114,7 +119,7 @@ class ReplayTestRunner:
             step=str(step),
         )
 
-        sig = inspect.signature(func)
+        sig = signature(func)
         kwargs = {}
         if "candidates" in sig.parameters:
             kwargs["candidates"] = candidates
@@ -132,8 +137,8 @@ class ReplayTestRunner:
                 except TypeError:
                     res = func(ctx_mock)
 
-            if asyncio.iscoroutine(res):
-                res = await asyncio.wait_for(res, timeout=timeout)
+            if iscoroutine(res):
+                res = await wait_for(res, timeout=timeout)
             res_str = str(res)
             if res_str in [str(c) for c in candidates]:
                 return res_str, False
@@ -144,7 +149,7 @@ class ReplayTestRunner:
     def evaluate(self, cases_file_path: str | None = None) -> ReplayEvaluationReport:
         """Evaluates historical cases from JSONL file in memory synchronously."""
         path = cases_file_path or self.cases_path or ".holarchy/replay/cases.jsonl"
-        if not os.path.exists(path):
+        if not exists(path):
             return ReplayEvaluationReport()
 
         cases: list[dict[str, Any]] = []
@@ -173,25 +178,27 @@ class ReplayTestRunner:
                 if is_fallback or case.get("fallback_triggered"):
                     report.fallback_cases += 1
 
-                report.details.append({
-                    "correlation_id": case.get("correlation_id"),
-                    "step": case.get("step"),
-                    "historical_chosen": hist_chosen,
-                    "replayed_chosen": eval_chosen,
-                    "is_drift": is_drift,
-                    "is_fallback": is_fallback,
-                })
+                report.details.append(
+                    {
+                        "correlation_id": case.get("correlation_id"),
+                        "step": case.get("step"),
+                        "historical_chosen": hist_chosen,
+                        "replayed_chosen": eval_chosen,
+                        "is_drift": is_drift,
+                        "is_fallback": is_fallback,
+                    }
+                )
 
         try:
-            loop = asyncio.get_running_loop()
+            loop = get_running_loop()
         except RuntimeError:
             loop = None
 
         if loop and loop.is_running():
             with ThreadPoolExecutor(max_workers=1) as pool:
-                pool.submit(asyncio.run, _run_all()).result()
+                pool.submit(run, _run_all()).result()
         else:
-            asyncio.run(_run_all())
+            run(_run_all())
 
         if report.total_cases > 0:
             report.drift_rate = report.drift_cases / report.total_cases

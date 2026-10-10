@@ -6,8 +6,10 @@
 
 from logging import getLogger
 from os import getenv
+from os.path import join
 from secrets import token_hex
 from socket import gethostname
+from tempfile import gettempdir
 
 logger = getLogger(__name__)
 
@@ -29,7 +31,7 @@ class Config:
             "postgresql://user:password@localhost/db",
         )
 
-        self.API_HOST: str = getenv("API_HOST", "0.0.0.0")
+        self.API_HOST: str = getenv("API_HOST", "0.0.0.0")  # nosec B104
         self.API_PORT: int = int(getenv("API_PORT", 8082))
         self.CLIENT_API_PREFIX: str = getenv("CLIENT_API_PREFIX", "api").strip("/")
         self.ENABLE_CLIENT_API: bool = getenv("ENABLE_CLIENT_API", "true").lower() == "true"
@@ -89,7 +91,7 @@ class Config:
         self.LOG_FORMAT: str = getenv("LOG_FORMAT", "json")  # "text" or "json"
 
         self.WORKER_TIMEOUT_SECONDS: int = int(getenv("WORKER_TIMEOUT_SECONDS", 300))
-        self.TASK_FILES_DIR: str = getenv("TASK_FILES_DIR", "/tmp/holarchy-payloads")
+        self.TASK_FILES_DIR: str = getenv("TASK_FILES_DIR", join(gettempdir(), "holarchy-payloads"))
         self.WORKER_POLL_TIMEOUT_SECONDS: int = int(
             getenv("WORKER_POLL_TIMEOUT_SECONDS", 30),
         )

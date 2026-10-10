@@ -288,7 +288,6 @@ class WorkerService:
                 try:
                     updated_state = await self.storage.update_job_state_atomic(job_id, _mark_picked_up)
 
-                    # Determine the new deadline for the execution phase
                     result_deadline = updated_state.get("result_deadline")
                     if result_deadline is not None:
                         new_timeout_at = result_deadline
@@ -307,7 +306,6 @@ class WorkerService:
                     if not task.get("metadata") and updated_state.get("metadata"):
                         task["metadata"] = updated_state["metadata"]
 
-                    # Include required skill version/type in the task payload for worker validation
                     if updated_state.get("skill_version"):
                         task["skill_version"] = updated_state["skill_version"]
                     if updated_state.get("skill_type"):
@@ -446,7 +444,6 @@ class WorkerService:
                 "message": f"Result ignored: task_id {task_id} is no longer active for job {job_id}.",
             }
 
-        # Protection: Terminal states check
         if current_status in TERMINAL_STATES:
             error_message = (job_state.get("error_message") or "").lower()
             if "timeout" in error_message:
@@ -534,7 +531,7 @@ class WorkerService:
                 "event_type": "task_finished",
                 "duration_ms": duration_ms,
                 "worker_id": authenticated_worker_id,
-                "origin_task_id": validated_res.task_id,  # Trace graph back to origin task
+                "origin_task_id": validated_res.task_id,
                 "timestamp": result_payload.get("timestamp"),
                 "context_snapshot": {
                     **job_state,
@@ -568,9 +565,9 @@ class WorkerService:
             logger.info(f"Job {job_id} transitioning based on worker status '{result_status}' to state '{next_state}'")
 
             if worker_data_content and isinstance(worker_data_content, dict):
-                if "state_history" not in job_state:
-                    job_state["state_history"] = {}
-                job_state["state_history"].update(worker_data_content)
+                if "steps" not in job_state:
+                    job_state["steps"] = {}
+                job_state["steps"].update(worker_data_content)
 
             data_metadata = result_payload.get("data_metadata")
             if data_metadata:
@@ -767,9 +764,9 @@ class WorkerService:
             if job_state and job_state.get("status") == JOB_STATUS_WAITING_FOR_WORKER:
                 event_transitions = job_state.get("current_task_event_transitions", {})
                 if next_state := event_transitions.get(event.event_type):
-                    if "state_history" not in job_state:
-                        job_state["state_history"] = {}
-                    job_state["state_history"].update(event.payload)
+                    if "steps" not in job_state:
+                        job_state["steps"] = {}
+                    job_state["steps"].update(event.payload)
                     job_state["current_task_id"] = f"superseded_by_event:{event.event_id}"
                     job_state["current_state"] = next_state
                     job_state["status"] = JOB_STATUS_RUNNING

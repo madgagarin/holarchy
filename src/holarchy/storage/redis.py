@@ -233,7 +233,12 @@ class RedisStorage(StorageBackend):
 
     @staticmethod
     def _pack(data: Any) -> bytes:
-        return cast(bytes, msgpack_encode(data))
+        def _enc_hook(obj: Any) -> Any:
+            if isinstance(obj, str):
+                return str(obj)
+            raise TypeError(f"Encoding objects of type {type(obj)} is unsupported")
+
+        return cast(bytes, msgpack_encode(data, enc_hook=_enc_hook))
 
     @staticmethod
     def _unpack(data: bytes) -> Any:
@@ -666,7 +671,7 @@ class RedisStorage(StorageBackend):
             if result:
                 return cast(dict[str, Any], self._unpack(result[1]))
         except CancelledError:
-            return None
+            raise
         except Exception as e:
             logger.error(f"Error in dequeue_task_for_worker (bzpopmax) for {worker_id}: {e}")
 
@@ -856,7 +861,7 @@ class RedisStorage(StorageBackend):
                 return data[b"job_id"].decode("utf-8"), msg_id.decode("utf-8")
             return None
         except CancelledError:
-            return None
+            raise
         except ResponseError as e:
             if "NOGROUP" in str(e):
                 logger.warning("Redis stream group lost. Re-initializing...")

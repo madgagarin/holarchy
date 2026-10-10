@@ -9,7 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 from pytest import mark
 from pytest_asyncio import fixture
-from src.holarchy.history.postgres import PostgresHistoryStorage
+
+from holarchy.history.postgres import PostgresHistoryStorage
 
 
 class PostgresHistoryStorageImpl(PostgresHistoryStorage):
@@ -44,7 +45,7 @@ async def postgres_storage(mocker):
 async def test_initialize_success(mocker):
     # This tests the REAL initialize logic, so we need a fresh instance
     # that doesn't use the Impl override, but we must mock create_pool
-    mock_create_pool = mocker.patch("src.holarchy.history.postgres.create_pool", new_callable=AsyncMock)
+    mock_create_pool = mocker.patch("holarchy.history.postgres.create_pool", new_callable=AsyncMock)
     mock_pool = MagicMock()
     mock_conn = AsyncMock()
     mock_pool.acquire.return_value.__aenter__.return_value = mock_conn

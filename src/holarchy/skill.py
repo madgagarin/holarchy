@@ -37,8 +37,7 @@ class SkillInvocation:
 
     def __repr__(self) -> str:
         return (
-            f"SkillInvocation(skill_name={self.skill_name!r}, next={self.next_state!r}, "
-            f"on_failure={self.on_failure!r})"
+            f"SkillInvocation(skill_name={self.skill_name!r}, next={self.next_state!r}, on_failure={self.on_failure!r})"
         )
 
 
@@ -88,4 +87,3 @@ class Skill:
 
     def __repr__(self) -> str:
         return f"Skill({self.name!r}, timeout={self.timeout!r}, fallback={self.fallback!r})"
-

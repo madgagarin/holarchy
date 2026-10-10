@@ -82,7 +82,7 @@ Un elemento crítico de protección es la validación estricta de los datos de e
 
 1.  **Validación de Dos Niveles**:
     - **Worker-side**: El SDK del Worker valida el resultado antes de enviarlo, evitando la transmisión de datos obviamente incorrectos.
-    - **Orchestrator-side**: El núcleo del Orchestrator vuelve a validar los datos antes de guardarlos en `state_history`. Cualquier desviación mueve la tarea al estado `failed` con un código `CONTRACT_VIOLATION`.
+    - **Orchestrator-side**: El núcleo del Orchestrator vuelve a validar los datos antes de guardarlos en `steps`. Cualquier desviación mueve la tarea al estado `failed` con un código `CONTRACT_VIOLATION`.
 
 2.  **Jerarquía de Esquemas (Schema Priority)**:
     - **Blueprint Priority**: Si un esquema se define explícitamente en el blueprint (`actions.dispatch_task(..., output_schema=...)`), tiene prioridad absoluta. El Orchestrator ignorará las declaraciones del worker и aplicará la "ley del blueprint".

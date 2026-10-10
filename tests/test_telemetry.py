@@ -13,9 +13,9 @@ try:
 except ImportError:
     TracerProvider = object  # type: ignore
 
-from src.holarchy.blueprint import Blueprint
-from src.holarchy.engine import OrchestratorEngine
-from src.holarchy.telemetry import TELEMETRY_ENABLED, setup_telemetry
+from holarchy.blueprint import Blueprint
+from holarchy.engine import OrchestratorEngine
+from holarchy.telemetry import TELEMETRY_ENABLED, setup_telemetry
 
 
 @mark.skipif(not TELEMETRY_ENABLED, reason="opentelemetry-sdk not installed")
@@ -63,7 +63,7 @@ async def test_create_background_job_injects_tracing():
 
     storage.save_job_state.side_effect = mock_save
 
-    await engine.create_background_job("test_bp", initial_data={})
+    await engine.create_background_job("test_bp", input={})
 
     assert "tracing_context" in saved_state
     assert isinstance(saved_state["tracing_context"], dict)

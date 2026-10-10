@@ -105,9 +105,9 @@ Ahora todas las trazas estarán disponibles en la interfaz de Jaeger en `http://
 
 Si la lógica de su blueprint contiene cálculos complejos, trabajo con bases de datos externas o APIs, puede detallar el rastreo creando sub-spans personalizados.
 
-### ¿Por qué es esto importante?
+### Perfilado mediante Sub-Spans Personalizados
 
-El span automático `JobExecutor` muestra el tiempo total de ejecución de un paso. Los spans personalizados permiten ver cuánto tiempo tomó una operación específica (por ejemplo, `Data:Fetch` o `LLM:Preprocessing`), lo cual es crítico para optimizar los pipelines.
+El span automático `JobExecutor` registra la duración total de cada manejador de estado. Los sub-spans personalizados permiten desglosar el tiempo empleado en operaciones internas (como consultas externas o llamadas a servicios de red), facilitando la optimización de latencias en el pipeline.
 
 ### Ejemplo en un Manejador de Blueprint:
 
@@ -117,11 +117,11 @@ from holarchy.telemetry import trace
 tracer = trace.get_tracer("my_blueprint")
 
 
-@bp.handler
-async def process_data(initial_data, actions):
+@bp.step
+async def process_data(input: dict, actions):
     # 1. Crear un span personalizado dentro del paso
     with tracer.start_as_current_span("Internal:Transform") as span:
-        span.set_attribute("data.size", len(initial_data))
+        span.set_attribute("data.size", len(input))
         # ... su lógica pesada de transformación ...
         result = {"status": "ok"}
 

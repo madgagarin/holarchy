@@ -46,11 +46,21 @@ async def status_handler(_request: web.Request) -> web.Response:
 async def openapi_json_handler(request: web.Request) -> web.Response:
     """Returns the dynamic OpenAPI 3.1.0 specification."""
     engine = request.app[ENGINE_KEY]
+    cached_bytes = getattr(engine, "_openapi_json_bytes", None)
+    if cached_bytes is not None:
+        resp = web.Response(body=cached_bytes, content_type="application/json")
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = "*"
+        return resp
+
     spec = generate_openapi_spec(engine)
     resp = json_response(spec)
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "*"
+    if hasattr(engine, "_openapi_json_bytes"):
+        engine._openapi_json_bytes = resp.body
     return resp
 
 
@@ -71,7 +81,7 @@ def create_job_handler_factory(blueprint: Blueprint) -> Callable[[web.Request], 
         try:
             request_body = await request.json(loads=loads)
             if not isinstance(request_body, dict):
-                initial_data = request_body
+                job_input = request_body
                 webhook_url = None
                 dispatch_timeout = None
                 result_timeout = None
@@ -81,9 +91,7 @@ def create_job_handler_factory(blueprint: Blueprint) -> Callable[[web.Request], 
                 max_transitions = None
             else:
                 if "input" in request_body:
-                    initial_data = request_body["input"]
-                elif "initial_data" in request_body:
-                    initial_data = request_body["initial_data"]
+                    job_input = request_body["input"]
                 else:
                     system_keys = {
                         "webhook_url",
@@ -96,7 +104,7 @@ def create_job_handler_factory(blueprint: Blueprint) -> Callable[[web.Request], 
                         "client_config",
                     }
                     business_data = {k: v for k, v in request_body.items() if k not in system_keys}
-                    initial_data = business_data if business_data else {}
+                    job_input = business_data if business_data else {}
                 webhook_url = request_body.get("webhook_url")
                 dispatch_timeout = request_body.get("dispatch_timeout")
                 result_timeout = request_body.get("result_timeout")
@@ -117,11 +125,7 @@ def create_job_handler_factory(blueprint: Blueprint) -> Callable[[web.Request], 
             with suppress(ValueError, TypeError):
                 dispatch_timeout = int(header_timeout)
 
-        job_priority = (
-            request.headers.get("X-Job-Priority")
-            or request.headers.get("x-job-priority")
-            or "normal"
-        )
+        job_priority = request.headers.get("X-Job-Priority") or request.headers.get("x-job-priority") or "normal"
 
         carrier = {str(k): v for k, v in request.headers.items()}
         correlation_id = (
@@ -130,10 +134,7 @@ def create_job_handler_factory(blueprint: Blueprint) -> Callable[[web.Request], 
             or carrier.get("x-correlation-id")
         )
 
-        idempotency_key = (
-            request.headers.get("Idempotency-Key")
-            or request.headers.get("idempotency-key")
-        )
+        idempotency_key = request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key")
 
         client_config = request.get(CLIENT_CONFIG_KEY) or request.get("client_config", {})
         client_token = client_config.get("token") or "anonymous"
@@ -178,7 +179,7 @@ def create_job_handler_factory(blueprint: Blueprint) -> Callable[[web.Request], 
         contract = engine.blueprint_contracts.get(blueprint.name, {})
         input_schema = contract.get("input_schema")
         if input_schema:
-            is_valid, error_msg = validate_data(initial_data, input_schema)
+            is_valid, error_msg = validate_data(job_input, input_schema)
             if not is_valid:
                 return json_response(
                     {"error": f"Input validation failed for blueprint '{blueprint.name}': {error_msg}"}, status=400
@@ -206,16 +207,12 @@ def create_job_handler_factory(blueprint: Blueprint) -> Callable[[web.Request], 
             "blueprint_name": blueprint.name,
             "current_state": blueprint.start_state,
             "status": JOB_STATUS_PENDING,
-            # 5 Clean Zones:
-            "input": initial_data,
+            "input": job_input,
             "output": None,
             "steps": {},
             "history": [],
             "params": client_config.get("params", {}),
             "meta": job_meta,
-            # Compatibility aliases:
-            "initial_data": initial_data,
-            "state_history": {},
             "tracing_context": carrier,
             "client_config": client_config,
             "webhook_url": webhook_url,
@@ -242,7 +239,6 @@ def create_job_handler_factory(blueprint: Blueprint) -> Callable[[web.Request], 
             }
         )
 
-        # Immediately start watching for dispatch timeout
         if dispatch_timeout:
             await engine.storage.add_job_to_watch(job_id, monotonic() + dispatch_timeout)
 
@@ -273,14 +269,12 @@ def _filter_job_state(
         "max_transitions",
     }
 
-    # Define terminal states for access control
     terminal_states = {"finished", "failed", "error", "quarantined", "cancelled"}
     is_terminal = state_to_filter.get("status") in terminal_states
 
     if not detailed_allowed:
         allowed = compact_fields.copy()
 
-        # 'result' and 'output' are ONLY allowed and available if the job is terminal
         if is_terminal:
             if "result" in state_to_filter:
                 allowed.add("result")
@@ -288,10 +282,17 @@ def _filter_job_state(
                 allowed.add("output")
 
         if requested_fields:
-            # Allow clean 5-zone and alias fields if explicitly requested
             modern_fields = (
-                "blueprint", "error", "input", "output", "steps",
-                "history", "params", "meta", "created_at", "finished_at",
+                "blueprint",
+                "error",
+                "input",
+                "output",
+                "steps",
+                "history",
+                "params",
+                "meta",
+                "created_at",
+                "finished_at",
             )
             for f in modern_fields:
                 if f in requested_fields:
@@ -301,13 +302,11 @@ def _filter_job_state(
                     if f == "error" and "error" not in state_to_filter and "error_message" in state_to_filter:
                         state_to_filter["error"] = state_to_filter["error_message"]
 
-            # Intersection with allowed fields, ensuring 'id' is always present
             allowed = requested_fields.intersection(allowed)
             allowed.add("id")
 
         result_data = {k: v for k, v in state_to_filter.items() if k in allowed}
     else:
-        # Detailed mode: allow everything EXCEPT explicitly sensitive system fields
         sensitive_fields = {"client_config", "security", "internal_load"}
         if "blueprint" not in state_to_filter and "blueprint_name" in state_to_filter:
             state_to_filter["blueprint"] = state_to_filter["blueprint_name"]
@@ -322,7 +321,6 @@ def _filter_job_state(
         else:
             result_data = {k: v for k, v in state_to_filter.items() if k not in sensitive_fields}
 
-        # Even in detailed mode, 'result'/'output' is only for terminal states to prevent work tracking
         if not is_terminal:
             result_data.pop("result", None)
             result_data.pop("output", None)
@@ -364,7 +362,6 @@ async def _verify_job_ownership_robust(engine: Any, job_id: str, request: web.Re
     client_config = request.get(CLIENT_CONFIG_KEY) or request.get("client_config")
 
     if not client_config:
-        # If middleware was not applied (e.g. in public sub-app), try to verify token manually
         token = request.headers.get(AUTH_HEADER_CLIENT)
         if token:
             client_config = await engine.storage.get_client_config(token)
@@ -377,15 +374,12 @@ async def _verify_job_ownership_robust(engine: Any, job_id: str, request: web.Re
 
     job_state = await engine.storage.get_job_state(job_id)
     if job_state:
-        # Check direct ownership
         owner_token = job_state.get("client_config", {}).get("token")
         if owner_token and owner_token == expected_token:
             return cast(dict[str, Any], job_state)
 
-        # Check ownership inheritance (if it's a child job)
         parent_id = job_state.get("parent_job_id")
         if parent_id:
-            # We recursively check up the chain
             try:
                 parent_state = await _verify_job_ownership_robust(engine, parent_id, request)
                 if parent_state:
@@ -395,7 +389,6 @@ async def _verify_job_ownership_robust(engine: Any, job_id: str, request: web.Re
 
         raise web.HTTPForbidden(text="Access denied: You do not own this job")
 
-    # Fallback to history for expired jobs
     history = await engine.history_storage.get_job_history(job_id)
     if not history:
         return None
@@ -414,7 +407,6 @@ async def _verify_job_ownership_robust(engine: Any, job_id: str, request: web.Re
     if snapshot and isinstance(snapshot, dict):
         return cast(dict[str, Any], snapshot)
 
-    # Reconstruct basic state if snapshot is missing
     return {
         "id": job_id,
         "status": last_event.get("state", "unknown"),
@@ -522,8 +514,6 @@ async def get_worker_catalog_handler(request: web.Request) -> web.Response:
             if not skill_name:
                 continue
 
-            # If skill already in catalog, we might want to merge or track multiple versions
-            # For now, we take the most detailed contract or just the first one found
             if skill_name not in catalog:
                 skill_info = skill.copy()
                 capabilities = worker.get("capabilities")
@@ -665,14 +655,12 @@ async def get_quarantined_jobs_handler(request: web.Request) -> web.Response:
 
     job_ids = await engine.storage.get_quarantined_jobs(client_token=client_token)
 
-    # Fetch full states for these jobs
     jobs = []
     for job_id in job_ids:
         job_state = await engine.storage.get_job_state(job_id)
         if job_state:
             jobs.append(job_state)
 
-    # Filter sensitive data
     detailed = engine.config.DETAILED_API_RESPONSES
     for job in jobs:
         if isinstance(job, dict):
@@ -710,7 +698,6 @@ async def get_job_file_upload_handler(request: web.Request) -> web.Response:
         return json_response({"error": "Failed to initialize S3 storage for this job"}, status=500)
 
     try:
-        # We only support PUT here now, as GET is handled by the redirect endpoint
         url = task_files.generate_presigned_url(filename, method="PUT", expires_in=expires_in)
         return json_response({"url": url, "expires_in": expires_in, "method": "PUT"})
     except Exception as e:
@@ -741,7 +728,6 @@ async def stream_job_file_upload_handler(request: web.Request) -> web.Response:
         return json_response({"error": "Failed to initialize S3 storage for this job"}, status=500)
 
     try:
-        # Pipe the request content stream directly to S3
         uri = await task_files.upload_stream(filename, request.content)
         return json_response({"status": "uploaded", "s3_uri": uri})
     except Exception as e:
@@ -772,7 +758,6 @@ async def get_job_file_download_handler(request: web.Request) -> web.StreamRespo
         raise web.HTTPInternalServerError(text="Failed to initialize S3 storage for this job")
 
     try:
-        # Generate a short-lived URL for the redirect (60 seconds is enough for the browser to start downloading)
         url = task_files.generate_presigned_url(filename, method="GET", expires_in=60)
         raise web.HTTPFound(location=url)
     except web.HTTPException:
@@ -802,6 +787,10 @@ async def reload_worker_configs_handler(request: web.Request) -> web.Response:
 
 async def docs_handler(request: web.Request) -> web.Response:
     engine = request.app[ENGINE_KEY]
+    cached_html = getattr(engine, "_docs_html_cache", None)
+    if cached_html is not None:
+        return web.Response(text=cached_html, content_type="text/html")
+
     try:
         content = resources.read_text("holarchy", "api.html")
     except FileNotFoundError:
@@ -819,9 +808,7 @@ async def docs_handler(request: web.Request) -> web.Response:
 
         contract = engine.blueprint_contracts.get(bp.name, {})
         sec_meta = (
-            bp.get_security_metadata()
-            if hasattr(bp, "get_security_metadata")
-            else {"risk": "low", "permissions": []}
+            bp.get_security_metadata() if hasattr(bp, "get_security_metadata") else {"risk": "low", "permissions": []}
         )
 
         blueprint_endpoints.append(
@@ -855,6 +842,9 @@ async def docs_handler(request: web.Request) -> web.Response:
     s3_service = engine.app.get(S3_SERVICE_KEY)
     s3_enabled = "true" if (s3_service and s3_service._enabled) else "false"
     content = content.replace("{{S3_ENABLED}}", s3_enabled)
+
+    if hasattr(engine, "_docs_html_cache"):
+        engine._docs_html_cache = content
 
     return web.Response(text=content, content_type="text/html")
 
@@ -956,4 +946,3 @@ async def get_skill_detail_handler(request: web.Request) -> web.Response:
 
 
 handle_get_job_evidence = get_job_evidence_handler
-

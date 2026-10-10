@@ -4,18 +4,17 @@
 #
 # Copyright (c) 2025-2026 Dmitry Gagarin aka madgagarin
 
+from contextlib import suppress
 from typing import Any, cast
-
-try:
-    from pydantic import BaseModel
-
-    _PYDANTIC_INSTALLED = True
-except ImportError:
-    _PYDANTIC_INSTALLED = False
 
 
 def orchestrator_extract_json_schema(schema_type: Any) -> dict[str, Any] | None:
-    """Orchestrator-side Pydantic schema extractor."""
-    if _PYDANTIC_INSTALLED and isinstance(schema_type, type) and issubclass(schema_type, BaseModel):
-        return cast(dict[str, Any], cast(Any, schema_type).model_json_schema())
+    """Orchestrator-side schema extractor with duck-typing support for Pydantic models."""
+    if isinstance(schema_type, type):
+        if hasattr(schema_type, "model_json_schema") and callable(schema_type.model_json_schema):
+            with suppress(Exception):
+                return cast(dict[str, Any], schema_type.model_json_schema())
+        if hasattr(schema_type, "schema") and callable(schema_type.schema):
+            with suppress(Exception):
+                return cast(dict[str, Any], schema_type.schema())
     return None

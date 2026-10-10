@@ -5,16 +5,17 @@
 
 from __future__ import annotations
 
-import argparse
-import sys
+from argparse import Namespace
 from importlib import import_module
+from sys import exit as sys_exit
+from sys import stderr
 
 from holarchy.blueprint import Blueprint
 from holarchy.testing.replay import ReplayTestRunner
 
 
-def run_replay(args: argparse.Namespace) -> None:
-    """CLI handler for 'holarchy replay evaluate'."""
+def run_replay(args: Namespace) -> None:
+    """Evaluates offline execution receipts against blueprint routing logic."""
     app_str = args.app
     cases_path = args.cases or ".holarchy/replay/cases.jsonl"
 
@@ -23,12 +24,12 @@ def run_replay(args: argparse.Namespace) -> None:
         mod = import_module(mod_name)
         bp = getattr(mod, obj_name)
     except Exception as e:
-        print(f"Error loading blueprint from '{app_str}': {e}", file=sys.stderr)
-        sys.exit(1)
+        print(f"Error loading blueprint from '{app_str}': {e}", file=stderr)
+        sys_exit(1)
 
     if not isinstance(bp, Blueprint):
-        print(f"Error: '{app_str}' is not a Blueprint instance", file=sys.stderr)
-        sys.exit(1)
+        print(f"Error: '{app_str}' is not a Blueprint instance", file=stderr)
+        sys_exit(1)
 
     runner = ReplayTestRunner(bp)
     report = runner.evaluate(cases_path)
@@ -46,9 +47,9 @@ def run_replay(args: argparse.Namespace) -> None:
         print("\n⚠️ Drift details:")
         for d in report.details:
             if d.get("is_drift"):
-                h_ch = d.get('historical_chosen')
-                r_ch = d.get('replayed_chosen')
+                h_ch = d.get("historical_chosen")
+                r_ch = d.get("replayed_chosen")
                 print(f"   - Step '{d.get('step')}': historical='{h_ch}' -> replayed='{r_ch}'")
 
     if report.drift_cases > 0 and getattr(args, "strict", False):
-        sys.exit(1)
+        sys_exit(1)
